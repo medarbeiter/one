@@ -58,6 +58,7 @@ export function Stepper({ customers, defaultCustomer }: {
   const [employment, setEmployment] = useState(true);
   const [headline, setHeadline] = useState("Apply now");
   const [message, setMessage] = useState("We are hiring carers — flexible hours, fair pay.");
+  const [age, setAge] = useState<[number, number]>([18, 65]);
 
   return (
     <form action={action} className="grid gap-6 lg:grid-cols-[1fr_20rem]">
@@ -121,11 +122,19 @@ export function Stepper({ customers, defaultCustomer }: {
             ) : (
               <div className="space-y-1 sm:col-span-2">
                 <Label>Age range</Label>
-                <Slider defaultValue={[18, 65]} minValue={13} maxValue={65} step={1}>
+                {/* value/onChange statt defaultValue: sonst folgen die hidden
+                    inputs unten nie dem Drag – der Regler wäre nur Deko. */}
+                <Slider
+                  value={age}
+                  onChange={(v) => setAge(v as [number, number])}
+                  minValue={13}
+                  maxValue={65}
+                  step={1}
+                >
                   <Slider.Track><Slider.Fill /><Slider.Thumb index={0} /><Slider.Thumb index={1} /></Slider.Track>
                 </Slider>
-                <input type="hidden" name="ageMin" value="18" />
-                <input type="hidden" name="ageMax" value="65" />
+                <input type="hidden" name="ageMin" value={age[0]} />
+                <input type="hidden" name="ageMax" value={age[1]} />
               </div>
             )}
           </Tabs.Panel>
