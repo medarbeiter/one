@@ -1,8 +1,7 @@
-import { Card, Table } from "@heroui/react";
+import { Alert, Card, Table } from "@heroui/react";
 import { redirect } from "next/navigation";
 import { actId, listCampaigns, meta } from "@/lib/meta";
 import { listAssets } from "@/lib/customers";
-import { Setup } from "../setup";
 import { LaunchForm } from "./launch-form";
 
 export default async function CampaignsPage({
@@ -25,10 +24,15 @@ export default async function CampaignsPage({
     error = (e as Error).message;
   }
 
-  if (error) return <Setup error={error} />;
-
   return (
     <div className="space-y-6">
+      {error && (
+        <Alert status="danger">
+          <Alert.Content>
+            <Alert.Description>{error}</Alert.Description>
+          </Alert.Content>
+        </Alert>
+      )}
       <LaunchForm adAccount={adAccount} pages={pages} />
       <Card>
         <Card.Header>
