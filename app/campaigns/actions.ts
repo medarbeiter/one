@@ -1,7 +1,8 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { launch } from "@/lib/meta";
+import { setDailyBudget, setStatus } from "@/lib/campaigns";
 
 export type LaunchResult = { ok?: string; error?: string };
 
@@ -41,6 +42,32 @@ export async function launchAction(
     return {
       ok: `Kampagne ${r.campaignId} mit ${r.adIds.length} Anzeige(n) angelegt – pausiert.`,
     };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+}
+
+export async function setStatusAction(
+  id: string,
+  status: "ACTIVE" | "PAUSED",
+): Promise<LaunchResult> {
+  try {
+    await setStatus(id, status);
+    // updateTag statt revalidatePath: der Read direkt danach muss die neue
+    // Zeile sehen, nicht die letzte gecachte – das ist Read-your-own-write.
+    updateTag("campaigns");
+    return { ok: status === "ACTIVE" ? "Campaign is live." : "Campaign paused." };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+}
+
+export async function setBudgetAction(id: string, euros: number): Promise<LaunchResult> {
+  if (!Number.isFinite(euros) || euros <= 0) return { error: "Daily budget must be above 0." };
+  try {
+    await setDailyBudget(id, Math.round(euros * 100));
+    updateTag("campaigns");
+    return { ok: "Daily budget updated." };
   } catch (e) {
     return { error: (e as Error).message };
   }

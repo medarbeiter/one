@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import "./globals.css";
 import { Poppins } from "next/font/google";
+import { Toast } from "@heroui/react";
 import { listCustomers } from "@/lib/customers";
 import { ScopeSwitcher } from "./shell/scope-switcher";
 import { Sidebar } from "./shell/sidebar";
@@ -52,6 +53,8 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
           </Suspense>
           <main className="min-w-0 flex-1 p-6">{children}</main>
         </div>
+        {/* Region für imperative Toasts (toast.success/.danger) – einmal pro App. */}
+        <Toast.Provider />
       </body>
     </html>
   );
