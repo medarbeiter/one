@@ -8,13 +8,7 @@ process.env.META_ACCESS_TOKEN = "TEST";
 process.env.META_AD_ACCOUNT_ID = "act_1";
 process.env.META_PAGE_ID = "page_1";
 
-const { graph, launch, actId } = await import("./meta");
-
-test("Konto-IDs bekommen das act_-Präfix, doppelt aber nicht", () => {
-  expect(actId("61593202229799")).toBe("act_61593202229799");
-  expect(actId("act_61593202229799")).toBe("act_61593202229799");
-  expect(actId("")).toBe("");
-});
+const { launch } = await import("./meta");
 
 function stub(handler: (url: URL) => unknown) {
   const calls: URL[] = [];
@@ -27,25 +21,6 @@ function stub(handler: (url: URL) => unknown) {
   }) as typeof fetch;
   return calls;
 }
-
-test("Objekte werden als JSON serialisiert, Token gesetzt", async () => {
-  const calls = stub(() => ({ ok: 1 }));
-  await graph("act_1/campaigns", {
-    method: "POST",
-    params: { targeting: { age_min: 25 }, name: "X" },
-  });
-  expect(calls[0].searchParams.get("targeting")).toBe('{"age_min":25}');
-  expect(calls[0].searchParams.get("access_token")).toBe("TEST");
-});
-
-test("Fehler der Graph API werfen die Meta-Nachricht", async () => {
-  globalThis.fetch = (async () =>
-    new Response(JSON.stringify({ error: { message: "Invalid parameter" } }), {
-      status: 400,
-      headers: { "content-type": "application/json" },
-    })) as unknown as typeof fetch;
-  expect(graph("x")).rejects.toThrow("Invalid parameter");
-});
 
 test("EMPLOYMENT: kein Alters-Targeting, Land wird mitgeschickt", async () => {
   const calls = stub((url) =>

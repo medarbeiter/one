@@ -1,55 +1,5 @@
-/**
- * Alles gegen die Graph API läuft durch `graph()`. Kein SDK, kein OAuth-Flow:
- * ein System-User-Token aus dem Business Manager reicht (siehe README).
- */
-
-const API = `https://graph.facebook.com/${process.env.META_API_VERSION ?? "v26.0"}`;
-
-// Aus dem Ads Manager kopierte IDs kommen ohne "act_" – Graph braucht es aber.
-export const actId = (id: string) =>
-  !id || id.startsWith("act_") ? id : `act_${id}`;
-
-export const meta = {
-  business: process.env.META_BUSINESS_ID ?? "",
-  // Vorauswahl; die Seite kommt pro Kampagne aus dem Formular.
-  adAccount: actId(process.env.META_AD_ACCOUNT_ID ?? ""),
-};
-
-function token() {
-  const t = process.env.META_ACCESS_TOKEN;
-  if (!t) throw new Error("META_ACCESS_TOKEN fehlt – siehe README.md");
-  return t;
-}
-
-type GraphOpts = {
-  method?: "GET" | "POST" | "DELETE";
-  params?: Record<string, unknown>;
-  body?: FormData;
-};
-
-export async function graph<T = any>(
-  path: string,
-  opts: GraphOpts = {},
-): Promise<T> {
-  const { method = "GET", params = {}, body } = opts;
-  const url = new URL(`${API}/${path}`);
-  url.searchParams.set("access_token", token());
-  for (const [k, v] of Object.entries(params)) {
-    if (v === undefined || v === null) continue;
-    url.searchParams.set(
-      k,
-      typeof v === "object" ? JSON.stringify(v) : String(v),
-    );
-  }
-
-  const res = await fetch(url, { method, body, cache: "no-store" });
-  const json = await res.json();
-  if (!res.ok) {
-    const e = json?.error;
-    throw new Error(e?.error_user_msg || e?.message || `Graph ${res.status}`);
-  }
-  return json;
-}
+export { actId, graph, meta } from "./graph";
+import { graph, meta } from "./graph";
 
 /* ---------- Assets ---------- */
 
