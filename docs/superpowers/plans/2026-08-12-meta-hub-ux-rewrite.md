@@ -2252,6 +2252,7 @@ export function Stepper({ customers, defaultCustomer }: {
   // Beschäftigung/Wohnen/Kredit verbieten Alters-Targeting. Deshalb steht die
   // Kategorie in Schritt 1 – sie entscheidet, was Schritt 2 überhaupt anbietet.
   const [employment, setEmployment] = useState(true);
+  const [age, setAge] = useState<[number, number]>([18, 65]);
   const [headline, setHeadline] = useState("Apply now");
   const [message, setMessage] = useState("We are hiring carers — flexible hours, fair pay.");
 
@@ -2317,11 +2318,13 @@ export function Stepper({ customers, defaultCustomer }: {
             ) : (
               <div className="space-y-1 sm:col-span-2">
                 <Label>Age range</Label>
-                <Slider defaultValue={[18, 65]} minValue={13} maxValue={65} step={1}>
+                {/* Der Slider muss kontrolliert sein: react-arias Thumb hat kein
+                    name-Attribut und landet sonst nie im FormData. */}
+                <Slider value={age} onChange={(v) => setAge(v as [number, number])} minValue={13} maxValue={65} step={1}>
                   <Slider.Track><Slider.Fill /><Slider.Thumb index={0} /><Slider.Thumb index={1} /></Slider.Track>
                 </Slider>
-                <input type="hidden" name="ageMin" value="18" />
-                <input type="hidden" name="ageMax" value="65" />
+                <input type="hidden" name="ageMin" value={age[0]} />
+                <input type="hidden" name="ageMax" value={age[1]} />
               </div>
             )}
           </Tabs.Panel>
