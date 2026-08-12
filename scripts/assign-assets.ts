@@ -3,7 +3,7 @@
  * eigene wie von Kunden freigegebene. Nach jedem neuen Kunden neu laufen lassen:
  *   bun run assign
  */
-import { graph, meta } from "../lib/meta";
+import { graph, meta } from "../lib/graph";
 
 const { data: users } = await graph<{ data: { id: string; name: string }[] }>(
   `${meta.business}/system_users`,
