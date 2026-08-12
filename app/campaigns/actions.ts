@@ -1,8 +1,9 @@
 "use server";
 
-import { revalidatePath, updateTag } from "next/cache";
-import { launch } from "@/lib/meta";
+import { updateTag } from "next/cache";
 import { setDailyBudget, setStatus } from "@/lib/campaigns";
+import { listCustomers } from "@/lib/customers";
+import { launch } from "@/lib/meta";
 
 export type LaunchResult = { ok?: string; error?: string };
 
@@ -13,14 +14,22 @@ export async function launchAction(
   const files = fd
     .getAll("files")
     .filter((f): f is File => f instanceof File && f.size > 0);
-  if (!files.length)
-    return { error: "Mindestens ein Video oder Bild auswählen." };
+  if (!files.length) return { error: "Pick at least one image or video." };
 
   const s = (k: string) => String(fd.get(k) ?? "").trim();
+
+  // Konto und Seite kommen vom Kunden, nicht von versteckten Feldern –
+  // die dürften sonst gegen ein fremdes Konto zeigen.
+  const { customers } = await listCustomers();
+  const customer = customers.find((c) => c.id === s("customer"));
+  if (!customer?.page) return { error: "Pick a customer with a connected page." };
+  const adAccount = s("adAccount") || customer.adAccounts[0]?.id;
+  if (!adAccount) return { error: `${customer.name} has no ad account assigned.` };
+
   try {
     const r = await launch({
-      adAccount: s("adAccount"),
-      pageId: s("pageId"),
+      adAccount,
+      pageId: customer.page.id,
       name: s("name"),
       objective: s("objective"),
       dailyBudgetCents: Math.round(Number(fd.get("dailyBudget")) * 100),
@@ -38,10 +47,8 @@ export async function launchAction(
       callToAction: s("callToAction"),
       files,
     });
-    revalidatePath("/campaigns");
-    return {
-      ok: `Kampagne ${r.campaignId} mit ${r.adIds.length} Anzeige(n) angelegt – pausiert.`,
-    };
+    updateTag("campaigns");
+    return { ok: `Created campaign ${r.campaignId} with ${r.adIds.length} ad(s) — paused.` };
   } catch (e) {
     return { error: (e as Error).message };
   }
