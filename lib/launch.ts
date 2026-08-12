@@ -67,6 +67,9 @@ export type AdSetInput = {
   description: string;
   videos: { videoId: string; thumbnailUrl?: string; fileName: string }[];
   dailyBudgetCents?: number;
+  /** Vorhandenes Ad Set weiterbauen statt neu anlegen (Retry) – sonst entstünde
+   * neben dem Original ein zweites Ad Set mit demselben Namen. */
+  existingAdSetId?: string;
 };
 
 export type LaunchInput = {
@@ -120,29 +123,41 @@ export async function launch(
     const entry: Receipt["adSets"][number] = { name: set.name, adIds: [] };
     receipt.adSets.push(entry);
 
-    try {
-      const adset = await graph<{ id: string }>(`${acct}/adsets`, {
-        method: "POST",
-        params: {
-          name: set.name,
-          campaign_id: receipt.campaignId,
-          status: "ACTIVE",
-          destination_type: "ON_AD",
-          promoted_object: { page_id: input.pageId },
-          optimization_goal: "LEAD_GENERATION",
-          billing_event: "IMPRESSIONS",
-          bid_strategy: "LOWEST_COST_WITHOUT_CAP",
-          targeting: buildTargeting({
-            addressString: set.addressString,
-            radiusKm: set.radiusKm,
-          }),
-          ...(set.dailyBudgetCents ? { daily_budget: set.dailyBudgetCents } : {}),
-        },
-      });
-      entry.id = adset.id;
-    } catch (e) {
-      entry.error = (e as Error).message;
-      continue;
+    if (set.existingAdSetId) {
+      // Retry: das Ad Set gibt es schon, nur ein Teil seiner Anzeigen fehlt.
+      entry.id = set.existingAdSetId;
+    } else {
+      try {
+        const adset = await graph<{ id: string }>(`${acct}/adsets`, {
+          method: "POST",
+          params: {
+            name: set.name,
+            campaign_id: receipt.campaignId,
+            status: "ACTIVE",
+            destination_type: "ON_AD",
+            promoted_object: { page_id: input.pageId },
+            optimization_goal: "LEAD_GENERATION",
+            billing_event: "IMPRESSIONS",
+            bid_strategy: "LOWEST_COST_WITHOUT_CAP",
+            targeting: buildTargeting({
+              addressString: set.addressString,
+              radiusKm: set.radiusKm,
+            }),
+            ...(set.dailyBudgetCents ? { daily_budget: set.dailyBudgetCents } : {}),
+          },
+        });
+        entry.id = adset.id;
+      } catch (e) {
+        entry.error = (e as Error).message;
+        // Ohne das hätte der Bediener keinen Weg, das komplette Ad Set über den
+        // Retry nachzuholen – genau der Reparaturfall, für den die Receipt
+        // existiert. Jedes Video zählt als "fehlgeschlagen", obwohl keins
+        // einzeln versucht wurde.
+        for (const video of set.videos) {
+          receipt.failed.push({ adSetName: set.name, fileName: video.fileName, error: entry.error });
+        }
+        continue;
+      }
     }
 
     for (const video of set.videos) {

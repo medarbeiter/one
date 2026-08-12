@@ -35,16 +35,29 @@ export function ReceiptPanel({
     // (submission.adSets.find(name)) wäre hier riskant: Ad-Set-Namen sind vom
     // Bediener frei editierbar und nicht eindeutig, ein find() könnte den
     // falschen Eintrag treffen oder undefined liefern und crashen.
+    //
+    // Aus demselben Grund darf auch die Zuordnung der einzelnen Fehleinträge
+    // nicht über adSetName laufen: teilen sich zwei Ad Sets Namen UND
+    // Dateiname, würde ein bereits erfolgreiches Video im falschen Ad Set
+    // erneut angelegt. receipt.failed wird von launch() aber Ad Set für Ad
+    // Set, Video für Video in genau dieser Reihenfolge befüllt – die Anzahl
+    // der zu einem Ad Set gehörenden Fehler ergibt sich also eindeutig aus
+    // videos.length - adIds.length, unabhängig vom Namen. Ein Zeiger, der
+    // ausschließlich in dieser Reihenfolge vorrückt, schneidet damit den
+    // richtigen Ausschnitt heraus, auch bei doppelten Namen/Dateinamen.
+    let cursor = 0;
     const adSets = receipt.adSets
       .map((set, i) => {
         const original = submission.adSets[i];
         if (!original) return null;
-        const videos = original.videos.filter((v) =>
-          receipt.failed.some(
-            (f) => f.adSetName === set.name && f.fileName === v.fileName,
-          ),
-        );
-        return videos.length ? { ...original, videos } : null;
+        const failedCount = original.videos.length - set.adIds.length;
+        const ownFailed = receipt.failed.slice(cursor, cursor + failedCount);
+        cursor += failedCount;
+        const failedNames = new Set(ownFailed.map((f) => f.fileName));
+        const videos = original.videos.filter((v) => failedNames.has(v.fileName));
+        return videos.length
+          ? { ...original, videos, existingAdSetId: set.id }
+          : null;
       })
       .filter((s): s is NonNullable<typeof s> => s !== null);
 
@@ -53,11 +66,26 @@ export function ReceiptPanel({
 
   return (
     <div className="space-y-4">
-      {error && (
+      {/* launchAction liefert error+receipt zusammen, wenn die Kampagne bereits
+          angelegt wurde und nur das Auslesen zur Prüfung fehlschlug (Best-Effort,
+          siehe app/campaigns/actions.ts) – ohne diese Unterscheidung würde "Could
+          not create" die Person zu einer zweiten, doppelten Kampagne verleiten. */}
+      {error && !receipt && (
         <Alert status="danger">
           <Alert.Content>
             <Alert.Title>Could not create the campaign</Alert.Title>
             <Alert.Description>{label(error)}</Alert.Description>
+          </Alert.Content>
+        </Alert>
+      )}
+      {error && receipt && (
+        <Alert status="warning">
+          <Alert.Content>
+            <Alert.Title>Campaign created, but could not be verified</Alert.Title>
+            <Alert.Description>
+              The campaign and ads below were created on Meta — only the automatic
+              check afterwards failed: {label(error)}
+            </Alert.Description>
           </Alert.Content>
         </Alert>
       )}

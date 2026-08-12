@@ -182,3 +182,30 @@ test("a failing ad set does not stop the remaining ad sets from being created", 
   expect(r.adSets[1].id).toBeTruthy();
   expect(r.adSets[1].adIds).toHaveLength(1);
 });
+
+test("an ad set that fails to create records every one of its videos as failed", async () => {
+  // Sonst hat der Retry nichts, woraus er das komplette Ad Set nachbauen könnte.
+  const { g } = fakeGraph((path, n) => path.endsWith("/adsets") && n === 2);
+  const r = await launch(twoAdSets, { graph: g });
+  expect(r.failed).toEqual([
+    { adSetName: "Ads", fileName: "a.mp4", error: "boom" },
+    { adSetName: "Ads", fileName: "b.mp4", error: "boom" },
+  ]);
+  // die zweite Ad-Set-Erstellung läuft normal weiter
+  expect(r.adSets[1].adIds).toHaveLength(1);
+});
+
+test("a retry with an existing ad set id skips creating a new ad set", async () => {
+  const { g, calls } = fakeGraph();
+  const r = await launch(
+    {
+      ...oneAdSet,
+      existingCampaignId: "c9",
+      adSets: [{ ...oneAdSet.adSets[0], existingAdSetId: "as9" }],
+    },
+    { graph: g },
+  );
+  expect(calls.some((c) => c.path.endsWith("/adsets"))).toBe(false);
+  expect(r.adSets[0].id).toBe("as9");
+  expect(r.adSets[0].adIds).toHaveLength(2);
+});
