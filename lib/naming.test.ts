@@ -1,22 +1,53 @@
 import { expect, test } from "bun:test";
-import { adSetName, campaignName } from "./naming";
+import { adSetName, campaignName, formatDate, ROLES } from "./naming";
 
-test("campaign name follows the SOP pattern", () => {
+test("the campaign name follows the agency convention", () => {
   expect(
     campaignName({
-      customer: "Palliativo",
-      position: "FK inkl. PC-Weiterbildung",
-      start: new Date(2026, 7, 6),
-      initials: "KF",
+      business: "Herzhalt Pflegedienst GmbH",
+      roles: ["FK"],
+      start: new Date(2026, 7, 12),
+      initials: "MH",
     }),
-  ).toBe("Palliativo - ges. FK inkl. PC-Weiterbildung ab 06.08.2026 KF");
+  ).toBe("Herzhalt Pflegedienst GmbH - FK ab 12.08.26 MH (via One)");
 });
 
-test("day and month are zero padded", () => {
+test("several roles are joined with a slash", () => {
   const n = campaignName({
-    customer: "X", position: "P", start: new Date(2026, 0, 3), initials: "AB",
+    business: "X", roles: ["FK", "HK"], start: new Date(2026, 0, 3), initials: "KF",
   });
-  expect(n).toContain("ab 03.01.2026");
+  expect(n).toBe("X - FK/HK ab 03.01.26 KF (via One)");
+});
+
+test("free text is appended after the codes", () => {
+  const n = campaignName({
+    business: "X", roles: ["FK"], roleFreeText: "inkl. PC-Weiterbildung",
+    start: new Date(2026, 0, 3), initials: "KF",
+  });
+  expect(n).toBe("X - FK inkl. PC-Weiterbildung ab 03.01.26 KF (via One)");
+});
+
+test("free text alone works, for roles with no code", () => {
+  const n = campaignName({
+    business: "X", roles: [], roleFreeText: "Koch",
+    start: new Date(2026, 0, 3), initials: "KF",
+  });
+  expect(n).toBe("X - Koch ab 03.01.26 KF (via One)");
+});
+
+test("the year is two digits, unlike formatDate", () => {
+  expect(formatDate(new Date(2026, 7, 12))).toBe("12.08.2026");
+  expect(
+    campaignName({ business: "X", roles: ["FK"], start: new Date(2026, 7, 12), initials: "AB" }),
+  ).toContain("ab 12.08.26 ");
+});
+
+test("every role code has a label", () => {
+  expect(ROLES.length).toBeGreaterThan(0);
+  for (const r of ROLES) {
+    expect(r.code).toMatch(/^[A-Z]+$/);
+    expect(r.label.length).toBeGreaterThan(0);
+  }
 });
 
 test("the first ad set is Ads, later ones carry the city", () => {

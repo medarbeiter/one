@@ -1,11 +1,12 @@
 /**
  * Kampagnennamen folgen einer festen Konvention der Agentur:
- * "Kunde - ges. Position ab TT.MM.JJJJ XX". Sie steht hier und nicht im
- * Formular, damit sie testbar ist und nicht per Hand getippt wird.
+ * "Firma - Rollen ab TT.MM.JJ XX (via One)". Der Zusatz "(via One)" markiert,
+ * was über diese App entstanden ist – die Altbestände heißen uneinheitlich.
  */
 export type NameParts = {
-  customer: string;
-  position: string;
+  business: string;
+  roles: string[];
+  roleFreeText?: string;
   start: Date;
   initials: string;
 };
@@ -15,8 +16,32 @@ const pad = (n: number) => String(n).padStart(2, "0");
 export const formatDate = (d: Date) =>
   `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`;
 
+/**
+ * Aus echten Kampagnennamen abgelesen. Kombinationen sind normal, deshalb ist
+ * die Auswahl mehrfach – und der Freitext bleibt, weil es Einzelfälle wie
+ * "Koch" oder "Verwaltungskraft" gibt, die in kein Kürzel passen.
+ * ponytail: Die Langtexte sind Vermutung außer FK und HK; sie stehen nur im UI,
+ * nicht im Kampagnennamen, und sind hier in einer Zeile korrigierbar.
+ */
+export const ROLES = [
+  { code: "FK", label: "Fachkräfte" },
+  { code: "HK", label: "Hilfskräfte" },
+  { code: "PFK", label: "Pflegefachkraft" },
+  { code: "PDL", label: "Pflegedienstleitung" },
+  { code: "MA", label: "Mitarbeiter" },
+  { code: "PA", label: "Pflegeassistenz" },
+  { code: "PH", label: "Pflegehelfer" },
+] as const;
+
+// Zweistelliges Jahr – formatDate bleibt vierstellig, das braucht die Anzeige.
+const shortDate = (d: Date) =>
+  `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${String(d.getFullYear()).slice(-2)}`;
+
 export function campaignName(p: NameParts): string {
-  return `${p.customer} - ges. ${p.position} ab ${formatDate(p.start)} ${p.initials}`;
+  const what = [p.roles.join("/"), p.roleFreeText?.trim()]
+    .filter(Boolean)
+    .join(" ");
+  return `${p.business} - ${what} ab ${shortDate(p.start)} ${p.initials} (via One)`;
 }
 
 // Der erste heißt immer "Ads"; erst bei mehreren Standorten braucht er den Ort.
