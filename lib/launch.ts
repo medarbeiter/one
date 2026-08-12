@@ -52,3 +52,136 @@ export function buildCreative(i: CreativeInput) {
     },
   };
 }
+
+import { graph as realGraph } from "./graph";
+import { buildTargeting } from "./targeting";
+
+export type AdSetInput = {
+  name: string;
+  addressString: string;
+  radiusKm: number;
+  formId: string;
+  instagramUserId?: string;
+  bodies: string[];
+  titles: string[];
+  description: string;
+  videos: { videoId: string; thumbnailUrl?: string; fileName: string }[];
+  dailyBudgetCents?: number;
+};
+
+export type LaunchInput = {
+  adAccount: string;
+  pageId: string;
+  campaignName: string;
+  dailyBudgetCents: number;
+  spendCapCents?: number;
+  adSets: AdSetInput[];
+  /** Vorhandene Kampagne weiterbauen statt neu anlegen (Retry). */
+  existingCampaignId?: string;
+};
+
+export type Receipt = {
+  campaignId?: string;
+  adSets: { id?: string; name: string; adIds: string[]; error?: string }[];
+  failed: { adSetName: string; fileName: string; error: string }[];
+};
+
+export type LaunchDeps = { graph: typeof realGraph };
+
+export async function launch(
+  input: LaunchInput,
+  deps: LaunchDeps = { graph: realGraph },
+): Promise<Receipt> {
+  const { graph } = deps;
+  const acct = input.adAccount;
+  const receipt: Receipt = { adSets: [], failed: [] };
+
+  // Kampagne pausiert, alles darunter aktiv: so startet Metas Prüfung sofort,
+  // ohne dass Budget fließt. Genau die Reihenfolge des manuellen Ablaufs.
+  if (input.existingCampaignId) {
+    receipt.campaignId = input.existingCampaignId;
+  } else {
+    const campaign = await graph<{ id: string }>(`${acct}/campaigns`, {
+      method: "POST",
+      params: {
+        name: input.campaignName,
+        objective: "OUTCOME_LEADS",
+        status: "PAUSED",
+        special_ad_categories: ["EMPLOYMENT"],
+        special_ad_category_country: ["DE"],
+        daily_budget: input.dailyBudgetCents,
+        ...(input.spendCapCents ? { spend_cap: input.spendCapCents } : {}),
+      },
+    });
+    receipt.campaignId = campaign.id;
+  }
+
+  for (const set of input.adSets) {
+    const entry: Receipt["adSets"][number] = { name: set.name, adIds: [] };
+    receipt.adSets.push(entry);
+
+    try {
+      const adset = await graph<{ id: string }>(`${acct}/adsets`, {
+        method: "POST",
+        params: {
+          name: set.name,
+          campaign_id: receipt.campaignId,
+          status: "ACTIVE",
+          destination_type: "ON_AD",
+          promoted_object: { page_id: input.pageId },
+          optimization_goal: "LEAD_GENERATION",
+          billing_event: "IMPRESSIONS",
+          bid_strategy: "LOWEST_COST_WITHOUT_CAP",
+          targeting: buildTargeting({
+            addressString: set.addressString,
+            radiusKm: set.radiusKm,
+          }),
+          ...(set.dailyBudgetCents ? { daily_budget: set.dailyBudgetCents } : {}),
+        },
+      });
+      entry.id = adset.id;
+    } catch (e) {
+      entry.error = (e as Error).message;
+      continue;
+    }
+
+    for (const video of set.videos) {
+      try {
+        const creative = await graph<{ id: string }>(`${acct}/adcreatives`, {
+          method: "POST",
+          params: {
+            name: `${input.campaignName} – ${video.fileName}`,
+            ...buildCreative({
+              pageId: input.pageId,
+              instagramUserId: set.instagramUserId,
+              videoId: video.videoId,
+              thumbnailUrl: video.thumbnailUrl,
+              formId: set.formId,
+              bodies: set.bodies,
+              titles: set.titles,
+              description: set.description,
+            }),
+          },
+        });
+        const ad = await graph<{ id: string }>(`${acct}/ads`, {
+          method: "POST",
+          params: {
+            name: `${input.campaignName} – ${video.fileName}`,
+            adset_id: entry.id,
+            creative: { creative_id: creative.id },
+            status: "ACTIVE",
+          },
+        });
+        entry.adIds.push(ad.id);
+      } catch (e) {
+        receipt.failed.push({
+          adSetName: set.name,
+          fileName: video.fileName,
+          error: (e as Error).message,
+        });
+      }
+    }
+  }
+
+  return receipt;
+}
