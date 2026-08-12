@@ -154,3 +154,31 @@ test("the spend cap is only sent when set", async () => {
   await launch({ ...oneAdSet, spendCapCents: 20000 }, { graph: second.g });
   expect(second.calls[0].params.spend_cap).toBe(20000);
 });
+
+const twoAdSets = {
+  ...oneAdSet,
+  adSets: [
+    oneAdSet.adSets[0],
+    {
+      name: "Ads – Dresden",
+      addressString: "Bahnhofstr. 2, Dresden",
+      radiusKm: 10,
+      formId: "f2",
+      bodies: ["b2"],
+      titles: ["t2"],
+      description: "d2",
+      videos: [{ videoId: "v3", fileName: "c.mp4" }],
+    },
+  ],
+};
+
+test("a failing ad set does not stop the remaining ad sets from being created", async () => {
+  // 1 campaign, 2 adsets (first ad set) -> fail here, then 3 adsets (second ad set), 4 creative, 5 ads
+  const { g } = fakeGraph((path, n) => path.endsWith("/adsets") && n === 2);
+  const r = await launch(twoAdSets, { graph: g });
+  expect(r.campaignId).toBeTruthy();
+  expect(r.adSets[0].error).toBeTruthy();
+  expect(r.adSets[0].adIds).toHaveLength(0);
+  expect(r.adSets[1].id).toBeTruthy();
+  expect(r.adSets[1].adIds).toHaveLength(1);
+});
