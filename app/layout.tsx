@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Suspense } from "react";
 import "./globals.css";
 import { Poppins } from "next/font/google";
+import { Sidebar } from "./shell/sidebar";
 
 // Nur für Überschriften und Kennzahlen – Fließtext bleibt System-UI.
 const poppins = Poppins({
@@ -13,35 +15,25 @@ const poppins = Poppins({
 
 export const metadata: Metadata = {
   title: "MedArbeiter One",
-  description: "Meta Ads & Business Assets ohne Klickstrecke",
+  description: "Meta ads, assets and conversations in one place",
 };
-
-const nav = [
-  { href: "/", label: "Assets" },
-  { href: "/campaigns", label: "Kampagnen" },
-];
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${poppins.variable} h-full antialiased`}>
-      <body className="bg-surface text-foreground min-h-full">
-        <header className="border-default-200 flex items-center gap-6 border-b px-6 py-3">
-          <Link href="/" className="font-semibold">
-            MedArbeiter <span className="text-default-500">One</span>
+      <body className="bg-canvas text-ink-700 flex min-h-full flex-col">
+        <header className="border-line bg-surface flex h-14 shrink-0 items-center gap-4 border-b px-4">
+          <Link href="/" className="font-display text-ink-900 text-base">
+            MedArbeiter <span className="text-gold-700">One</span>
           </Link>
-          <nav className="flex gap-4 text-sm">
-            {nav.map((n) => (
-              <Link
-                key={n.href}
-                href={n.href}
-                className="text-default-600 hover:text-foreground"
-              >
-                {n.label}
-              </Link>
-            ))}
-          </nav>
+          <div className="ml-auto flex items-center gap-3">{/* Task 8, Task 9 */}</div>
         </header>
-        <main className="mx-auto w-full max-w-5xl p-6">{children}</main>
+        <div className="flex min-h-0 flex-1">
+          <Suspense>
+            <Sidebar />
+          </Suspense>
+          <main className="min-w-0 flex-1 p-6">{children}</main>
+        </div>
       </body>
     </html>
   );
