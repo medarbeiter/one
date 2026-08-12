@@ -1,0 +1,291 @@
+# MedArbeiter One — Interactive Campaign Creator
+
+**Date:** 2026-08-12
+**Status:** Approved, ready for implementation planning
+**Scope:** Replace `app/campaigns/new` with a creator that produces the agency's standard job-ad campaign end to end
+
+---
+
+## 1. Purpose
+
+The agency runs one play across ~200 care-sector clients: a lead-form campaign
+advertising an open position, targeted at a radius around the client's address,
+shown only in Feed and Stories, with one ad per UGC video.
+
+That play is written down as a 17-step manual SOP in the Ads Manager. The current
+creator (`app/campaigns/new/stepper.tsx`) is a generic five-objective builder that
+produces **link ads to an external URL** — a different ad shape than the SOP
+describes. It covers 7 of the 17 steps.
+
+This document specifies a creator shaped around the SOP.
+
+### The SOP, and where the app stands
+
+| # | SOP step | Today |
+|---|---|---|
+| 1 | Name `Kunde - ges. Position ab TT.MM.JJJJ XX` | free text |
+| 2 | Ausgabenlimit | not sent |
+| 3 | Tagesbudget (17 €) | default 20 € |
+| 4 | Ad set `Ads`, more when the client has several locations | hardcoded name, always exactly one |
+| 5 | Conversion location: Instant Forms | **missing** — builds `link_data` |
+| 6 | Client's Facebook page | ✅ from `customers.config.ts` |
+| 7 | Performance goal: maximise leads | one of five dropdown values |
+| 8 | Exact address, 17 km radius | **only `geo_locations.countries`** |
+| 9 | Feed and Stories only | **nothing sent** → Advantage+ placements |
+| 10 | One ad per UGC video | ✅ |
+| 11 | 5 primary texts, 5 headlines, 1 description | 1 headline, 1 text |
+| 12 | Select or create lead form, DE, conditional logic | **missing** |
+| 13 | Verify Facebook page vs Instagram account | missing |
+| 14 | Verify every ad points at the right form | missing |
+| 15–17 | Publish, verify, set campaign inactive | creates everything paused |
+
+### Decisions taken during design
+
+| Question | Decision |
+|---|---|
+| Generic builder or SOP-shaped? | **SOP-shaped, with an `Advanced` disclosure** that unlocks the otherwise-fixed fields |
+| Lead forms | **Select only.** Forms are built in Meta; a button deep-links to the right page |
+| Per-customer master data (address, Instagram) | **None.** Entered per campaign, prefilled from the customer's last campaign |
+| Ad sets per campaign | **N.** Each owns its address, form, texts and videos |
+| Publishing | Ad sets and ads `ACTIVE`, campaign `PAUSED` |
+| Special ad category | **Always `EMPLOYMENT`.** These are always job ads |
+| Spend cap | **Optional**, minimum 100 € when set |
+| UI language | **English**, consistent with the 2026-08-11 spec. Ad content and forms are German |
+
+### Explicitly out of scope
+
+Lead form creation · conditional-logic editor · lead retrieval · editing budget or
+schedule after launch · resumable upload · multi-format creatives · A/B tests.
+
+---
+
+## 2. What the creator produces
+
+```
+Campaign  ── OUTCOME_LEADS · PAUSED · special_ad_categories: [EMPLOYMENT]
+  │          spend_cap (optional, ≥ 100 €)
+  │
+  ├── Ad set "Ads" ── ACTIVE · daily_budget 17 € · LOWEST_COST_WITHOUT_CAP
+  │     │             destination_type: ON_AD
+  │     │             promoted_object: { page_id }
+  │     │             optimization_goal: LEAD_GENERATION
+  │     │             billing_event: IMPRESSIONS
+  │     │             targeting: custom_locations[address, 17 km] + placements
+  │     │
+  │     ├── Ad ── ACTIVE · creative(asset_feed_spec: 1 video, 5 bodies,
+  │     │                  5 titles, 1 description, form)
+  │     └── Ad ── one per uploaded video
+  │
+  └── Ad set "Ads – Dresden" ── second location, own address/form/texts/videos
+```
+
+### Fixed by the SOP, hidden behind `Advanced`
+
+```
+objective              OUTCOME_LEADS
+destination_type       ON_AD                     ← Instant Forms (step 5)
+promoted_object        { page_id }
+optimization_goal      LEAD_GENERATION           ← maximise leads (step 7)
+billing_event          IMPRESSIONS
+bid_strategy           LOWEST_COST_WITHOUT_CAP
+special_ad_categories  ["EMPLOYMENT"]
+publisher_platforms    ["facebook", "instagram"] ← step 9
+facebook_positions     ["feed", "story"]
+instagram_positions    ["stream", "story"]
+```
+
+These are the steps that silently revert to Advantage+ placements when nobody
+switches them off by hand. `EMPLOYMENT` forces Meta's 18–65 age range, so age and
+gender targeting are not offered at all.
+
+---
+
+## 3. Wizard
+
+Three steps. Each ad set owns its own address, form, texts and videos, so
+per-ad-set fields live in a repeating block rather than their own wizard step.
+
+### Step 1 — Campaign
+
+| Field | Behaviour |
+|---|---|
+| Customer | Select. Only customers with a page **and** at least one ad account are selectable |
+| Position | Text, e.g. `Pflegefachkraft` |
+| Start date | Date picker, defaults to today |
+| Initials | From `META_INITIALS` in `.env.local`, editable |
+| Campaign name | Composed, shown, editable |
+| Daily budget | Default 17 €. This is the **default for each ad set**, not a campaign total |
+| Spend cap | Optional. When set, minimum 100 € |
+
+Budgets sit on the ad set, not the campaign — the app does not use campaign budget
+optimisation. With one ad set the distinction is invisible; with three, 17 € here
+means 17 € each, and each block can override it. Both `daily_budget` and
+`spend_cap` are sent in cents, as `setDailyBudget` already does.
+
+The name composes as `{Kunde} - ges. {Position} ab {TT.MM.JJJJ} {XX}`. Editing the
+composed field detaches it from the parts; changing a part after that re-composes
+and warns rather than silently overwriting.
+
+### Step 2 — Ad sets
+
+A repeater. One block by default, named `Ads`. `Add location` clones an empty
+block; the suggested name for the second and later blocks is `Ads – {Ort}`, derived
+from the address once entered. Every suggested name stays editable.
+
+Per block:
+
+| Field | Behaviour |
+|---|---|
+| Name | Suggested, editable |
+| Daily budget | Inherits step 1's value, overridable per block |
+| Address | Street, postcode, city. Sent as `address_string`; Meta geocodes it |
+| Radius | Default 17 km. Valid 1–80 km |
+| Lead form | Select from the page's forms. `Create form in Meta` opens the Instant Forms library for that page in a new tab; `Refresh` re-reads the list |
+| Instagram account | Read from the page. Shown as confirmation, not a choice, when only one exists |
+| Videos | Multi-file. Each uploads immediately on pick |
+| Primary texts | Up to 5, ≤ 1024 chars |
+| Headlines | Up to 5, ≤ 255 chars |
+| Description | 1, ≤ 255 chars |
+
+Prefill: on customer selection the app reads that customer's most recent campaign
+from Meta and prefills address, radius and texts from its first ad set. Meta stays
+the only store — no new persistence layer.
+
+### Step 3 — Review and create
+
+A read-only summary of everything about to be created, then `Create`. After
+creation the receipt replaces it (§5).
+
+### Live preview
+
+Beside the form, as today. Shows the real video thumbnail once uploaded, the first
+primary text and headline, and a cycler to step through the five variants.
+
+---
+
+## 4. Architecture
+
+### 4.1 Uploads move to file-pick time
+
+`launch()` currently uploads every video sequentially inside one server action,
+polling every 5 s for up to 5 minutes per video. Six UGC videos cannot complete
+inside any serverless request; it survives today only because the app runs locally.
+
+Each file instead uploads when picked, through its own action, returning a
+`video_id` or `image_hash`. By the time `Create` is pressed the wizard holds only
+IDs, and creation is a handful of small POSTs. Per-file progress and thumbnails
+fall out of this for free.
+
+Video processing still polls, but per file and in the background while the rest of
+the form is being filled.
+
+### 4.2 Launch returns a receipt
+
+`launch()` records every ID as it is created and returns them whether or not the
+run succeeds:
+
+```ts
+type Receipt = {
+  campaignId?: string;
+  adSets: { id?: string; name: string; adIds: string[]; error?: string }[];
+  failed: { adSetName: string; fileName: string; error: string }[];
+};
+```
+
+A partial failure reports what exists and offers a retry that creates only the
+missing ads against the existing ad set, instead of today's orphaned half-campaign
+and lost form state.
+
+### 4.3 Verification replaces SOP steps 14 and 16
+
+After creation the app re-reads the campaign tree and asserts:
+
+- every ad exists and is `ACTIVE`
+- every ad's creative carries the intended `lead_gen_form_id`
+- every ad set has the intended `custom_locations` radius and placements
+- the campaign is `PAUSED`
+
+Rendered as a pass/fail checklist. This is the part of the SOP currently done by
+eye, and it is why the SOP has verification steps at all.
+
+### 4.4 Wizard state
+
+Client state, mirrored to `sessionStorage` under a single key. The repeater plus
+five texts per ad set is too much typing to lose to a refresh, and uploaded video
+IDs already live in the ad account, so restoring state costs nothing. No database.
+
+### 4.5 Files
+
+`lib/campaigns.ts` is 271 lines already covering reads, insights, uploads and
+launching. Targeting, forms and `asset_feed_spec` would push it past the point
+where it can be held in context at once, so it splits along its existing seams:
+
+| File | Purpose |
+|---|---|
+| `lib/campaigns.ts` | reads, insights, status and budget writes *(trimmed)* |
+| `lib/uploads.ts` | image and video upload, processing poll, thumbnail |
+| `lib/forms.ts` | list a page's lead forms, build the Instant Forms deep link |
+| `lib/targeting.ts` | geo, placements, special-category rules |
+| `lib/launch.ts` | plan → execute → verify, returns `Receipt` |
+| `app/campaigns/new/wizard.tsx` | stepper shell and state |
+| `app/campaigns/new/ad-set-block.tsx` | the repeating block |
+| `app/campaigns/new/preview.tsx` | live preview |
+| `app/campaigns/new/receipt.tsx` | verification checklist |
+
+`lib/targeting.ts` and `lib/launch.ts` are pure enough to unit-test without hitting
+Graph, matching the existing `lib/*.test.ts` pattern.
+
+---
+
+## 5. Prerequisites and open questions
+
+### 5.1 Meta setup (resolved during design)
+
+The system-user token originally lacked `pages_manage_ads`, so lead forms could be
+neither read nor created — every page returned
+`(#200) Requires pages_manage_ads permission`. The scope has since been added.
+
+The remaining gap is asset assignment: `/me/accounts` returns 0 pages, so
+page-scoped calls fail with `(#10) User has insufficient privileges on the page`.
+`bun run assign` fixes this now that the scope is present, and must be re-run when
+customers are added.
+
+`leads_retrieval` is not offered for system users and is not needed here — it
+governs pulling leads back out, which this feature does not do.
+
+### 5.2 Must be probed before implementation
+
+Both are read-only and settle in minutes.
+
+1. **`onsite_destinations` carrying `lead_gen_form_id` inside `asset_feed_spec`.**
+   Five text variants require `asset_feed_spec`; attaching a lead form to it is
+   documented only in third-party wrappers, not by Meta. If it does not work, the
+   choice is five texts *or* a lead form, and the SOP owner must decide. This is
+   the first implementation task.
+2. **Exact `facebook_positions` and `instagram_positions` enum values for v26.0.**
+   Meta's placement reference did not resolve during research. A wrong enum fails
+   ad set creation outright.
+
+Fallback for (1): a single body/title/description via `object_story_spec` with
+`link_data.call_to_action.value.lead_gen_form_id`, which is documented and known to
+work. This loses step 11 and must be raised, not silently adopted.
+
+### 5.3 Coverage
+
+Most entries in `customers.config.ts` have `adAccountIds: []`, so the creator is
+usable for roughly 20 of ~200 customers until those are filled in. Out of scope
+here; the customer picker states it rather than failing at launch.
+
+---
+
+## 6. Testing
+
+| Unit | Covers |
+|---|---|
+| `lib/targeting.test.ts` | address + radius → `custom_locations`; placement enums; `EMPLOYMENT` suppresses age and gender |
+| `lib/launch.test.ts` | plan order; `Receipt` shape on partial failure; retry creates only missing ads |
+| `lib/forms.test.ts` | deep-link URL composition |
+| `app/campaigns/new/name.test.ts` | name composition, date formatting, detach-on-edit |
+
+Graph calls are stubbed. Against the live API, verification (§4.3) is the test: a
+campaign is created and its tree read back.
