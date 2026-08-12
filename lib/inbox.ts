@@ -3,6 +3,8 @@
  * hier zu einem Typ. Alles danach – Liste, Filter, Sortierung, Badge, Uhr –
  * kennt nur noch InboxItem.
  */
+import { batch } from "./graph";
+import type { Customer } from "./customers";
 
 export type Channel = "facebook" | "instagram";
 
@@ -109,4 +111,37 @@ export function normalize(sources: Source[]): InboxItem[] {
   }
 
   return items.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+}
+
+/** Kommentare hängen am Beitrag; die Anzeige dahinter steht nur im Creative. */
+export async function adPostMap(customers: Customer[]) {
+  const accounts = customers.flatMap((c) => c.adAccounts.map((a) => a.id));
+  const settled = await batch<{ data: { id: string; name: string; creative?: { effective_object_story_id?: string } }[] }>(
+    accounts.map((a) => ({
+      relative_url: `${a}/ads?fields=name,creative{effective_object_story_id}&limit=200&effective_status=["ACTIVE","PAUSED"]`,
+    })),
+    // Anzeigen ändern sich selten – eine Stunde reicht und spart 18 Aufrufe je Seitenaufruf.
+    { revalidate: 3600, tags: ["ads"] },
+  );
+
+  const map = new Map<string, { adId: string; name: string }>();
+  for (const r of settled) {
+    if (r.status === "rejected") continue;
+    for (const ad of r.value.data ?? []) {
+      const post = ad.creative?.effective_object_story_id;
+      if (post) map.set(post, { adId: ad.id, name: ad.name });
+    }
+  }
+  return map;
+}
+
+export function attachAds(
+  items: InboxItem[],
+  map: Map<string, { adId: string; name: string }>,
+): InboxItem[] {
+  return items.map((i) => {
+    const hit = i.postId ? map.get(i.postId) : undefined;
+    if (!hit || !i.context) return i;
+    return { ...i, context: { ...i.context, adId: hit.adId, label: hit.name } };
+  });
 }

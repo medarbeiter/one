@@ -3,7 +3,7 @@
  * eine Ausgabe. Und die 24-Stunden-Grenze, an der stumme Fehler Antworten kosten.
  */
 import { expect, test } from "bun:test";
-import { expiresAt, isExpired, normalize, type Source } from "./inbox";
+import { attachAds, expiresAt, isExpired, normalize, type Source } from "./inbox";
 
 const SELF = "page_1";
 
@@ -184,4 +184,19 @@ test("Die 24-Stunden-Grenze wird an genau der Grenze richtig gezogen", () => {
   expect(isExpired(dm, at + 60_000)).toBe(true); // 24:01
   // Kommentare laufen nie ab.
   expect(isExpired({ expiresAt: undefined } as any, Date.now())).toBe(false);
+});
+
+test("Kommentare bekommen die Anzeige, unter der sie stehen", () => {
+  const items = [
+    { id: "c1", kind: "comment", context: { label: "Post" }, postId: "p1" },
+    { id: "c2", kind: "comment", context: { label: "Post" }, postId: "p9" },
+    { id: "t1", kind: "dm" },
+  ] as any[];
+
+  const out = attachAds(items, new Map([["p1", { adId: "ad_1", name: "Carers – variant B" }]]));
+  expect(out[0].context).toMatchObject({ adId: "ad_1", label: "Carers – variant B" });
+  // Ohne Treffer bleibt der Beitragstext stehen, statt "unbekannt" zu behaupten.
+  expect(out[1].context).toMatchObject({ label: "Post" });
+  expect(out[1].context?.adId).toBeUndefined();
+  expect(out[2].context).toBeUndefined();
 });
