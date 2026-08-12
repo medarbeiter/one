@@ -23,6 +23,9 @@ export default async function NewCampaignPage({ searchParams }: PageProps<"/camp
         customers={usable.map((c) => ({
           id: c.id,
           name: c.name,
+          // usable filtert bereits auf c.page vorhanden – das ! ist hier sicher.
+          pageId: c.page!.id,
+          igId: c.igId,
           adAccounts: c.adAccounts.map((a) => ({ id: a.id, name: a.name })),
         }))}
         knownInitials={[...KNOWN_INITIALS]}

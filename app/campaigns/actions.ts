@@ -5,6 +5,7 @@ import { setDailyBudget, setStatus } from "@/lib/campaigns";
 import { launch, type LaunchInput, type Receipt } from "@/lib/launch";
 import { verifyCampaign, type Check } from "@/lib/verify";
 import { listCustomers } from "@/lib/customers";
+import { listLeadForms, type LeadForm } from "@/lib/forms";
 
 export type LaunchResult = { ok?: string; error?: string };
 
@@ -76,6 +77,21 @@ export async function setStatusAction(
     return { ok: status === "ACTIVE" ? "Campaign is live." : "Campaign paused." };
   } catch (e) {
     return { error: (e as Error).message };
+  }
+}
+
+export type FormsResult = { forms: LeadForm[]; error?: string };
+
+// listLeadForms braucht das Access-Token aus process.env – im Browser gibt es
+// das nicht, deshalb der Umweg über eine Server Action. Der Fehler wird hier
+// gefangen statt geworfen: eine geworfene Server Action liefert dem Client in
+// Produktion nur eine generische Meldung, aber genau der Text von Meta
+// ("(#10) User has insufficient privileges…") ist es, den die Person sehen muss.
+export async function listFormsAction(pageId: string): Promise<FormsResult> {
+  try {
+    return { forms: await listLeadForms(pageId) };
+  } catch (e) {
+    return { forms: [], error: (e as Error).message };
   }
 }
 

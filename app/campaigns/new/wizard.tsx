@@ -18,11 +18,14 @@ import { campaignName, ROLES } from "@/lib/naming";
 import { label } from "@/lib/labels";
 import type { AdSetInput } from "@/lib/launch";
 import { emptyAdSet, initialState, useWizardState } from "./state";
+import { AdSetBlock } from "./ad-set-block";
 import { launchAction, type LaunchState, type WizardSubmission } from "../actions";
 
 type WizardCustomer = {
   id: string;
   name: string;
+  pageId: string;
+  igId?: string;
   adAccounts: { id: string; name: string }[];
 };
 
@@ -278,29 +281,18 @@ export function Wizard({
         </Tabs.Panel>
 
         <Tabs.Panel id="1" className="space-y-3 p-4">
-          {/* Minimale Liste für Task 11 – Task 12 ersetzt die Innereien durch
-              den vollen Editor (Adresse, Formular, Texte, Videos). */}
           {state.adSets.map((set, i) => (
-            <Card key={i} className="p-3">
-              <div className="flex items-end gap-2">
-                <TextField
-                  value={set.name}
-                  onChange={(name) => updateAdSet(i, { name })}
-                  isRequired
-                  className="flex-1 space-y-1"
-                >
-                  <Label>Ad set / location name</Label>
-                  <Input />
-                </TextField>
-                <Button
-                  variant="outline"
-                  onPress={() => removeAdSet(i)}
-                  isDisabled={state.adSets.length === 1}
-                >
-                  Remove
-                </Button>
-              </div>
-            </Card>
+            <AdSetBlock
+              key={i}
+              value={set}
+              index={i}
+              pageId={customer?.pageId ?? ""}
+              instagramUserId={customer?.igId}
+              adAccount={customer?.adAccounts[0]?.id ?? ""}
+              onChange={(patch) => updateAdSet(i, patch)}
+              onRemove={() => removeAdSet(i)}
+              canRemove={state.adSets.length > 1}
+            />
           ))}
           <Button variant="outline" onPress={addLocation}>
             Add location
