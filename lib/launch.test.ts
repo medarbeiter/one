@@ -19,6 +19,9 @@ test("the lead form hangs off the story spec, not the feed spec", () => {
     value: { lead_gen_form_id: "2095967427699237", link: "http://fb.me/" },
   });
   expect("onsite_destinations" in c.asset_feed_spec).toBe(false);
+  expect("ad_formats" in c.asset_feed_spec).toBe(false);
+  expect("call_to_action_types" in c.asset_feed_spec).toBe(false);
+  expect("link_urls" in c.asset_feed_spec).toBe(false);
 });
 
 test("the feed spec carries only text variants", () => {
@@ -41,6 +44,11 @@ test("more than five bodies or titles is rejected", () => {
 
 test("at least one body and one title are required", () => {
   expect(() => buildCreative({ ...input, bodies: [] })).toThrow(/at least one/i);
+  expect(() => buildCreative({ ...input, titles: [] })).toThrow(/at least one/i);
+});
+
+test("a lead form id is required", () => {
+  expect(() => buildCreative({ ...input, formId: "" })).toThrow();
 });
 
 test("standard enhancements stay opted out", () => {
