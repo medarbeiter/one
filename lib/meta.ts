@@ -1,43 +1,6 @@
 export { actId, graph, meta } from "./graph";
 import { graph, meta } from "./graph";
 
-/* ---------- Assets ---------- */
-
-export type AdAccount = {
-  id: string;
-  name: string;
-  account_status: number;
-  currency: string;
-};
-export type Page = {
-  id: string;
-  name: string;
-  link?: string;
-  fan_count?: number;
-};
-
-// Kundenkonten liegen unter client_*, eigene unter owned_* – die Agentur braucht beides.
-export async function listAssets() {
-  const [ownAcc, clientAcc, ownPages, clientPages] = await Promise.all([
-    listAll<AdAccount>("owned_ad_accounts", "name,account_status,currency"),
-    listAll<AdAccount>("client_ad_accounts", "name,account_status,currency"),
-    listAll<Page>("owned_pages", "name,link,fan_count"),
-    listAll<Page>("client_pages", "name,link,fan_count"),
-  ]);
-  return {
-    accounts: [...ownAcc, ...clientAcc],
-    pages: [...ownPages, ...clientPages],
-  };
-}
-
-// ponytail: erste Seite mit 500 Einträgen, kein Paging. Reicht bis ~500 Kunden.
-async function listAll<T>(edge: string, fields: string): Promise<T[]> {
-  const { data } = await graph<{ data: T[] }>(`${meta.business}/${edge}`, {
-    params: { fields, limit: 500 },
-  });
-  return data;
-}
-
 export function listCampaigns(adAccount = meta.adAccount) {
   return graph<{
     data: { id: string; name: string; status: string; objective: string }[];

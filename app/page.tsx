@@ -1,5 +1,6 @@
 import { Card, Table } from "@heroui/react";
-import { listAssets, meta } from "@/lib/meta";
+import { listAssets } from "@/lib/customers";
+import { meta } from "@/lib/meta";
 import { Setup } from "./setup";
 
 export default async function AssetsPage() {

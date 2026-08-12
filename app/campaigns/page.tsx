@@ -1,6 +1,7 @@
 import { Card, Table } from "@heroui/react";
 import { redirect } from "next/navigation";
-import { actId, listAssets, listCampaigns, meta } from "@/lib/meta";
+import { actId, listCampaigns, meta } from "@/lib/meta";
+import { listAssets } from "@/lib/customers";
 import { Setup } from "../setup";
 import { LaunchForm } from "./launch-form";
 
