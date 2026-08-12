@@ -177,10 +177,16 @@ primary text and headline, and a cycler to step through the five variants.
 polling every 5 s for up to 5 minutes per video. Six UGC videos cannot complete
 inside any serverless request; it survives today only because the app runs locally.
 
-Each file instead uploads when picked, through its own action, returning a
-`video_id` or `image_hash`. By the time `Create` is pressed the wizard holds only
-IDs, and creation is a handful of small POSTs. Per-file progress and thumbnails
-fall out of this for free.
+Each file instead uploads when picked, returning a `video_id` or `image_hash`. By
+the time `Create` is pressed the wizard holds only IDs, and creation is a handful
+of small POSTs. Per-file progress and thumbnails fall out of this for free.
+
+**Uploads go through a Route Handler (`app/api/upload/route.ts`), not a Server
+Action.** Next.js dispatches Server Actions one at a time per client, so
+action-based uploads would serialise and block every other action while a video
+encodes. Route Handlers have neither restriction. `bodySizeLimit: "512mb"` in
+`next.config.ts` was raised for the old action-based upload and stays relevant only
+as long as any action carries a file; the handler is not subject to it.
 
 Video processing still polls, but per file and in the background while the rest of
 the form is being filled.
@@ -220,6 +226,12 @@ Client state, mirrored to `sessionStorage` under a single key. The repeater plus
 five texts per ad set is too much typing to lose to a refresh, and uploaded video
 IDs already live in the ad account, so restoring state costs nothing. No database.
 
+The launch action takes a **typed object**, not `FormData`. Nested, repeating state
+does not survive flattening into form fields — the age-slider bug fixed in
+`7e63d01` was exactly that failure mode, where hidden inputs silently drifted from
+the control driving them. `useActionState` accepts any action signature, so the
+wizard passes its state object directly and the action validates it server-side.
+
 ### 4.5 Files
 
 `lib/campaigns.ts` is 271 lines already covering reads, insights, uploads and
@@ -233,6 +245,7 @@ where it can be held in context at once, so it splits along its existing seams:
 | `lib/forms.ts` | list a page's lead forms, build the Instant Forms deep link |
 | `lib/targeting.ts` | geo, placements, special-category rules |
 | `lib/launch.ts` | plan → execute → verify, returns `Receipt` |
+| `app/api/upload/route.ts` | Route Handler receiving one file, returning its Meta id |
 | `app/campaigns/new/wizard.tsx` | stepper shell and state |
 | `app/campaigns/new/ad-set-block.tsx` | the repeating block |
 | `app/campaigns/new/preview.tsx` | live preview |
