@@ -83,3 +83,50 @@ export async function graph<T = any>(path: string, opts: GraphOpts = {}): Promis
     await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
   }
 }
+
+export type BatchRequest = { method?: "GET" | "POST"; relative_url: string };
+
+type BatchItem = { code: number; body: string } | null;
+
+// Sub-Requests scheitern einzeln – deshalb PromiseSettledResult statt Werfen.
+export function unwrapBatchItem<T>(item: BatchItem): PromiseSettledResult<T> {
+  if (!item)
+    return {
+      status: "rejected",
+      reason: new GraphError({ kind: "unknown", message: "Batch sub-request timed out", retryable: true }),
+    };
+  let body: any;
+  try {
+    body = JSON.parse(item.body);
+  } catch {
+    body = undefined;
+  }
+  if (item.code >= 200 && item.code < 300) return { status: "fulfilled", value: body as T };
+  return { status: "rejected", reason: new GraphError(mapGraphError(body?.error, item.code)) };
+}
+
+/**
+ * Graph erlaubt 50 Sub-Requests pro POST; alles darüber wird gestückelt.
+ * `relative_url` ohne Version – die steckt schon in der Ziel-URL.
+ * ponytail: Blöcke laufen nacheinander. Parallel erst, wenn >150 Requests
+ * pro Seitenaufruf zusammenkommen; vorher provoziert es nur Rate-Limits.
+ */
+export async function batch<T = any>(
+  reqs: BatchRequest[],
+  opts: { revalidate?: number; tags?: string[] } = {},
+): Promise<PromiseSettledResult<T>[]> {
+  const out: PromiseSettledResult<T>[] = [];
+  for (let i = 0; i < reqs.length; i += 50) {
+    const chunk = reqs.slice(i, i + 50);
+    const items = await graph<BatchItem[]>("", {
+      method: "POST",
+      params: {
+        batch: chunk.map((r) => ({ method: r.method ?? "GET", relative_url: r.relative_url })),
+        include_headers: false,
+      },
+      ...opts,
+    });
+    out.push(...items.map((item) => unwrapBatchItem<T>(item)));
+  }
+  return out;
+}

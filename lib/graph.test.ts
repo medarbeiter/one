@@ -81,3 +81,38 @@ test("Fehler tragen ihre Einordnung mit", async () => {
   expect(err).toBeInstanceOf(GraphError);
   expect(err.kind).toBe("token");
 });
+
+const { batch, unwrapBatchItem } = await import("./graph");
+
+test("Ein totes Sub-Request nimmt die anderen nicht mit", () => {
+  expect(unwrapBatchItem<{ id: string }>({ code: 200, body: '{"id":"1"}' })).toEqual({
+    status: "fulfilled",
+    value: { id: "1" },
+  });
+
+  const bad = unwrapBatchItem({ code: 403, body: '{"error":{"code":200,"message":"no perm"}}' });
+  expect(bad.status).toBe("rejected");
+  expect((bad as PromiseRejectedResult).reason.kind).toBe("permission");
+
+  // null = Sub-Request lief in den Timeout; Graph liefert dann kein Objekt.
+  expect(unwrapBatchItem(null).status).toBe("rejected");
+});
+
+test("Mehr als 50 Requests werden gestückelt, Reihenfolge bleibt", async () => {
+  const bodies: string[] = [];
+  globalThis.fetch = (async (input: any, init: any) => {
+    const url = new URL(String(input));
+    const spec = JSON.parse(url.searchParams.get("batch")!) as { relative_url: string }[];
+    bodies.push(...spec.map((s) => s.relative_url));
+    return new Response(
+      JSON.stringify(spec.map((s) => ({ code: 200, body: JSON.stringify({ url: s.relative_url }) }))),
+      { headers: { "content-type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  const reqs = Array.from({ length: 51 }, (_, i) => ({ relative_url: `p${i}` }));
+  const out = await batch<{ url: string }>(reqs);
+  expect(out).toHaveLength(51);
+  expect(bodies).toHaveLength(51);
+  expect((out[50] as PromiseFulfilledResult<{ url: string }>).value.url).toBe("p50");
+});
