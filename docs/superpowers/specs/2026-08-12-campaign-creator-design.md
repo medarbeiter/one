@@ -52,6 +52,9 @@ This document specifies a creator shaped around the SOP.
 | Special ad category | **Always `EMPLOYMENT`.** These are always job ads |
 | Spend cap | **Optional**, minimum 100 € when set |
 | UI language | **English**, consistent with the 2026-08-11 spec. Ad content and forms are German |
+| Campaign name | Built from parts: `{Business} - {Roles} ab {TT.MM.JJ} {XX} (via One)` |
+| Customer default | **MedArbeiter** — nearly all client campaigns run under the agency's own account |
+| Technical enums | Never shown raw. Plain labels in the UI, raw values to the API |
 
 ### Explicitly out of scope
 
@@ -111,10 +114,11 @@ per-ad-set fields live in a repeating block rather than their own wizard step.
 
 | Field | Behaviour |
 |---|---|
-| Customer | Select. Only customers with a page **and** at least one ad account are selectable |
-| Position | Text, e.g. `Pflegefachkraft` |
+| Customer | Select, **defaults to MedArbeiter**. Only customers with a page **and** at least one ad account are selectable |
+| Business name | The **client** being advertised for — a separate field from the customer. Free text, autocompleting against `customers.config.ts` |
+| Roles sought | Multi-select of role codes, plus a free-text escape |
 | Start date | Date picker, defaults to today |
-| Initials | From `META_INITIALS` in `.env.local`, editable |
+| Initials | Picker over known initials, remembers the last choice |
 | Campaign name | Composed, shown, editable |
 | Daily budget | Default 17 €. Set on the **campaign**; Meta distributes it across ad sets |
 | Spend cap | Optional. When set, minimum 100 € |
@@ -129,9 +133,55 @@ cents, as `setDailyBudget` already does.
 `spend_cap` is genuinely occasional — set on 15 of 61 campaigns, at values from
 125 € to 3000 €. Hence optional rather than defaulted.
 
-The name composes as `{Kunde} - ges. {Position} ab {TT.MM.JJJJ} {XX}`. Editing the
-composed field detaches it from the parts; changing a part after that re-composes
-and warns rather than silently overwriting.
+The name composes as:
+
+```
+{Business} - {Roles} ab {TT.MM.JJ} {XX} (via One)
+Herzhalt Pflegedienst GmbH - FK/HK ab 12.08.26 MH (via One)
+```
+
+Editing the composed field detaches it from the parts; changing a part after that
+re-composes and warns rather than silently overwriting.
+
+**Customer and business name are different things.** Nearly every campaign is
+created under the agency's own MedArbeiter ad account, while the name carries the
+*client's* business name. Deriving one from the other would be wrong.
+
+**Roles are multi-select.** Of 148 live campaign names, roughly a third combine
+codes — `FK/HK`, `FK & HK`, `FK, PA`, `PFK, HK` — and one-offs like `Koch`,
+`Verwaltungskraft` and `FK inkl. PC-Weiterbildung` exist, so a free-text escape is
+required or those campaigns cannot be named at all. Codes are joined with `/`.
+
+| Code | Meaning |
+|---|---|
+| `FK` | Fachkräfte |
+| `HK` | Hilfskräfte |
+| `PFK` | Pflegefachkraft |
+| `PDL` | Pflegedienstleitung |
+| `MA` | Mitarbeiter |
+| `PA` | Pflegeassistenz |
+| `PH` | Pflegehelfer |
+
+The codes are taken from live campaign names and are certain. `FK` and `HK` were
+confirmed by the SOP owner; the expansions of `PFK`, `PDL`, `MA`, `PA` and `PH` are
+inferred and **await confirmation** — they are labels in one constant, cheap to
+correct, and do not affect the strings written into campaign names.
+
+**Initials are per-user, not per-install.** Live names show `MH`, `KF` and `PW`, so
+a single `META_INITIALS` env value would be wrong. The picker offers the known set
+and remembers the last choice in the same `sessionStorage` draft as the rest of the
+wizard.
+
+The existing convention is applied inconsistently — 2- and 4-digit years, dashes
+before initials in some names and not others. The builder standardises it; the
+`(via One)` suffix marks campaigns created through this app.
+
+### Technical values are never shown raw
+
+Meta's enum values appear in the UI only as plain labels, with the raw value sent to
+the API: `OUTCOME_LEADS` → "Leads", `LEAD_GENERATION` → "Maximise leads",
+`DE` → "Deutschland", `IMPRESSIONS` → "Impressions". This covers the `Advanced`
+disclosure, where the otherwise-fixed values are displayed.
 
 ### Step 2 — Ad sets
 

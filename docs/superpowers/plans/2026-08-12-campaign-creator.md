@@ -42,8 +42,8 @@ HeroUI 3.2.4, Tailwind CSS 4, bun 1.3.14, Meta Graph API v26.0.
 
 | File | Responsibility | Task |
 |---|---|---|
-| `lib/naming.ts` | Compose campaign and ad set names | 1 |
-| `lib/naming.test.ts` | Name composition, date format | 1 |
+| `lib/naming.ts` | Compose campaign and ad set names, role codes | 1, **17** |
+| `lib/naming.test.ts` | Name composition, date format | 1, **17** |
 | `lib/targeting.ts` | geo + placements + special-category rules | 2 |
 | `lib/targeting.test.ts` | Targeting builder | 2 |
 | `lib/uploads.ts` | Upload image/video, poll, thumbnail (moved from `campaigns.ts`) | 3 |
@@ -54,6 +54,8 @@ HeroUI 3.2.4, Tailwind CSS 4, bun 1.3.14, Meta Graph API v26.0.
 | `lib/launch.test.ts` | Creative shape, `Receipt` on partial failure | 6, 7 |
 | `lib/verify.ts` | Read the tree back, assert intent | 8 |
 | `lib/verify.test.ts` | Check logic against fixture trees | 8 |
+| `lib/labels.ts` | Plain labels for Meta enum values | 18 |
+| `lib/labels.test.ts` | Label lookup and passthrough | 18 |
 | `lib/prefill.ts` | Defaults from the last campaign, Instagram id | 16 |
 | `lib/prefill.test.ts` | Prefill extraction | 16 |
 | `app/campaigns/actions.ts` | `launchAction` rewritten to take a typed object | 9 |
@@ -1220,8 +1222,12 @@ import type { AdSetInput } from "@/lib/launch";
 const KEY = "medarbeiter:new-campaign";
 
 export type WizardState = {
+  /** Das Werbekonto, unter dem angelegt wird – fast immer MedArbeiter. */
   customerId: string;
-  position: string;
+  /** Der beworbene Kunde. Nicht dasselbe wie customerId. */
+  business: string;
+  roles: string[];
+  roleFreeText: string;
   startDate: string; // yyyy-mm-dd, so it round-trips through sessionStorage
   initials: string;
   campaignName: string;
@@ -1245,7 +1251,9 @@ export const emptyAdSet = (index: number, city?: string): AdSetInput => ({
 
 export const initialState = (customerId = "", initials = ""): WizardState => ({
   customerId,
-  position: "",
+  business: "",
+  roles: [],
+  roleFreeText: "",
   startDate: new Date().toISOString().slice(0, 10),
   initials,
   campaignName: "",
@@ -1301,9 +1309,9 @@ git commit -m "feat: wizard state with a draft that survives a reload"
 - Modify: `app/campaigns/new/page.tsx` — render `Wizard`, load customers and forms
 
 **Interfaces:**
-- Consumes: `useWizardState` (10), `campaignName` (1), `launchAction` (9),
-  `AdSetBlock` (12), `Preview` (13), `ReceiptPanel` (14)
-- Produces: `<Wizard customers={...} initials={...} defaultCustomer={...} />`
+- Consumes: `useWizardState` (10), `campaignName` + `ROLES` (17), `LABELS` (18),
+  `launchAction` (9), `AdSetBlock` (12), `Preview` (13), `ReceiptPanel` (14)
+- Produces: `<Wizard customers={...} knownInitials={...} defaultCustomer={...} />`
 
 **Before writing JSX**, read `node_modules/@heroui/react/dist/components/tabs/index.d.ts`
 and `.../number-field/index.d.ts` for exact sub-part names.
@@ -1311,13 +1319,25 @@ and `.../number-field/index.d.ts` for exact sub-part names.
 - [ ] **Step 1: Write the shell**
 
 Three `Tabs.Panel`s: `0` Campaign, `1` Ad sets, `2` Review. Step 1 fields per spec
-§3. The composed name updates from parts while `nameEdited` is false:
+§3 — note **Business name is its own field, not derived from the customer**. The
+customer select defaults to MedArbeiter; the business name autocompletes against the
+customer list but accepts any text, because the client may not be in the config.
+
+Roles are a multi-select over `ROLES` (Task 17) plus a free-text field for one-offs
+like `Koch` or `FK inkl. PC-Weiterbildung`. Initials are a select over
+`knownInitials` with a free-text fallback.
+
+Every technical value shown anywhere in this component — including inside the
+`Advanced` disclosure — must render through `LABELS` (Task 18), never raw.
+
+The composed name updates from parts while `nameEdited` is false:
 
 ```tsx
 // key logic inside Wizard, not the whole file
 const composed = campaignName({
-  customer: customers.find((c) => c.id === state.customerId)?.name ?? "",
-  position: state.position,
+  business: state.business,
+  roles: state.roles,
+  roleFreeText: state.roleFreeText,
   start: new Date(state.startDate),
   initials: state.initials,
 });
@@ -1743,6 +1763,240 @@ small server action wrapping `lastCampaignDefaults` and merge the result into
 ```bash
 git add lib/prefill.ts lib/prefill.test.ts app/campaigns/new/page.tsx app/campaigns/new/wizard.tsx app/campaigns/new/ad-set-block.tsx
 git commit -m "feat: prefill from the last campaign and resolve the Instagram account"
+```
+
+---
+
+## Task 17: Revise the name builder
+
+Supersedes Task 1's format after the SOP owner corrected it mid-execution. Run this
+**before** Task 11, which consumes it.
+
+**Files:**
+- Modify: `lib/naming.ts` — replace `campaignName`, keep `adSetName` and `formatDate`
+- Modify: `lib/naming.test.ts` — replace the campaign-name tests
+
+**Interfaces:**
+- Produces: `campaignName(p: NameParts): string`, `ROLES: { code: string; label: string }[]`,
+  `type NameParts = { business: string; roles: string[]; roleFreeText?: string; start: Date; initials: string }`
+- Unchanged: `adSetName(index, city?)`, and `formatDate` stays exported but is no
+  longer used by `campaignName` — the campaign name needs a 2-digit year.
+
+- [ ] **Step 1: Replace the campaign-name tests**
+
+```ts
+// lib/naming.test.ts — replace the two campaignName tests, keep the adSetName test
+import { expect, test } from "bun:test";
+import { adSetName, campaignName, formatDate, ROLES } from "./naming";
+
+test("the campaign name follows the agency convention", () => {
+  expect(
+    campaignName({
+      business: "Herzhalt Pflegedienst GmbH",
+      roles: ["FK"],
+      start: new Date(2026, 7, 12),
+      initials: "MH",
+    }),
+  ).toBe("Herzhalt Pflegedienst GmbH - FK ab 12.08.26 MH (via One)");
+});
+
+test("several roles are joined with a slash", () => {
+  const n = campaignName({
+    business: "X", roles: ["FK", "HK"], start: new Date(2026, 0, 3), initials: "KF",
+  });
+  expect(n).toBe("X - FK/HK ab 03.01.26 KF (via One)");
+});
+
+test("free text is appended after the codes", () => {
+  const n = campaignName({
+    business: "X", roles: ["FK"], roleFreeText: "inkl. PC-Weiterbildung",
+    start: new Date(2026, 0, 3), initials: "KF",
+  });
+  expect(n).toBe("X - FK inkl. PC-Weiterbildung ab 03.01.26 KF (via One)");
+});
+
+test("free text alone works, for roles with no code", () => {
+  const n = campaignName({
+    business: "X", roles: [], roleFreeText: "Koch",
+    start: new Date(2026, 0, 3), initials: "KF",
+  });
+  expect(n).toBe("X - Koch ab 03.01.26 KF (via One)");
+});
+
+test("the year is two digits, unlike formatDate", () => {
+  expect(formatDate(new Date(2026, 7, 12))).toBe("12.08.2026");
+  expect(
+    campaignName({ business: "X", roles: ["FK"], start: new Date(2026, 7, 12), initials: "AB" }),
+  ).toContain("ab 12.08.26 ");
+});
+
+test("every role code has a label", () => {
+  expect(ROLES.length).toBeGreaterThan(0);
+  for (const r of ROLES) {
+    expect(r.code).toMatch(/^[A-Z]+$/);
+    expect(r.label.length).toBeGreaterThan(0);
+  }
+});
+
+test("the first ad set is Ads, later ones carry the city", () => {
+  expect(adSetName(0)).toBe("Ads");
+  expect(adSetName(1, "Dresden")).toBe("Ads – Dresden");
+  expect(adSetName(1)).toBe("Ads 2");
+});
+```
+
+- [ ] **Step 2: Run the tests and verify they fail**
+
+Run: `bun test lib/naming.test.ts`
+Expected: FAIL — `ROLES` is not exported, and the name format does not match
+
+- [ ] **Step 3: Rewrite `campaignName` and add `ROLES`**
+
+```ts
+// lib/naming.ts — replace NameParts and campaignName, keep formatDate and adSetName
+/**
+ * Kampagnennamen folgen einer festen Konvention der Agentur:
+ * "Firma - Rollen ab TT.MM.JJ XX (via One)". Der Zusatz "(via One)" markiert,
+ * was über diese App entstanden ist – die Altbestände heißen uneinheitlich.
+ */
+export type NameParts = {
+  business: string;
+  roles: string[];
+  roleFreeText?: string;
+  start: Date;
+  initials: string;
+};
+
+/**
+ * Aus echten Kampagnennamen abgelesen. Kombinationen sind normal, deshalb ist
+ * die Auswahl mehrfach – und der Freitext bleibt, weil es Einzelfälle wie
+ * "Koch" oder "Verwaltungskraft" gibt, die in kein Kürzel passen.
+ * ponytail: Die Langtexte sind Vermutung außer FK und HK; sie stehen nur im UI,
+ * nicht im Kampagnennamen, und sind hier in einer Zeile korrigierbar.
+ */
+export const ROLES = [
+  { code: "FK", label: "Fachkräfte" },
+  { code: "HK", label: "Hilfskräfte" },
+  { code: "PFK", label: "Pflegefachkraft" },
+  { code: "PDL", label: "Pflegedienstleitung" },
+  { code: "MA", label: "Mitarbeiter" },
+  { code: "PA", label: "Pflegeassistenz" },
+  { code: "PH", label: "Pflegehelfer" },
+] as const;
+
+// Zweistelliges Jahr – formatDate bleibt vierstellig, das braucht die Anzeige.
+const shortDate = (d: Date) =>
+  `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${String(d.getFullYear()).slice(-2)}`;
+
+export function campaignName(p: NameParts): string {
+  const what = [p.roles.join("/"), p.roleFreeText?.trim()]
+    .filter(Boolean)
+    .join(" ");
+  return `${p.business} - ${what} ab ${shortDate(p.start)} ${p.initials} (via One)`;
+}
+```
+
+- [ ] **Step 4: Run the tests and verify they pass**
+
+Run: `bun test lib/naming.test.ts` then `bun test`
+Expected: 7 pass in the file; whole suite green
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/naming.ts lib/naming.test.ts
+git commit -m "feat: rebuild the campaign name from business, roles and initials"
+```
+
+---
+
+## Task 18: Plain labels for technical values
+
+Meta's enum values must never reach the screen raw.
+
+**Files:**
+- Create: `lib/labels.ts`
+- Test: `lib/labels.test.ts`
+
+**Interfaces:**
+- Produces: `label(value: string): string`, `LABELS: Record<string, string>`
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+// lib/labels.test.ts
+import { expect, test } from "bun:test";
+import { label } from "./labels";
+
+test("objectives, goals and events read as plain language", () => {
+  expect(label("OUTCOME_LEADS")).toBe("Leads");
+  expect(label("LEAD_GENERATION")).toBe("Maximise leads");
+  expect(label("IMPRESSIONS")).toBe("Impressions");
+  expect(label("ON_AD")).toBe("Instant form");
+  expect(label("EMPLOYMENT")).toBe("Employment");
+});
+
+test("countries and placements read as plain language", () => {
+  expect(label("DE")).toBe("Germany");
+  expect(label("facebook")).toBe("Facebook");
+  expect(label("stream")).toBe("Instagram feed");
+  expect(label("story")).toBe("Stories");
+});
+
+test("an unknown value is returned unchanged rather than hidden", () => {
+  expect(label("SOMETHING_NEW")).toBe("SOMETHING_NEW");
+});
+```
+
+- [ ] **Step 2: Run the test and verify it fails**
+
+Run: `bun test lib/labels.test.ts`
+Expected: FAIL — cannot resolve `./labels`
+
+- [ ] **Step 3: Write the implementation**
+
+```ts
+// lib/labels.ts
+/**
+ * Metas Enum-Werte gehören nicht auf den Bildschirm. Unbekanntes wird
+ * unverändert durchgereicht – lieber ein technischer Wert als gar keiner.
+ */
+export const LABELS: Record<string, string> = {
+  OUTCOME_LEADS: "Leads",
+  OUTCOME_TRAFFIC: "Traffic",
+  OUTCOME_ENGAGEMENT: "Engagement",
+  LEAD_GENERATION: "Maximise leads",
+  LINK_CLICKS: "Link clicks",
+  IMPRESSIONS: "Impressions",
+  LOWEST_COST_WITHOUT_CAP: "Lowest cost",
+  ON_AD: "Instant form",
+  EMPLOYMENT: "Employment",
+  APPLY_NOW: "Apply now",
+  DE: "Germany",
+  AT: "Austria",
+  CH: "Switzerland",
+  facebook: "Facebook",
+  instagram: "Instagram",
+  feed: "Feed",
+  stream: "Instagram feed",
+  story: "Stories",
+  ACTIVE: "Active",
+  PAUSED: "Paused",
+};
+
+export const label = (value: string): string => LABELS[value] ?? value;
+```
+
+- [ ] **Step 4: Run the test and verify it passes**
+
+Run: `bun test lib/labels.test.ts`
+Expected: PASS (3 tests)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/labels.ts lib/labels.test.ts
+git commit -m "feat: plain labels so Meta enum values never reach the screen"
 ```
 
 ---
