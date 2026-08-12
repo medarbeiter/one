@@ -48,6 +48,7 @@ This document specifies a creator shaped around the SOP.
 | Per-customer master data (address, Instagram) | **None.** Entered per campaign, prefilled from the customer's last campaign |
 | Ad sets per campaign | **N.** Each owns its address, form, texts and videos |
 | Publishing | Ad sets and ads `ACTIVE`, campaign `PAUSED` |
+| Budget placement | **Campaign level (CBO).** 50 of 61 live lead campaigns already do this; ad-set budgets sit behind `Advanced` |
 | Special ad category | **Always `EMPLOYMENT`.** These are always job ads |
 | Spend cap | **Optional**, minimum 100 € when set |
 | UI language | **English**, consistent with the 2026-08-11 spec. Ad content and forms are German |
@@ -63,9 +64,10 @@ schedule after launch · resumable upload · multi-format creatives · A/B tests
 
 ```
 Campaign  ── OUTCOME_LEADS · PAUSED · special_ad_categories: [EMPLOYMENT]
+  │          daily_budget 17 € (campaign level, CBO)
   │          spend_cap (optional, ≥ 100 €)
   │
-  ├── Ad set "Ads" ── ACTIVE · daily_budget 17 € · LOWEST_COST_WITHOUT_CAP
+  ├── Ad set "Ads" ── ACTIVE · LOWEST_COST_WITHOUT_CAP
   │     │             destination_type: ON_AD
   │     │             promoted_object: { page_id }
   │     │             optimization_goal: LEAD_GENERATION
@@ -114,13 +116,18 @@ per-ad-set fields live in a repeating block rather than their own wizard step.
 | Start date | Date picker, defaults to today |
 | Initials | From `META_INITIALS` in `.env.local`, editable |
 | Campaign name | Composed, shown, editable |
-| Daily budget | Default 17 €. This is the **default for each ad set**, not a campaign total |
+| Daily budget | Default 17 €. Set on the **campaign**; Meta distributes it across ad sets |
 | Spend cap | Optional. When set, minimum 100 € |
 
-Budgets sit on the ad set, not the campaign — the app does not use campaign budget
-optimisation. With one ad set the distinction is invisible; with three, 17 € here
-means 17 € each, and each block can override it. Both `daily_budget` and
-`spend_cap` are sent in cents, as `setDailyBudget` already does.
+The budget goes on the campaign, not the ad set — campaign budget optimisation.
+This matches observed practice: of 61 live `OUTCOME_LEADS` campaigns, 50 carry a
+campaign-level budget, 11 carry ad-set budgets, none carry both. So 17 € is the
+campaign total however many ad sets exist. Per-ad-set budgets are available behind
+`Advanced` for the minority case. Both `daily_budget` and `spend_cap` are sent in
+cents, as `setDailyBudget` already does.
+
+`spend_cap` is genuinely occasional — set on 15 of 61 campaigns, at values from
+125 € to 3000 €. Hence optional rather than defaulted.
 
 The name composes as `{Kunde} - ges. {Position} ab {TT.MM.JJJJ} {XX}`. Editing the
 composed field detaches it from the parts; changing a part after that re-composes
@@ -137,7 +144,6 @@ Per block:
 | Field | Behaviour |
 |---|---|
 | Name | Suggested, editable |
-| Daily budget | Inherits step 1's value, overridable per block |
 | Address | Street, postcode, city. Sent as `address_string`; Meta geocodes it |
 | Radius | Default 17 km. Valid 1–80 km |
 | Lead form | Select from the page's forms. `Create form in Meta` opens the Instant Forms library for that page in a new tab; `Refresh` re-reads the list |
@@ -253,24 +259,71 @@ customers are added.
 `leads_retrieval` is not offered for system users and is not needed here — it
 governs pulling leads back out, which this feature does not do.
 
-### 5.2 Must be probed before implementation
+### 5.2 Payload shapes, confirmed against production
 
-Both are read-only and settle in minutes.
+Both open questions were settled by reading the agency's own live campaigns
+(162 lead ad sets across 18 ad accounts) rather than from documentation.
 
-1. **`onsite_destinations` carrying `lead_gen_form_id` inside `asset_feed_spec`.**
-   Five text variants require `asset_feed_spec`; attaching a lead form to it is
-   documented only in third-party wrappers, not by Meta. If it does not work, the
-   choice is five texts *or* a lead form, and the SOP owner must decide. This is
-   the first implementation task.
-2. **Exact `facebook_positions` and `instagram_positions` enum values for v26.0.**
-   Meta's placement reference did not resolve during research. A wrong enum fails
-   ad set creation outright.
+**The form and the five texts coexist.** `asset_feed_spec` and `object_story_spec`
+are sent *together*: the feed spec carries only text, the story spec carries the
+video and the form. `onsite_destinations` is not used at all, and
+`ad_formats`, `call_to_action_types` and `link_urls` are absent from the feed spec.
 
-Fallback for (1): a single body/title/description via `object_story_spec` with
-`link_data.call_to_action.value.lead_gen_form_id`, which is documented and known to
-work. This loses step 11 and must be raised, not silently adopted.
+```jsonc
+{
+  "object_story_spec": {
+    "page_id": "1189746767562744",
+    "instagram_user_id": "17841436659257779",
+    "video_data": {
+      "video_id": "1675767910156250",
+      "image_hash": "fd3a65d637fd97be91ebbeab3fa371b8",   // thumbnail
+      "call_to_action": {
+        "type": "APPLY_NOW",
+        "value": {
+          "lead_gen_form_id": "2095967427699237",
+          "link": "http://fb.me/"                          // placeholder for lead ads
+        }
+      }
+    }
+  },
+  "asset_feed_spec": {
+    "bodies":       [ /* 5 */ ],
+    "titles":       [ /* 5 */ ],
+    "descriptions": [ /* 1 */ ]
+  }
+}
+```
 
-### 5.3 Coverage
+This removes the "five texts *or* a lead form" risk entirely — no fallback needed.
+Note `instagram_user_id`, not the retired `instagram_actor_id`.
+
+**Placement enums, observed across 162 live ad sets:**
+
+| Field | Values seen in production |
+|---|---|
+| `publisher_platforms` | `facebook`, `instagram`, `audience_network` |
+| `facebook_positions` | `feed`, `story`, `facebook_reels`, `profile_feed`, `video_feeds`, `instream_video`, `marketplace`, `facebook_reels_overlay` |
+| `instagram_positions` | `stream`, `story`, `reels`, `profile_feed`, `explore`, `explore_home`, `reels_overlay` |
+
+"Feed and Stories only" is therefore `facebook_positions: ["feed", "story"]` and
+`instagram_positions: ["stream", "story"]` — Instagram's feed is `stream`.
+
+**Ad set shape confirmed:** `destination_type: "ON_AD"`,
+`optimization_goal: "LEAD_GENERATION"`, `billing_event: "IMPRESSIONS"`,
+`promoted_object: { page_id, smart_pse_enabled: false }`.
+
+**Geo, as actually used:** `custom_locations` entries carry `address_string` plus
+the coordinates Meta resolved from it, confirming server-side geocoding works.
+92 of 162 ad sets use `custom_locations`; some combine them with `cities` entries.
+
+### 5.3 Discrepancy worth raising
+
+Observed radius is **25 km**, not the 17 km the SOP states, and several ad sets
+target a `cities` entry alongside the custom location. The spec keeps 17 km as the
+prefilled default because that is what the SOP says, but the field is editable and
+the discrepancy should be confirmed with the SOP owner before build.
+
+### 5.4 Coverage
 
 Most entries in `customers.config.ts` have `adAccountIds: []`, so the creator is
 usable for roughly 20 of ~200 customers until those are filled in. Out of scope
