@@ -1,53 +1,51 @@
 "use server";
 
 import { updateTag } from "next/cache";
-import { launch, setDailyBudget, setStatus } from "@/lib/campaigns";
+import { setDailyBudget, setStatus } from "@/lib/campaigns";
+import { launch, type LaunchInput, type Receipt } from "@/lib/launch";
+import { verifyCampaign, type Check } from "@/lib/verify";
 import { listCustomers } from "@/lib/customers";
 
 export type LaunchResult = { ok?: string; error?: string };
 
+export type WizardSubmission = Omit<LaunchInput, "adAccount" | "pageId"> & {
+  customerId: string;
+  adAccount?: string;
+};
+
+export type LaunchState = { receipt?: Receipt; checks?: Check[]; error?: string };
+
 export async function launchAction(
-  _prev: LaunchResult,
-  fd: FormData,
-): Promise<LaunchResult> {
-  const files = fd
-    .getAll("files")
-    .filter((f): f is File => f instanceof File && f.size > 0);
-  if (!files.length) return { error: "Pick at least one image or video." };
-
-  const s = (k: string) => String(fd.get(k) ?? "").trim();
-
-  // Konto und Seite kommen vom Kunden, nicht von versteckten Feldern –
-  // die dürften sonst gegen ein fremdes Konto zeigen.
+  _prev: LaunchState,
+  input: WizardSubmission,
+): Promise<LaunchState> {
+  // Konto und Seite kommen vom Kunden, nicht vom Client – sonst zeigt ein
+  // manipuliertes Feld auf ein fremdes Werbekonto.
   const { customers } = await listCustomers();
-  const customer = customers.find((c) => c.id === s("customer"));
+  const customer = customers.find((c) => c.id === input.customerId);
   if (!customer?.page) return { error: "Pick a customer with a connected page." };
-  const adAccount = s("adAccount") || customer.adAccounts[0]?.id;
+  const adAccount = input.adAccount ?? customer.adAccounts[0]?.id;
   if (!adAccount) return { error: `${customer.name} has no ad account assigned.` };
 
+  if (!input.adSets.length) return { error: "Add at least one ad set." };
+  for (const s of input.adSets) {
+    if (!s.videos.length) return { error: `“${s.name}” has no videos.` };
+    if (!s.formId) return { error: `“${s.name}” has no lead form selected.` };
+  }
+  if (input.spendCapCents !== undefined && input.spendCapCents < 10000)
+    return { error: "The spend cap must be at least 100 €." };
+
   try {
-    const r = await launch({
-      adAccount,
-      pageId: customer.page.id,
-      name: s("name"),
-      objective: s("objective"),
-      dailyBudgetCents: Math.round(Number(fd.get("dailyBudget")) * 100),
-      optimizationGoal: s("optimizationGoal"),
-      billingEvent: "IMPRESSIONS",
-      specialAdCategories: fd.getAll("specialAdCategories").map(String),
-      countries: s("countries")
-        .split(",")
-        .map((c) => c.trim().toUpperCase()),
-      ageMin: Number(fd.get("ageMin")),
-      ageMax: Number(fd.get("ageMax")),
-      link: s("link"),
-      message: s("message"),
-      headline: s("headline"),
-      callToAction: s("callToAction"),
-      files,
-    });
+    const receipt = await launch({ ...input, adAccount, pageId: customer.page.id });
     updateTag("campaigns");
-    return { ok: `Created campaign ${r.campaignId} with ${r.adIds.length} ad(s) — paused.` };
+    const checks = receipt.campaignId
+      ? await verifyCampaign(receipt.campaignId, {
+          formIds: Object.fromEntries(input.adSets.map((s) => [s.name, s.formId])),
+          radiusKm: input.adSets[0].radiusKm,
+          adCount: input.adSets.reduce((n, s) => n + s.videos.length, 0),
+        })
+      : undefined;
+    return { receipt, checks };
   } catch (e) {
     return { error: (e as Error).message };
   }
