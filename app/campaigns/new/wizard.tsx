@@ -143,14 +143,23 @@ export function Wizard({
             <CheckboxGroup
               value={state.roles}
               onChange={(roles) => setState((s) => ({ ...s, roles }))}
-              className="flex flex-wrap gap-3"
+              // HeroUI's .checkbox-group ist standardmäßig flex-col; flex-wrap
+              // allein ändert daran nichts (andere CSS-Eigenschaft) – ohne
+              // flex-row bleibt es eine lange einspaltige Liste.
+              className="flex flex-row flex-wrap gap-x-4 gap-y-2"
             >
               {ROLES.map((r) => (
+                // Control muss in Content verschachtelt sein, nicht daneben: Content
+                // rendert das <label>, das den (visuell versteckten) <input> enthält –
+                // nur was darin liegt, ist per Klick erreichbar. Als Geschwister blieb
+                // die Box tot und die Gruppe fiel in .checkbox' flex-col auseinander.
                 <Checkbox key={r.code} value={r.code}>
-                  <Checkbox.Control>
-                    <Checkbox.Indicator />
-                  </Checkbox.Control>
-                  <Checkbox.Content>{r.label}</Checkbox.Content>
+                  <Checkbox.Content>
+                    <Checkbox.Control>
+                      <Checkbox.Indicator />
+                    </Checkbox.Control>
+                    {r.label}
+                  </Checkbox.Content>
                 </Checkbox>
               ))}
             </CheckboxGroup>

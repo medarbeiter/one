@@ -33,6 +33,13 @@ export const ROLES = [
   { code: "PH", label: "Pflegehelfer" },
 ] as const;
 
+/**
+ * Initialen sind pro Person, nicht pro Installation – eine einzelne
+ * Umgebungsvariable wäre falsch. Aus 148 echten Kampagnennamen abgelesen;
+ * der Picker fällt für alle anderen auf Freitext zurück.
+ */
+export const KNOWN_INITIALS = ["KF", "MH", "PW"] as const;
+
 // Zweistelliges Jahr – formatDate bleibt vierstellig, das braucht die Anzeige.
 const shortDate = (d: Date) =>
   `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${String(d.getFullYear()).slice(-2)}`;
@@ -41,7 +48,11 @@ export function campaignName(p: NameParts): string {
   const what = [p.roles.join("/"), p.roleFreeText?.trim()]
     .filter(Boolean)
     .join(" ");
-  return `${p.business} - ${what} ab ${shortDate(p.start)} ${p.initials} (via One)`;
+  // Teile statt feste Lücken zusammensetzen – sonst hinterlässt ein leeres
+  // Feld (keine Rolle, keine Initialen) eine doppelte Lücke im Namen.
+  return [p.business, "-", what, "ab", shortDate(p.start), p.initials, "(via One)"]
+    .filter(Boolean)
+    .join(" ");
 }
 
 // Der erste heißt immer "Ads"; erst bei mehreren Standorten braucht er den Ort.

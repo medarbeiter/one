@@ -50,6 +50,22 @@ test("every role code has a label", () => {
   }
 });
 
+test("no roles and no free text leaves no double space", () => {
+  const n = campaignName({
+    business: "Herzhalt Pflegedienst GmbH", roles: [], start: new Date(2026, 7, 12), initials: "MH",
+  });
+  expect(n).toBe("Herzhalt Pflegedienst GmbH - ab 12.08.26 MH (via One)");
+  expect(n).not.toContain("  ");
+});
+
+test("empty initials leaves no double space", () => {
+  const n = campaignName({
+    business: "Herzhalt Pflegedienst GmbH", roles: ["FK"], start: new Date(2026, 7, 12), initials: "",
+  });
+  expect(n).toBe("Herzhalt Pflegedienst GmbH - FK ab 12.08.26 (via One)");
+  expect(n).not.toContain("  ");
+});
+
 test("the first ad set is Ads, later ones carry the city", () => {
   expect(adSetName(0)).toBe("Ads");
   expect(adSetName(1, "Dresden")).toBe("Ads – Dresden");

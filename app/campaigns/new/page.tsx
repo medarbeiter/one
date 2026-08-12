@@ -1,4 +1,5 @@
 import { listCustomers } from "@/lib/customers";
+import { KNOWN_INITIALS } from "@/lib/naming";
 import { Wizard } from "./wizard";
 
 export default async function NewCampaignPage({ searchParams }: PageProps<"/campaigns/new">) {
@@ -15,11 +16,6 @@ export default async function NewCampaignPage({ searchParams }: PageProps<"/camp
     (usable.some((c) => c.id === "medarbeiter") ? "medarbeiter" : usable[0]?.id) ??
     "";
 
-  const knownInitials = (process.env.META_INITIALS ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-
   return (
     <div className="space-y-4">
       <h1 className="font-display text-ink-900 text-2xl">New campaign</h1>
@@ -29,7 +25,7 @@ export default async function NewCampaignPage({ searchParams }: PageProps<"/camp
           name: c.name,
           adAccounts: c.adAccounts.map((a) => ({ id: a.id, name: a.name })),
         }))}
-        knownInitials={knownInitials}
+        knownInitials={[...KNOWN_INITIALS]}
         defaultCustomer={defaultCustomer}
       />
     </div>
