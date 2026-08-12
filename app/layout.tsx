@@ -1,6 +1,15 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import "./globals.css";
+import { Poppins } from "next/font/google";
+
+// Nur für Überschriften und Kennzahlen – Fließtext bleibt System-UI.
+const poppins = Poppins({
+  subsets: ["latin"],
+  weight: ["600"],
+  variable: "--font-poppins",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "MedArbeiter One",
@@ -14,7 +23,7 @@ const nav = [
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="de" className="h-full antialiased">
+    <html lang="en" className={`${poppins.variable} h-full antialiased`}>
       <body className="bg-surface text-foreground min-h-full">
         <header className="border-default-200 flex items-center gap-6 border-b px-6 py-3">
           <Link href="/" className="font-semibold">

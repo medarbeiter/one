@@ -1,1 +1,46 @@
 @import "@heroui/react/styles" source("../");
+
+/* Markenfarben von med-arbeiter.de. HeroUI 3 liest genau diese Variablen,
+   deshalb färben sich Button, Chip, Switch & Co. ohne eigene Klassen mit.
+   Unlayered – schlägt damit die @layer-base-Defaults des Pakets. */
+:root {
+  --accent: #daa21d;
+  /* ponytail: Ink statt Weiß auf Gold. #fff auf #DAA21D sind 2.29:1,
+     die Marke selbst nutzt es trotzdem. Hier ist es 7.8:1. */
+  --accent-foreground: #1a1a1a;
+
+  --foreground: #1a1a1a;
+  --muted: #6b6b6b;
+  --background: #f9f9f9;
+  --surface: #ffffff;
+  --overlay: #ffffff;
+  --border: #e8e8e8;
+  --separator: #e8e8e8;
+  --focus: #8a6410;
+  --link: #8a6410;
+
+  --success: #0f7b4f;
+  --success-foreground: #ffffff;
+  --danger: #c4342a;
+  --danger-foreground: #ffffff;
+  /* Bernstein ist die Marke – als Warnfarbe verschwindet es in der Navigation.
+     Dringlichkeit ist deshalb rot, --warning wird nicht benutzt. */
+
+  --radius: 0.5rem; /* 8px Karten */
+  --field-radius: 0.375rem; /* 6px Bedienelemente */
+}
+
+@theme {
+  --color-gold-500: #daa21d;
+  --color-gold-600: #c08f14;
+  --color-gold-700: #8a6410; /* goldfarbener *Text* auf Hell – 5.4:1 */
+  --color-gold-100: #fbf3de;
+  --color-ink-900: #1a1a1a;
+  --color-ink-700: #494949;
+  --color-ink-500: #6b6b6b;
+  --color-ink-300: #949494;
+  --color-line: #e8e8e8;
+  --color-canvas: #f9f9f9;
+  --color-attention: color-mix(in oklab, #c4342a 12%, transparent);
+  --font-display: var(--font-poppins), ui-sans-serif, system-ui, sans-serif;
+}
