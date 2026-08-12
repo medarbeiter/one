@@ -251,9 +251,14 @@ export function AdSetBlock({
         )}
       </div>
 
-      {instagramUserId && (
-        <p className="text-ink-500 text-sm">Instagram account: {instagramUserId}</p>
-      )}
+      {/* Rein informativ – die Auswahl passiert nicht hier, sondern folgt aus der
+          Seite des Kunden (siehe wizard.tsx). Fehlt das Instagram-Konto, ist das
+          kein Fehler: die Anzeige läuft dann nur über die Facebook-Seite. */}
+      <p className="text-ink-500 text-sm">
+        {instagramUserId
+          ? `Posting as @${instagramUserId} on Instagram`
+          : "Facebook page only — no Instagram account connected"}
+      </p>
 
       <div className="space-y-2">
         <Label>Videos</Label>

@@ -16,20 +16,38 @@ import {
 import { campaignName, ROLES } from "@/lib/naming";
 import { label } from "@/lib/labels";
 import type { AdSetInput } from "@/lib/launch";
-import { emptyAdSet, initialState, useWizardState } from "./state";
+import { DEFAULT_RADIUS_KM, emptyAdSet, initialState, useWizardState, type WizardAdSet } from "./state";
 import { AdSetBlock } from "./ad-set-block";
 import { Preview } from "./preview";
 import { ReceiptPanel } from "./receipt";
-import { launchAction, type LaunchState, type WizardSubmission } from "../actions";
+import { launchAction, prefillAction, type LaunchState, type WizardSubmission } from "../actions";
+import type { Prefill } from "@/lib/prefill";
 
 type WizardCustomer = {
   id: string;
   name: string;
   pageId: string;
   pageName: string;
-  igId?: string;
+  instagramUserId?: string;
   adAccounts: { id: string; name: string }[];
 };
+
+// Vorbelegung greift nur, solange niemand das jeweilige Feld angefasst hat –
+// "angefasst" heißt hier: noch auf dem Ausgangswert aus emptyAdSet(). Das ist
+// gröber als ein echtes touched-Flag pro Feld, aber genau das reicht: sobald
+// jemand tippt, weicht der Wert vom Default ab und wird nie wieder überschrieben.
+function untouchedPrefillPatch(current: WizardAdSet, prefill: Prefill): Partial<WizardAdSet> {
+  const patch: Partial<WizardAdSet> = {};
+  if (current.addressString === "" && prefill.addressString) patch.addressString = prefill.addressString;
+  if (current.radiusKm === DEFAULT_RADIUS_KM && prefill.radiusKm !== undefined)
+    patch.radiusKm = prefill.radiusKm;
+  if (current.bodies.length === 1 && current.bodies[0] === "" && prefill.bodies?.length)
+    patch.bodies = prefill.bodies;
+  if (current.titles.length === 1 && current.titles[0] === "" && prefill.titles?.length)
+    patch.titles = prefill.titles;
+  if (current.description === "" && prefill.description) patch.description = prefill.description;
+  return patch;
+}
 
 const field = "border-line bg-surface h-10 w-full rounded-md border px-3 text-sm";
 
@@ -68,6 +86,33 @@ export function Wizard({
   useEffect(() => {
     if (!state.nameEdited) setState((s) => ({ ...s, campaignName: composed }));
   }, [composed, state.nameEdited, setState]);
+
+  // Adresse, Radius und Texte aus der letzten Kampagne des Kunden übernehmen –
+  // aber nur ins erste Ad Set und nur die Felder, die noch am Ausgangswert
+  // stehen (untouchedPrefillPatch). Kein Werbekonto (noch) gewählt heißt: nichts
+  // zu holen. Das Lead-Formular bleibt bewusst außen vor, siehe state.ts/prefill.ts.
+  useEffect(() => {
+    const adAccount = customer?.adAccounts[0]?.id;
+    if (!adAccount) return;
+    let cancelled = false;
+    prefillAction(adAccount).then((prefill) => {
+      if (cancelled || !prefill) return;
+      setState((s) => {
+        const first = s.adSets[0];
+        if (!first) return s;
+        const patch = untouchedPrefillPatch(first, prefill);
+        if (!Object.keys(patch).length) return s;
+        return {
+          ...s,
+          adSets: s.adSets.map((set, i) => (i === 0 ? { ...set, ...patch } : set)),
+        };
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.customerId]);
 
   const updateAdSet = (i: number, patch: Partial<AdSetInput>) =>
     setState((s) => ({
@@ -302,7 +347,7 @@ export function Wizard({
                 value={set}
                 index={i}
                 pageId={customer?.pageId ?? ""}
-                instagramUserId={customer?.igId}
+                instagramUserId={customer?.instagramUserId}
                 adAccount={customer?.adAccounts[0]?.id ?? ""}
                 onChange={(patch) => updateAdSet(i, patch)}
                 onRemove={() => removeAdSet(i)}

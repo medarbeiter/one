@@ -28,11 +28,15 @@ export type WizardState = {
 // nicht dort hinein. onCreate() in wizard.tsx entfernt sie wieder vor dem Submit.
 export type WizardAdSet = AdSetInput & { id: string };
 
+// Auch für den Prefill-Vergleich in wizard.tsx: nur wenn der Radius noch auf
+// diesem Ausgangswert steht, hat ihn niemand von Hand gesetzt.
+export const DEFAULT_RADIUS_KM = 17;
+
 export const emptyAdSet = (index: number, city?: string): WizardAdSet => ({
   id: crypto.randomUUID(),
   name: adSetName(index, city),
   addressString: "",
-  radiusKm: 17,
+  radiusKm: DEFAULT_RADIUS_KM,
   formId: "",
   bodies: [""],
   titles: [""],

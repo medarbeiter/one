@@ -1,5 +1,6 @@
 import { listCustomers } from "@/lib/customers";
 import { KNOWN_INITIALS } from "@/lib/naming";
+import { pageInstagramId } from "@/lib/prefill";
 import { Wizard } from "./wizard";
 
 export default async function NewCampaignPage({ searchParams }: PageProps<"/campaigns/new">) {
@@ -7,6 +8,16 @@ export default async function NewCampaignPage({ searchParams }: PageProps<"/camp
   const { customers } = await listCustomers();
   // Ohne Seite und Konto lässt sich nichts anlegen – gar nicht erst anbieten.
   const usable = customers.filter((c) => c.page && c.adAccounts.length);
+
+  // Pro Kunde die Instagram-Seite der zugewiesenen Facebook-Seite auflösen –
+  // welche Seite das ist, entscheidet weiterhin der Kunde (offene Design-Frage
+  // mit dem Kunden, ob stattdessen der beworbene Client zählen sollte, ist hier
+  // nicht Gegenstand). pageInstagramId() fängt fehlende Rechte selbst ab.
+  const instagramByCustomer = new Map(
+    await Promise.all(
+      usable.map(async (c) => [c.id, await pageInstagramId(c.page!.id)] as const),
+    ),
+  );
 
   const requested = typeof sp.customer === "string" ? sp.customer : undefined;
   // Reihenfolge: URL-Parameter, sonst MedArbeiter (das übliche Konto),
@@ -26,7 +37,7 @@ export default async function NewCampaignPage({ searchParams }: PageProps<"/camp
           // usable filtert bereits auf c.page vorhanden – das ! ist hier sicher.
           pageId: c.page!.id,
           pageName: c.page!.name,
-          igId: c.igId,
+          instagramUserId: instagramByCustomer.get(c.id),
           adAccounts: c.adAccounts.map((a) => ({ id: a.id, name: a.name })),
         }))}
         knownInitials={[...KNOWN_INITIALS]}
