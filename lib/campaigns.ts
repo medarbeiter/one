@@ -2,8 +2,9 @@
  * Kampagnen über alle Werbekonten eines Scopes – Konten werden gebündelt
  * abgefragt, damit "Alle Kunden" nicht 18 Einzelaufrufe bedeutet.
  */
-import { batch, graph, GraphError, meta } from "./graph";
+import { batch, graph, GraphError } from "./graph";
 import type { Customer } from "./customers";
+import { uploadImage, uploadVideo, videoThumbnail } from "./uploads";
 
 export type Period = "today" | "last_7d" | "last_30d" | "maximum";
 
@@ -101,57 +102,6 @@ export const setStatus = (id: string, status: "ACTIVE" | "PAUSED") =>
 
 export const setDailyBudget = (id: string, cents: number) =>
   graph(id, { method: "POST", params: { daily_budget: cents } });
-
-/* ---------- Uploads ---------- */
-
-export async function uploadImage(
-  file: File,
-  acct = meta.adAccount,
-): Promise<string> {
-  const fd = new FormData();
-  fd.append(file.name, file);
-  const r = await graph<{ images: Record<string, { hash: string }> }>(
-    `${acct}/adimages`,
-    { method: "POST", body: fd },
-  );
-  return Object.values(r.images)[0].hash;
-}
-
-export async function uploadVideo(
-  file: File,
-  acct = meta.adAccount,
-): Promise<string> {
-  const fd = new FormData();
-  fd.append("source", file);
-  const { id } = await graph<{ id: string }>(`${acct}/advideos`, {
-    method: "POST",
-    body: fd,
-  });
-  await waitForVideo(id);
-  return id;
-}
-
-// ponytail: 5s-Polling, Decke bei ~5 Min. Erst auf Job-Queue umbauen, wenn Videos
-// regelmäßig länger encodieren oder mehrere parallel hochgeladen werden.
-async function waitForVideo(id: string, tries = 60) {
-  for (let i = 0; i < tries; i++) {
-    const { status } = await graph<{ status: { video_status: string } }>(id, {
-      params: { fields: "status" },
-    });
-    if (status?.video_status === "ready") return;
-    if (status?.video_status === "error")
-      throw new Error(`Video ${id}: processing failed`);
-    await new Promise((r) => setTimeout(r, 5000));
-  }
-  throw new Error(`Video ${id} still not processed after 5 minutes`);
-}
-
-async function videoThumbnail(videoId: string): Promise<string> {
-  const { data } = await graph<{
-    data: { uri: string; is_preferred: boolean }[];
-  }>(`${videoId}/thumbnails`);
-  return (data.find((t) => t.is_preferred) ?? data[0]).uri;
-}
 
 /* ---------- Kampagne → Anzeigengruppe → Anzeigen ---------- */
 
