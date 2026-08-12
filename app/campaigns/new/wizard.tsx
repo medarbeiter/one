@@ -19,12 +19,14 @@ import { label } from "@/lib/labels";
 import type { AdSetInput } from "@/lib/launch";
 import { emptyAdSet, initialState, useWizardState } from "./state";
 import { AdSetBlock } from "./ad-set-block";
+import { Preview } from "./preview";
 import { launchAction, type LaunchState, type WizardSubmission } from "../actions";
 
 type WizardCustomer = {
   id: string;
   name: string;
   pageId: string;
+  pageName: string;
   igId?: string;
   adAccounts: { id: string; name: string }[];
 };
@@ -283,17 +285,21 @@ export function Wizard({
 
         <Tabs.Panel id="1" className="space-y-3 p-4">
           {state.adSets.map((set, i) => (
-            <AdSetBlock
-              key={set.id}
-              value={set}
-              index={i}
-              pageId={customer?.pageId ?? ""}
-              instagramUserId={customer?.igId}
-              adAccount={customer?.adAccounts[0]?.id ?? ""}
-              onChange={(patch) => updateAdSet(i, patch)}
-              onRemove={() => removeAdSet(i)}
-              canRemove={state.adSets.length > 1}
-            />
+            // Vorschau steht neben dem Block, nicht dahinter – die Texte werden
+            // für sie geschrieben, nicht für die Felder (siehe preview.tsx).
+            <div key={set.id} className="grid gap-4 lg:grid-cols-[1fr_320px]">
+              <AdSetBlock
+                value={set}
+                index={i}
+                pageId={customer?.pageId ?? ""}
+                instagramUserId={customer?.igId}
+                adAccount={customer?.adAccounts[0]?.id ?? ""}
+                onChange={(patch) => updateAdSet(i, patch)}
+                onRemove={() => removeAdSet(i)}
+                canRemove={state.adSets.length > 1}
+              />
+              <Preview adSet={set} pageName={customer?.pageName ?? ""} />
+            </div>
           ))}
           <Button variant="outline" onPress={addLocation}>
             Add location
