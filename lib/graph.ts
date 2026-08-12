@@ -14,12 +14,6 @@ export const meta = {
   adAccount: actId(process.env.META_AD_ACCOUNT_ID ?? ""),
 };
 
-function token() {
-  const t = process.env.META_ACCESS_TOKEN;
-  if (!t) throw new Error("META_ACCESS_TOKEN missing – see README.md");
-  return t;
-}
-
 export type GraphFailure = {
   kind: "token" | "permission" | "rate" | "unknown";
   message: string;
@@ -35,6 +29,19 @@ export class GraphError extends Error {
     this.kind = f.kind;
     this.retryable = f.retryable;
   }
+}
+
+function token() {
+  const t = process.env.META_ACCESS_TOKEN;
+  // GraphError statt Error: die Anzeige unterscheidet tot von teilweise
+  // kaputt allein am kind-Feld.
+  if (!t)
+    throw new GraphError({
+      kind: "token",
+      message: "META_ACCESS_TOKEN missing – see README.md",
+      retryable: false,
+    });
+  return t;
 }
 
 // 190 = Token tot, 4/17/32/613 = Rate-Limit, 10/200/272 = fehlende Berechtigung.

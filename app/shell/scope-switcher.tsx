@@ -19,6 +19,8 @@ export function ScopeSwitcher({ customers }: { customers: Item[] }) {
     const next = new URLSearchParams(params);
     if (!key || key === ALL) next.delete("customer");
     else next.set("customer", String(key));
+    // Eine Auswahl aus einem anderen Kunden gehört nicht in den neuen Scope.
+    next.delete("item");
     const qs = next.toString();
     router.push(qs ? `${pathname}?${qs}` : pathname);
   }
