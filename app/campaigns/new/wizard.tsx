@@ -85,7 +85,8 @@ export function Wizard({
         spendCapCents: state.spendCapEuros
           ? Math.round(state.spendCapEuros * 100)
           : undefined,
-        adSets: state.adSets,
+        // id ist nur fürs React-key – AdSetInput (der API-Vertrag) kennt sie nicht.
+        adSets: state.adSets.map(({ id: _id, ...rest }) => rest),
       }),
     );
 
@@ -283,7 +284,7 @@ export function Wizard({
         <Tabs.Panel id="1" className="space-y-3 p-4">
           {state.adSets.map((set, i) => (
             <AdSetBlock
-              key={i}
+              key={set.id}
               value={set}
               index={i}
               pageId={customer?.pageId ?? ""}

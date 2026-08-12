@@ -20,10 +20,16 @@ export type WizardState = {
   nameEdited: boolean;
   dailyBudgetEuros: number;
   spendCapEuros?: number;
-  adSets: AdSetInput[];
+  adSets: WizardAdSet[];
 };
 
-export const emptyAdSet = (index: number, city?: string): AdSetInput => ({
+// AdSetInput ist der API-Payload-Vertrag (siehe lib/launch.ts) – die id ist reines
+// UI-Konzept fürs React-key-Problem beim Entfernen mittlerer Blöcke und gehört
+// nicht dort hinein. onCreate() in wizard.tsx entfernt sie wieder vor dem Submit.
+export type WizardAdSet = AdSetInput & { id: string };
+
+export const emptyAdSet = (index: number, city?: string): WizardAdSet => ({
+  id: crypto.randomUUID(),
   name: adSetName(index, city),
   addressString: "",
   radiusKm: 17,
@@ -57,7 +63,13 @@ export function useWizardState(defaults: WizardState) {
     const raw = sessionStorage.getItem(KEY);
     if (raw) {
       try {
-        setState(JSON.parse(raw) as WizardState);
+        const parsed = JSON.parse(raw) as WizardState;
+        // Alte Entwürfe aus sessionStorage kennen die id noch nicht – ohne
+        // Nachrüsten würden React-keys undefined und Blöcke kollabieren.
+        setState({
+          ...parsed,
+          adSets: parsed.adSets.map((s) => ({ ...s, id: s.id ?? crypto.randomUUID() })),
+        });
       } catch {
         // kaputter Entwurf ist kein Grund, die Seite nicht zu zeigen
       }
