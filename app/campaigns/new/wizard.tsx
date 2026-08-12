@@ -2,7 +2,6 @@
 
 import { startTransition, useActionState, useEffect, useState } from "react";
 import {
-  Alert,
   Button,
   Card,
   Checkbox,
@@ -20,6 +19,7 @@ import type { AdSetInput } from "@/lib/launch";
 import { emptyAdSet, initialState, useWizardState } from "./state";
 import { AdSetBlock } from "./ad-set-block";
 import { Preview } from "./preview";
+import { ReceiptPanel } from "./receipt";
 import { launchAction, type LaunchState, type WizardSubmission } from "../actions";
 
 type WizardCustomer = {
@@ -50,6 +50,9 @@ export function Wizard({
     launchAction,
     {},
   );
+  // Für den Retry-Pfad im Receipt-Panel: das genaue Objekt, das gesendet wurde,
+  // nicht der aktuelle (evtl. inzwischen weiterbearbeitete) Wizard-State.
+  const [submission, setSubmission] = useState<WizardSubmission | null>(null);
 
   const customer = customers.find((c) => c.id === state.customerId);
 
@@ -78,19 +81,26 @@ export function Wizard({
   const addLocation = () =>
     setState((s) => ({ ...s, adSets: [...s.adSets, emptyAdSet(s.adSets.length)] }));
 
+  const submitWizard = (input: WizardSubmission) => {
+    setSubmission(input);
+    startTransition(() => submit(input));
+  };
+
   const onCreate = () =>
-    startTransition(() =>
-      submit({
-        customerId: state.customerId,
-        campaignName: state.campaignName,
-        dailyBudgetCents: Math.round(state.dailyBudgetEuros * 100),
-        spendCapCents: state.spendCapEuros
-          ? Math.round(state.spendCapEuros * 100)
-          : undefined,
-        // id ist nur fürs React-key – AdSetInput (der API-Vertrag) kennt sie nicht.
-        adSets: state.adSets.map(({ id: _id, ...rest }) => rest),
-      }),
-    );
+    submitWizard({
+      customerId: state.customerId,
+      campaignName: state.campaignName,
+      dailyBudgetCents: Math.round(state.dailyBudgetEuros * 100),
+      spendCapCents: state.spendCapEuros
+        ? Math.round(state.spendCapEuros * 100)
+        : undefined,
+      // Fürs Ads-Manager-Link im Receipt-Panel: welches Konto tatsächlich
+      // getroffen wurde (launchAction fällt sonst serverseitig still auf das
+      // erste Konto des Kunden zurück, ohne dass der Client davon erführe).
+      adAccount: customer?.adAccounts[0]?.id,
+      // id ist nur fürs React-key – AdSetInput (der API-Vertrag) kennt sie nicht.
+      adSets: state.adSets.map(({ id: _id, ...rest }) => rest),
+    });
 
   return (
     <Card>
@@ -337,38 +347,8 @@ export function Wizard({
             {pending ? "Creating…" : "Create (paused)"}
           </Button>
 
-          {result.error && (
-            <Alert status="danger">
-              <Alert.Content>
-                <Alert.Title>Could not create the campaign</Alert.Title>
-                <Alert.Description>{label(result.error)}</Alert.Description>
-              </Alert.Content>
-            </Alert>
-          )}
-          {result.receipt && (
-            <Alert status={result.error ? "warning" : "success"}>
-              <Alert.Content>
-                <Alert.Title>
-                  Campaign {result.receipt.campaignId ?? "created"} — {result.receipt.adSets.length}{" "}
-                  ad set(s)
-                </Alert.Title>
-                <Alert.Description>
-                  {result.receipt.adSets.map((s) => `${s.name}: ${s.adIds.length} ad(s)`).join(", ")}
-                  {result.receipt.failed.length > 0 &&
-                    ` — ${result.receipt.failed.length} file(s) failed`}
-                </Alert.Description>
-              </Alert.Content>
-            </Alert>
-          )}
-          {result.checks && (
-            <ul className="space-y-1">
-              {result.checks.map((c) => (
-                <li key={c.label} className={c.ok ? "text-success" : "text-danger"}>
-                  {c.ok ? "✓" : "✗"} {c.label}
-                  {c.detail ? ` — ${label(c.detail)}` : ""}
-                </li>
-              ))}
-            </ul>
+          {submission && (
+            <ReceiptPanel state={result} submission={submission} onRetry={submitWizard} />
           )}
         </Tabs.Panel>
       </Tabs>
