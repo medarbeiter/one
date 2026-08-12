@@ -99,11 +99,11 @@ test("Ein totes Sub-Request nimmt die anderen nicht mit", () => {
 });
 
 test("Mehr als 50 Requests werden gestückelt, Reihenfolge bleibt", async () => {
-  const bodies: string[] = [];
-  globalThis.fetch = (async (input: any, init: any) => {
+  const calls: string[][] = [];
+  globalThis.fetch = (async (input: any) => {
     const url = new URL(String(input));
     const spec = JSON.parse(url.searchParams.get("batch")!) as { relative_url: string }[];
-    bodies.push(...spec.map((s) => s.relative_url));
+    calls.push(spec.map((s) => s.relative_url));
     return new Response(
       JSON.stringify(spec.map((s) => ({ code: 200, body: JSON.stringify({ url: s.relative_url }) }))),
       { headers: { "content-type": "application/json" } },
@@ -112,7 +112,10 @@ test("Mehr als 50 Requests werden gestückelt, Reihenfolge bleibt", async () => 
 
   const reqs = Array.from({ length: 51 }, (_, i) => ({ relative_url: `p${i}` }));
   const out = await batch<{ url: string }>(reqs);
+
+  // Graph nimmt maximal 50 Sub-Requests pro POST – der Schnitt muss hier liegen.
+  expect(calls.map((c) => c.length)).toEqual([50, 1]);
   expect(out).toHaveLength(51);
-  expect(bodies).toHaveLength(51);
+  expect(calls.flat()).toHaveLength(51);
   expect((out[50] as PromiseFulfilledResult<{ url: string }>).value.url).toBe("p50");
 });
