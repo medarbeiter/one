@@ -1,36 +1,63 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# MedArbeiter One
 
-## Getting Started
+Kampagnen anlegen und Assets sehen, ohne durch den Ads Manager zu klicken.
+Next.js + HeroUI, alles gegen die Graph API (v26.0) über `lib/meta.ts`.
 
-First, run the development server:
+## Setup
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+bun install
+bun dev          # http://localhost:3000
+bun test         # Checks für lib/meta.ts
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Token besorgen (einmalig, ~5 Min)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Kein OAuth-Login – ein System-User-Token reicht und läuft nicht ab.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. [Business-Einstellungen](https://business.facebook.com/settings/system-users?business_id=129036263212085) → **System-Nutzer** → hinzufügen, Rolle „Administrator“.
+2. **Token generieren** → App „MedArbeiter One“ → Rechte:
+   `ads_management`, `ads_read`, `business_management`, `pages_show_list`,
+   `pages_manage_metadata`, `pages_read_engagement`, `pages_messaging`,
+   `instagram_basic`, `instagram_manage_comments`, `instagram_manage_messages`
+3. Token in `.env.local`, `META_AD_ACCOUNT_ID` ist nur die Vorauswahl:
+   ```
+   META_ACCESS_TOKEN=EAA...
+   META_AD_ACCOUNT_ID=act_123456789
+   ```
+4. **Assets zuweisen** – nicht im Dialog anklicken, sondern:
+   ```bash
+   bun run assign     # alle eigenen + Kundenkonten und -seiten an den System-Nutzer
+   ```
+   Nach jedem neuen Kunden erneut laufen lassen. Im Dialog ginge auch
+   „Alle auswählen“, aber eben pro Asset-Typ und pro Neukunde wieder.
 
-## Learn More
+## Was der Skeleton kann
 
-To learn more about Next.js, take a look at the following resources:
+- **/** – alle Werbekonten und Seiten, eigene wie von Kunden freigegebene
+  (`owned_*` + `client_*`). Klick auf ein Konto → dessen Kampagnen
+- **/campaigns** – Kampagnenliste + Formular: eine Kampagne → eine Anzeigengruppe
+  → eine Anzeige pro hochgeladener Datei. Bilder gehen an `/adimages`, Videos an
+  `/advideos` (mit Warten auf die Verarbeitung + Thumbnail).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Alles wird **PAUSIERT** angelegt. Scharfschalten passiert bewusst im Ads Manager,
+solange hier keine Freigabe-Logik existiert.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Sonderkategorie „Beschäftigung“ ist vorausgewählt – bei Stellenanzeigen Pflicht.
+Sie deaktiviert Alters-Targeting, das schickt die App dann gar nicht erst mit.
 
-## Deploy on Vercel
+## Nicht gebaut (bewusst)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+| Thema | Wann bauen |
+|---|---|
+| Kommentare & DMs (Business Suite) | Stage 2 – erst wenn die Meta-Inbox wirklich nicht reicht |
+| Seiten-Profil bearbeiten (Bild, Bio) | ändert sich 2× im Jahr, Aufwand > Nutzen |
+| Mehrere Formate in einem Creative | wenn Feed und Reels getrennt optimiert werden sollen |
+| Resumable Upload | wenn Videos > 500 MB auftauchen |
+| Auth / Mehrbenutzer | wenn die App nicht mehr nur lokal läuft |
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Achtung
+
+`META_APP_SECRET` in `.env.local` wurde im Klartext im Chat geteilt – im
+[App-Dashboard](https://developers.facebook.com/apps/1078817644484423/settings/basic/)
+zurücksetzen.
