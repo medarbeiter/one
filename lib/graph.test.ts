@@ -71,7 +71,7 @@ test("Rate-Limit wird wiederholt, Berechtigungsfehler nicht", async () => {
     n++;
     return { status: 403, body: { error: { code: 200, message: "no perm" } } };
   });
-  expect(graph("y")).rejects.toThrow("no perm");
+  await expect(graph("y")).rejects.toThrow("no perm");
   expect(n).toBe(1);
 });
 
