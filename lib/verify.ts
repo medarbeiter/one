@@ -8,7 +8,7 @@ import { PLACEMENTS } from "./targeting";
 export type Check = { label: string; ok: boolean; detail?: string };
 export type Intent = {
   formIds: Record<string, string>;
-  radiusKm: number;
+  radiusKm: Record<string, number>;
   adCount: number;
 };
 
@@ -38,7 +38,7 @@ export function checkCampaign(tree: any, intent: Intent): Check[] {
   const badRadius = sets
     .filter(
       (s: any) =>
-        s.targeting?.geo_locations?.custom_locations?.[0]?.radius !== intent.radiusKm,
+        s.targeting?.geo_locations?.custom_locations?.[0]?.radius !== intent.radiusKm[s.name],
     )
     .map((s: any) => s.name);
 
@@ -60,7 +60,7 @@ export function checkCampaign(tree: any, intent: Intent): Check[] {
       detail: badPlacement.join(", ") || undefined,
     },
     {
-      label: `Radius is ${intent.radiusKm} km`,
+      label: "Radius matches for every ad set",
       ok: badRadius.length === 0,
       detail: badRadius.join(", ") || undefined,
     },

@@ -24,8 +24,13 @@ export async function launchAction(
   const { customers } = await listCustomers();
   const customer = customers.find((c) => c.id === input.customerId);
   if (!customer?.page) return { error: "Pick a customer with a connected page." };
-  const adAccount = input.adAccount ?? customer.adAccounts[0]?.id;
+  const owned = customer.adAccounts.map((a) => a.id);
+  const adAccount = input.adAccount ?? owned[0];
   if (!adAccount) return { error: `${customer.name} has no ad account assigned.` };
+  // Ein Client-Feld darf nur auf ein Konto zeigen, das dem Kunden auch gehört –
+  // sonst kann eine POST direkt auf ein fremdes Werbekonto zielen.
+  if (!owned.includes(adAccount))
+    return { error: "That ad account does not belong to the selected customer." };
 
   if (!input.adSets.length) return { error: "Add at least one ad set." };
   for (const s of input.adSets) {
@@ -35,19 +40,27 @@ export async function launchAction(
   if (input.spendCapCents !== undefined && input.spendCapCents < 10000)
     return { error: "The spend cap must be at least 100 €." };
 
+  let receipt: Receipt;
   try {
-    const receipt = await launch({ ...input, adAccount, pageId: customer.page.id });
+    receipt = await launch({ ...input, adAccount, pageId: customer.page.id });
     updateTag("campaigns");
-    const checks = receipt.campaignId
-      ? await verifyCampaign(receipt.campaignId, {
-          formIds: Object.fromEntries(input.adSets.map((s) => [s.name, s.formId])),
-          radiusKm: input.adSets[0].radiusKm,
-          adCount: input.adSets.reduce((n, s) => n + s.videos.length, 0),
-        })
-      : undefined;
-    return { receipt, checks };
   } catch (e) {
     return { error: (e as Error).message };
+  }
+
+  // Verifikation ist Best-Effort: die Kampagne existiert bei Meta bereits und
+  // die Receipt ist der einzige Griff für den Retry-Pfad – ein Lesefehler
+  // danach darf sie nicht verschlucken.
+  if (!receipt.campaignId) return { receipt };
+  try {
+    const checks = await verifyCampaign(receipt.campaignId, {
+      formIds: Object.fromEntries(input.adSets.map((s) => [s.name, s.formId])),
+      radiusKm: Object.fromEntries(input.adSets.map((s) => [s.name, s.radiusKm])),
+      adCount: input.adSets.reduce((n, s) => n + s.videos.length, 0),
+    });
+    return { receipt, checks };
+  } catch (e) {
+    return { receipt, error: (e as Error).message };
   }
 }
 

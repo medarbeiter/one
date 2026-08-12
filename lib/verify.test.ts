@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { checkCampaign } from "./verify";
 
-const intent = { formIds: { Ads: "f1" }, radiusKm: 17, adCount: 2 };
+const intent = { formIds: { Ads: "f1" }, radiusKm: { Ads: 17 }, adCount: 2 };
 
 const good = {
   status: "PAUSED",
@@ -54,4 +54,19 @@ test("extra placements fail the placement check", () => {
   const bad = structuredClone(good);
   bad.adsets.data[0].targeting.facebook_positions.push("marketplace");
   expect(checkCampaign(bad as any, intent).find((c) => c.label.includes("Placements"))!.ok).toBe(false);
+});
+
+test("two ad sets with different radii both pass when each matches its own intent", () => {
+  const twoSets = structuredClone(good);
+  const second = structuredClone(good.adsets.data[0]);
+  second.name = "More Ads";
+  second.targeting.geo_locations.custom_locations[0].radius = 30;
+  twoSets.adsets.data.push(second);
+  const twoIntent = {
+    formIds: { Ads: "f1", "More Ads": "f1" },
+    radiusKm: { Ads: 17, "More Ads": 30 },
+    adCount: 4,
+  };
+  const check = checkCampaign(twoSets as any, twoIntent).find((c) => c.label.includes("Radius"))!;
+  expect(check.ok).toBe(true);
 });
