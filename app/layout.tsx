@@ -6,6 +6,7 @@ import { Poppins } from "next/font/google";
 import { listCustomers } from "@/lib/customers";
 import { ScopeSwitcher } from "./shell/scope-switcher";
 import { Sidebar } from "./shell/sidebar";
+import { TokenHealth } from "./shell/token-health";
 
 // Nur für Überschriften und Kennzahlen – Fließtext bleibt System-UI.
 const poppins = Poppins({
@@ -22,7 +23,14 @@ export const metadata: Metadata = {
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {
   // Einmal laden, für Scope-Switcher und Token-Status gemeinsam nutzen.
-  const { customers } = await listCustomers();
+  const { customers, errors } = await listCustomers();
+  const issues = customers.flatMap((c) => c.issues);
+  // Ein toter Token macht alles unbrauchbar; fehlende Freigaben nur einzelne Kunden.
+  const state = errors.some((e) => e.kind === "token")
+    ? "dead"
+    : errors.length || issues.length
+      ? "degraded"
+      : "ok";
 
   return (
     <html lang="en" className={`${poppins.variable} h-full antialiased`}>
@@ -35,6 +43,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
             <Suspense fallback={<div className="h-9 w-64 shrink-0" />}>
               <ScopeSwitcher customers={customers.map((c) => ({ id: c.id, name: c.name }))} />
             </Suspense>
+            <TokenHealth state={state} detail={[...errors.map((e) => e.message), ...issues]} />
           </div>
         </header>
         <div className="flex min-h-0 flex-1">
