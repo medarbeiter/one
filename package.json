@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "assign": "bun --env-file=.env.local scripts/assign-assets.ts"
+    "assign": "bun --env-file=.env.local scripts/assign-assets.ts",
+    "customers": "bun --env-file=.env.local scripts/customers.ts"
   },
   "dependencies": {
     "@heroui/react": "^3.2.4",
