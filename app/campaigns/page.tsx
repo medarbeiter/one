@@ -112,17 +112,17 @@ export default async function CampaignsPage({ searchParams }: PageProps<"/campai
                     </Table.Cell>
                     <Table.Cell className="text-ink-500 text-xs">{c.objective}</Table.Cell>
                     <Table.Cell>
-                      <BudgetField id={c.id} cents={Number(c.daily_budget ?? 0)} />
+                      <BudgetField
+                        id={c.id}
+                        cents={c.daily_budget !== undefined ? Number(c.daily_budget) : undefined}
+                      />
                     </Table.Cell>
-                    <Table.Cell className="tabular-nums">
-                      {money(Number(c.insights?.spend) || undefined)}
-                    </Table.Cell>
+                    {/* Number(...) statt "|| undefined": ein echtes €0-Spend ist kein Datenausfall. */}
+                    <Table.Cell className="tabular-nums">{money(Number(c.insights?.spend))}</Table.Cell>
                     <Table.Cell className="tabular-nums">
                       {c.insights?.impressions ?? "—"}
                     </Table.Cell>
-                    <Table.Cell className="tabular-nums">
-                      {money(Number(c.insights?.cpm) || undefined)}
-                    </Table.Cell>
+                    <Table.Cell className="tabular-nums">{money(Number(c.insights?.cpm))}</Table.Cell>
                     <Table.Cell className="tabular-nums">
                       {money(costPerResult(c.insights))}
                     </Table.Cell>

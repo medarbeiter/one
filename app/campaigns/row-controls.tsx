@@ -62,25 +62,31 @@ export function StatusSwitch({ id, name, status }: { id: string; name: string; s
   );
 }
 
-export function BudgetField({ id, cents }: { id: string; cents: number }) {
+export function BudgetField({ id, cents }: { id: string; cents?: number }) {
   const [pending, start] = useTransition();
+  // Ohne daily_budget (z. B. Lifetime-Budget) gibt es nichts zu editieren –
+  // ein leeres Feld mit 0 vorzubelegen würde ein Tagesbudget vortäuschen,
+  // das die Kampagne nie hatte.
+  const [value, setValue] = useState((cents ?? 0) / 100);
+
+  if (cents === undefined) return <span className="text-ink-500 text-xs">—</span>;
 
   return (
     <NumberField
       aria-label="Daily budget"
-      defaultValue={cents / 100}
+      value={value}
+      onChange={setValue}
       minValue={1}
       step={1}
       formatOptions={{ style: "currency", currency: "EUR" }}
       isDisabled={pending}
       // Erst beim Verlassen des Feldes schreiben – nicht bei jedem Tastendruck.
-      onBlur={(e) => {
-        const next = Number(
-          (e.target as HTMLInputElement).value.replace(/[^0-9.,]/g, "").replace(",", "."),
-        );
-        if (next * 100 === cents) return;
+      // value kommt bereits geparst von NumberField, kein Parsen des
+      // formatierten Strings (Tausendertrennzeichen, Locale) nötig.
+      onBlur={() => {
+        if (!Number.isFinite(value) || Math.round(value * 100) === cents) return;
         start(async () => {
-          const r = await setBudgetAction(id, next);
+          const r = await setBudgetAction(id, value);
           if (r.error) toast.danger(`Could not save budget: ${r.error}`);
         });
       }}
