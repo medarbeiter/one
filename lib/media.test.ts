@@ -158,6 +158,21 @@ test("two files that collide after stripping keep distinct ad names", () => {
   expect(second).toBe("Laura 1 (2)");
 });
 
+test("die Normalisierung nimmt uniqueName nicht die Arbeit ab", () => {
+  // In dieser Reihenfolge ruft ad-set-block.tsx es auf, und nur so herum stimmt
+  // die Entdopplung: uniqueName sieht die endgültige Schreibweise. Die
+  // Normalisierung erzeugt dabei absichtlich *mehr* Kollisionen – "Lea1.mov",
+  // "lea 1.mp4" und "LEA  1.MOV" laufen alle auf "Lea 1" zu –, also muss sie
+  // hinterher greifen, sonst trügen zwei Anzeigen denselben Namen.
+  const taken = new Set<string>();
+  const names = ["Lea 1.mov", "Lea 1.mp4", "lea1.MOV"].map((f) => {
+    const name = uniqueName(normalizeAdName(f), taken);
+    taken.add(name);
+    return name;
+  });
+  expect(names).toEqual(["Lea 1", "Lea 1 (2)", "Lea 1 (3)"]);
+});
+
 test("dieselbe Person bekommt aus jeder Schreibweise denselben Namen", () => {
   for (const f of ["Lea1.mov", "lea1.MP4", "Lea 1.mov", "LEA  1.mov", "lea_1.mp4"])
     expect(normalizeAdName(f)).toBe("Lea 1");
