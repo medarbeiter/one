@@ -7,12 +7,20 @@ import { expect, test } from "bun:test";
 process.env.META_ACCESS_TOKEN = "TEST";
 process.env.META_AD_ACCOUNT_ID = "act_1";
 
-const { graph, actId, mapGraphError, GraphError } = await import("./graph");
+const { graph, actId, mapGraphError, GraphError, encodeParams } = await import("./graph");
 
 test("Konto-IDs bekommen das act_-Präfix, doppelt aber nicht", () => {
   expect(actId("61593202229799")).toBe("act_61593202229799");
   expect(actId("act_61593202229799")).toBe("act_61593202229799");
   expect(actId("")).toBe("");
+});
+
+test("Parameter werden für Graph kodiert: Objekte als JSON, leere Werte gar nicht", () => {
+  const p = encodeParams({ a: 1, t: { age_min: 25 }, skip: undefined, none: null });
+  expect(p.get("a")).toBe("1");
+  expect(p.get("t")).toBe('{"age_min":25}');
+  expect(p.has("skip")).toBe(false);
+  expect(p.has("none")).toBe(false);
 });
 
 test("Fehlercodes werden auf Handlungsoptionen abgebildet", () => {

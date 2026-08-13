@@ -56,23 +56,68 @@ export function mapGraphError(err: any, status = 0): GraphFailure {
   return { kind: "unknown", message, retryable: status >= 500 };
 }
 
+/**
+ * Ein paar Seiten-Edges (leadgen_forms, Beiträge, Konversationen) lehnen den
+ * System-User-Token ab: "(#190) This method must be called with a Page Access
+ * Token". Getauscht wird mit ebendiesem Token; das Ergebnis hält so lange wie
+ * er. Deshalb nur im Prozess gemerkt – Tokens gehören nicht in den Datei-Cache.
+ */
+const pageTokens = new Map<string, Promise<string>>();
+
+export function pageToken(pageId: string): Promise<string> {
+  let pending = pageTokens.get(pageId);
+  if (pending) return pending;
+
+  pending = graph<{ access_token?: string }>(pageId, { params: { fields: "access_token" } })
+    .then(({ access_token }) => {
+      // 200 ohne Token heißt: System-User hat die Seite nicht zugewiesen.
+      if (!access_token)
+        throw new GraphError({
+          kind: "permission",
+          message: `No page access token for page ${pageId} – assign the system user to this page in the Business Manager (task: MANAGE or LEADS).`,
+          retryable: false,
+        });
+      return access_token;
+    })
+    .catch((err) => {
+      pageTokens.delete(pageId); // sonst brennt ein einmaliger Fehlschlag ein
+      throw err;
+    });
+
+  pageTokens.set(pageId, pending);
+  return pending;
+}
+
 export type GraphOpts = {
   method?: "GET" | "POST" | "DELETE";
   params?: Record<string, unknown>;
   body?: FormData;
+  /** Seiten-ID: fragt mit deren Seiten-Token statt dem System-Token. */
+  asPage?: string;
   /** Sekunden. Ohne diesen Wert wird nicht gecacht (richtig für Mutationen). */
   revalidate?: number;
   tags?: string[];
 };
 
-export async function graph<T = any>(path: string, opts: GraphOpts = {}): Promise<T> {
-  const { method = "GET", params = {}, body, revalidate, tags } = opts;
-  const url = new URL(`${API}/${path}`);
-  url.searchParams.set("access_token", token());
+/**
+ * Graphs Regel für Parameter: alles ist ein String, Objekte sind JSON. An einer
+ * Stelle, damit ein Creative im Batch dieselbe Kodierung erfährt wie einzeln –
+ * zwei Fassungen davon würden erst bei Meta auseinanderlaufen.
+ */
+export function encodeParams(params: Record<string, unknown>): URLSearchParams {
+  const out = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
     if (v === undefined || v === null) continue;
-    url.searchParams.set(k, typeof v === "object" ? JSON.stringify(v) : String(v));
+    out.set(k, typeof v === "object" ? JSON.stringify(v) : String(v));
   }
+  return out;
+}
+
+export async function graph<T = any>(path: string, opts: GraphOpts = {}): Promise<T> {
+  const { method = "GET", params = {}, body, asPage, revalidate, tags } = opts;
+  const url = new URL(`${API}/${path}`);
+  url.searchParams.set("access_token", asPage ? await pageToken(asPage) : token());
+  for (const [k, v] of encodeParams(params)) url.searchParams.set(k, v);
 
   const init: RequestInit =
     revalidate === undefined
