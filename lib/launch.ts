@@ -440,11 +440,15 @@ async function batchAds(ctx: Ctx, jobs: AdJob[]): Promise<void> {
       // Fehler – deshalb hier stehen lassen und benennen. Route über fail(), damit
       // adSetIndex korrekt mitgeführt wird, auch wenn der Chunk Anzeigen aus
       // mehreren Anzeigengruppen enthält.
+      // Nicht jeder Wurf ist ein Error (z. B. ein geworfener String) – ohne
+      // diesen Fallback stünde hier "undefined" statt der eigentlichen Ursache.
+      // Das sichere Verhalten (nicht nachholen, benennen) bleibt unverändert.
+      const cause = e instanceof Error ? e.message : String(e);
       for (const job of chunk) {
         fail(
           ctx,
           job,
-          `${(e as Error).message} — diese Anzeigen wurden möglicherweise trotzdem erstellt. Prüfe die Anzeigengruppe, bevor du sie erneut anlegst.`,
+          `${cause} — diese Anzeigen wurden möglicherweise trotzdem erstellt. Prüfe die Anzeigengruppe, bevor du sie erneut anlegst.`,
         );
         ctx.stepDone();
       }

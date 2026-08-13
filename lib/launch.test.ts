@@ -740,6 +740,20 @@ test("ein Baufehler vor dem Batch-Aufruf wird nicht als abgerissen gemeldet", as
   expect(error!.message).not.toContain("möglicherweise");
 });
 
+test("ein nicht-Error-Wurf im abgerissenen Zweig verliert nicht die Ursache", async () => {
+  // Ein geworfener String hat kein .message – ohne Fallback stünde hier
+  // "undefined" statt der eigentlichen Ursache. Das sichere Verhalten (nicht
+  // nachholen, benennen) ist davon unabhängig und bleibt gleich.
+  const b = async () => {
+    throw "socket hang up";
+  };
+  const { g } = fakeGraph();
+  const r = await launch(manyAds(9), { graph: g, batch: b as any });
+  expect(r.failed).toHaveLength(9);
+  expect(r.failed[0].error).toContain("socket hang up");
+  expect(r.failed[0].error).not.toContain("undefined");
+});
+
 test("der Fortschritt zählt weiter in Anzeigen", async () => {
   const seen: LaunchProgress[] = [];
   const { b } = fakeBatch();
