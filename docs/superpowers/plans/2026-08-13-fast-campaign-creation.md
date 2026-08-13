@@ -94,7 +94,22 @@ test("Kürzel aus der Liste behalten ihre Großschreibung, der Rest nicht", () =
 test("ein Name, der zu nichts normalisiert, behält seinen Stamm", () => {
   expect(normalizeAdName("___.mov")).toBe("___");
 });
+
+test("uniqueName trennt auch das, was die Normalisierung zusammengeführt hat", () => {
+  // Die Normalisierung erzeugt Kollisionen, die es vorher nicht gab: drei
+  // Dateien, ein Name. Erst uniqueName dahinter macht daraus wieder drei.
+  const taken = new Set<string>();
+  const named = ["Lea1.mov", "lea 1.mp4", "LEA  1.MOV"].map((f) => {
+    const n = uniqueName(normalizeAdName(f), taken);
+    taken.add(n);
+    return n;
+  });
+  expect(named).toEqual(["Lea 1", "Lea 1 (2)", "Lea 1 (3)"]);
+});
 ```
+
+The last test's expected suffixes are whatever `uniqueName` already produces — read
+it before writing the expectation rather than assuming this format.
 
 - [ ] **Step 2: Run tests and verify they fail**
 
@@ -341,6 +356,7 @@ test("Batch-Sub-Requests tragen Body, Name und Abhängigkeit", async () => {
         depends_on: "cr_0",
         body: { creative: { creative_id: "{result=cr_0:$.id}" } },
       },
+      { relative_url: "act_1/campaigns" },
     ]);
   } finally {
     globalThis.fetch = original;
@@ -358,8 +374,11 @@ test("Batch-Sub-Requests tragen Body, Name und Abhängigkeit", async () => {
   expect(new URLSearchParams(sent[1].body).get("creative")).toBe(
     '{"creative_id":"{result=cr_0:$.id}"}',
   );
-  // Ein GET ohne Body schickt auch keinen mit.
-  expect(sent[0]).not.toHaveProperty("body", undefined);
+  // Was nicht gesetzt wurde, taucht auch nicht auf: der abhängige Sub-Request
+  // bleibt unbenannt, und der GET ohne Body schickt gar keinen mit.
+  expect(sent[1]).not.toHaveProperty("name");
+  expect(sent[0]).not.toHaveProperty("depends_on");
+  expect(sent[2]).not.toHaveProperty("body");
 });
 ```
 
@@ -404,8 +423,15 @@ git commit -m "feat: batch sub-requests can carry bodies and result references"
 ### Task 5: Split the ads phase out of `launch()` — no behaviour change
 
 `launch()`'s ad loop becomes a flat list of jobs plus one `createAd()`. Still
-sequential, still the same calls in the same order. This exists so Tasks 6–8 change
-one small function each instead of a nested loop.
+sequential, still one `/adcreatives` + `/ads` pair per ad. This exists so Tasks 6–8
+change one small function each instead of a nested loop.
+
+The flat list is not order-neutral, and that is deliberate: spec §3.1 requires the
+ads phase to run across **all** ad sets at once, so all ad sets are created first
+and only then any ad. With a single ad set — the shape the agency actually runs —
+nothing moves. With two or more, the call order, the `onProgress` order and the
+order of `receipt.failed` all change, and the tests must pin the new order rather
+than the old interleaving.
 
 **Files:**
 - Modify: `lib/launch.ts:266-403`
@@ -757,7 +783,7 @@ test("ab neun Anzeigen wird gebündelt, darunter nicht", async () => {
 
   const nine = fakeBatch();
   await launch(manyAds(9), { graph: fakeGraph().g, batch: nine.b });
-  expect(nine.sent).not.toHaveLength(0);
+  expect(nine.sent).toHaveLength(2); // 5 + 4
 });
 
 test("zwanzig Anzeigen sind vier Aufrufe zu je fünf Anzeigen", async () => {
@@ -800,32 +826,43 @@ test("ein gescheitertes Creative ist ein Fehler und nicht zwei", async () => {
   // Meta liefert für den abhängigen Sub-Request dann null, und unwrapBatchItem
   // macht daraus "timed out" – das darf nicht als zweiter Fehler derselben
   // Anzeige in der Receipt landen.
-  const b = async <T = any>(reqs: any[]): Promise<PromiseSettledResult<T>[]> =>
-    reqs.map((r, i) =>
-      i === 0
+  //
+  // Der Zähler ist nicht kosmetisch: `i` ist pro Aufruf lokal, neun Anzeigen
+  // sind zwei Chunks, und ohne ihn scheitert das erste Paar *jedes* Chunks.
+  let call = 0;
+  const b = async <T = any>(reqs: any[]): Promise<PromiseSettledResult<T>[]> => {
+    const first = call++ === 0;
+    return reqs.map((r, i) =>
+      first && i === 0
         ? { status: "rejected" as const, reason: new Error("creative kaputt") }
-        : i === 1
+        : first && i === 1
           ? { status: "rejected" as const, reason: new Error("Batch sub-request timed out") }
-          : { status: "fulfilled" as const, value: { id: `x-${i}` } as T },
+          : { status: "fulfilled" as const, value: { id: `x-${call}-${i}` } as T },
     );
+  };
   const r = await launch(manyAds(9), { graph: fakeGraph().g, batch: b });
   expect(r.failed).toEqual([
-    { adSetName: "Ads", adName: "a0.mp4", error: "creative kaputt" },
+    { adSetIndex: 0, adSetName: "Ads", adName: "a0.mp4", error: "creative kaputt" },
   ]);
   expect(r.adSets[0].adIds).toHaveLength(8);
 });
 
 test("eine gescheiterte Anzeige nach heilem Creative steht mit ihrem Fehler da", async () => {
-  const b = async <T = any>(reqs: any[]): Promise<PromiseSettledResult<T>[]> =>
-    reqs.map((r, i) =>
-      i === 1
+  // Wieder nur im ersten Chunk – siehe den Test darüber.
+  let call = 0;
+  const b = async <T = any>(reqs: any[]): Promise<PromiseSettledResult<T>[]> => {
+    const first = call++ === 0;
+    return reqs.map((r, i) =>
+      first && i === 1
         ? { status: "rejected" as const, reason: new Error("anzeige kaputt") }
-        : { status: "fulfilled" as const, value: { id: `x-${i}` } as T },
+        : { status: "fulfilled" as const, value: { id: `x-${call}-${i}` } as T },
     );
+  };
   const r = await launch(manyAds(9), { graph: fakeGraph().g, batch: b });
   expect(r.failed).toEqual([
-    { adSetName: "Ads", adName: "a0.mp4", error: "anzeige kaputt" },
+    { adSetIndex: 0, adSetName: "Ads", adName: "a0.mp4", error: "anzeige kaputt" },
   ]);
+  expect(r.adSets[0].adIds).toHaveLength(8);
 });
 
 test("der Fortschritt zählt weiter in Anzeigen", async () => {
@@ -1067,8 +1104,15 @@ test("beide Wege liefern dieselbe Quittung", async () => {
 
   // Achtmal ist unter der Schwelle (Pool), neunmal darüber (Batch) – verglichen
   // wird die Form, nicht die Anzahl.
-  const pool = shape(await launch(manyAds(8), { graph: fakeGraph().g, batch: fakeBatch().b }));
-  const batched = shape(await launch(manyAds(9), { graph: fakeGraph().g, batch: fakeBatch().b }));
+  const poolBatch = fakeBatch();
+  const batchedBatch = fakeBatch();
+  const pool = shape(await launch(manyAds(8), { graph: fakeGraph().g, batch: poolBatch.b }));
+  const batched = shape(await launch(manyAds(9), { graph: fakeGraph().g, batch: batchedBatch.b }));
+
+  // Ohne das hier prüft der Test nur, dass zweimal dasselbe herauskommt – und
+  // bliebe grün, wenn beide Läufe denselben Weg genommen hätten.
+  expect(poolBatch.sent).toHaveLength(0);
+  expect(batchedBatch.sent).toHaveLength(2);
 
   expect(pool.campaign).toBe(true);
   expect(batched.campaign).toBe(true);
