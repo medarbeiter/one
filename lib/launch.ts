@@ -327,6 +327,25 @@ async function createAd(ctx: Ctx, job: AdJob): Promise<void> {
   }
 }
 
+/**
+ * Drei Anzeigen gleichzeitig. Nicht mehr, weil derselbe Weg auch der Rückfall
+ * für einen gescheiterten Batch ist – und der scheitert im Zweifel an einem
+ * Rate-Limit, in das hineinzurennen die Sache nicht besser macht.
+ */
+const POOL = 3;
+
+/** Bis zu POOL Anzeigen gleichzeitig, über alle Ad Sets hinweg – ein
+ * gemeinsamer Zähler statt fester Blöcke, damit ein früh fertiger Worker
+ * sofort den nächsten Job übernimmt, statt auf seinen eigenen Block zu warten. */
+async function poolAds(ctx: Ctx, jobs: AdJob[]): Promise<void> {
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(POOL, jobs.length) }, async () => {
+      while (next < jobs.length) await createAd(ctx, jobs[next++]);
+    }),
+  );
+}
+
 export async function launch(
   input: LaunchInput,
   deps: LaunchDeps = {},
@@ -424,7 +443,7 @@ export async function launch(
     for (const ad of set.ads) jobs.push({ set, entry, ad });
   }
 
-  for (const job of jobs) await createAd(ctx, job);
+  await poolAds(ctx, jobs);
 
   return receipt;
 }

@@ -208,7 +208,7 @@ test("a split ad is happy with a single body and headline", () => {
 
 // --------------------------------------------------------------------- launch
 
-function fakeGraph(fail?: (path: string, n: number) => boolean) {
+function fakeGraph(fail?: (path: string, n: number, params: any) => boolean) {
   let n = 0;
   const calls: { path: string; params: any }[] = [];
   // Generisch wie `graph()` selbst getypt, sonst weist TS die Fake-Funktion
@@ -216,7 +216,7 @@ function fakeGraph(fail?: (path: string, n: number) => boolean) {
   const g = async <T = any>(path: string, opts: any = {}): Promise<T> => {
     n++;
     calls.push({ path, params: opts.params });
-    if (fail?.(path, n)) throw new Error("boom");
+    if (fail?.(path, n, opts.params)) throw new Error("boom");
     return { id: `${path.split("/").pop()}-${n}` } as T;
   };
   return { g, calls };
@@ -292,8 +292,9 @@ test("the campaign name never appears on an ad or its creative", async () => {
 });
 
 test("a failing ad is recorded by ad name without losing the ids already created", async () => {
-  // 1 campaign, 2 adset, 3 creative, 4 ad, 5 creative, 6 ad -> fail the last
-  const { g } = fakeGraph((path, n) => path.endsWith("/ads") && n === 6);
+  // Nach Namen und nicht nach Aufrufnummer: welcher Aufruf der sechste ist,
+  // hängt am Weg, das Scheitern der zweiten Anzeige nicht.
+  const { g } = fakeGraph((path, _n, p) => path.endsWith("/ads") && p?.name === "b.mp4");
   const r = await launch(oneAdSet, { graph: g });
   expect(r.campaignId).toBeTruthy();
   expect(r.adSets[0].adIds).toHaveLength(1);
@@ -362,6 +363,12 @@ test("ads run as one phase across all ad sets, not interleaved per ad set", asyn
   // verschachtelt. Nur so können in Task 7 Anzeigen aus verschiedenen
   // Anzeigengruppen denselben Batch-Chunk teilen (Spec §3.1). Dieser Test hält die
   // Reihenfolge fest, damit eine spätere Änderung sie nicht unbemerkt wieder kippt.
+  //
+  // Seit dem Pool (Task 6) ist die genaue Verzahnung von adcreatives- und
+  // ads-Aufrufen Sache von POOL gleichzeitigen Anzeigen und nicht mehr eins zu
+  // eins je Anzeige vorhersagbar – das war ohnehin nie das Versprechen. Was
+  // bleibt: beide Gruppen vollständig vor der ersten Anzeige, und die Anzeigen
+  // selbst in Eingabereihenfolge über beide Gruppen hinweg.
   const twoAdSetsTwoAdsEach = {
     ...twoAdSets,
     adSets: [
@@ -373,19 +380,10 @@ test("ads run as one phase across all ad sets, not interleaved per ad set", asyn
   await launch(twoAdSetsTwoAdsEach, { graph: g });
 
   const paths = calls.map((c) => c.path.split("/").pop());
-  expect(paths).toEqual([
-    "campaigns",
-    "adsets",
-    "adsets",
-    "adcreatives",
-    "ads",
-    "adcreatives",
-    "ads",
-    "adcreatives",
-    "ads",
-    "adcreatives",
-    "ads",
-  ]);
+  expect(paths.slice(0, 3)).toEqual(["campaigns", "adsets", "adsets"]);
+  expect(paths.slice(3).every((p) => p === "adcreatives" || p === "ads")).toBe(true);
+  expect(paths.filter((p) => p === "adcreatives")).toHaveLength(4);
+  expect(paths.filter((p) => p === "ads")).toHaveLength(4);
   // Beide Anzeigengruppen stehen, bevor die erste Anzeige entsteht — und danach
   // kommen erst alle Anzeigen der ersten, dann alle der zweiten Gruppe.
   const adNames = calls.filter((c) => c.path.endsWith("/ads")).map((c) => c.params.name);
@@ -400,14 +398,46 @@ test("an ad-set-level failure lands in receipt.failed before a later ad-level fa
   // zuerst in der Receipt, obwohl die erste Gruppe im Input vorn steht — genau
   // die Umkehrung, die Spec §3.1 verlangt. Ein späterer Task darf das nicht
   // unbemerkt wieder umdrehen.
+  //
+  // Nach Namen und nicht nach Aufrufnummer: im Anzeigen-Pool ist die Reihenfolge
+  // der Aufrufe nicht mehr eins zu eins vorhersagbar.
   const { g } = fakeGraph(
-    (path, n) => (path.endsWith("/adsets") && n === 3) || (path.endsWith("/ads") && n === 7),
+    (path, _n, p) =>
+      (path.endsWith("/adsets") && p?.name === "Ads – Dresden") ||
+      (path.endsWith("/ads") && p?.name === "b.mp4"),
   );
   const r = await launch(twoAdSets, { graph: g });
   expect(r.failed).toEqual([
     { adSetName: "Ads – Dresden", adName: "c.mp4", error: "boom" },
     { adSetName: "Ads", adName: "b.mp4", error: "boom" },
   ]);
+});
+
+test("Anzeigen laufen zu dritt, nicht nacheinander", async () => {
+  let open = 0;
+  let peak = 0;
+  const g = async <T = any>(path: string, opts: any = {}): Promise<T> => {
+    if (path.endsWith("/adcreatives")) {
+      open++;
+      peak = Math.max(peak, open);
+      await new Promise((r) => setTimeout(r, 5));
+      open--;
+    }
+    return { id: `${path.split("/").pop()}-x` } as T;
+  };
+  const eight = {
+    ...oneAdSet,
+    adSets: [
+      {
+        ...oneAdSet.adSets[0],
+        ads: Array.from({ length: 8 }, (_, i) => adOf(`a${i}.mp4`, `v${i}`)),
+      },
+    ],
+  };
+  const r = await launch(eight, { graph: g });
+  expect(peak).toBe(3);
+  expect(r.adSets[0].adIds).toHaveLength(8);
+  expect(r.failed).toHaveLength(0);
 });
 
 test("a retry with an existing ad set id skips creating a new ad set", async () => {
@@ -444,8 +474,11 @@ test("progress is reported before each call, and reaches its own total", async (
   // 1 Kampagne + 1 Ad Set + 2 Anzeigen.
   expect(launchSteps(oneAdSet)).toBe(4);
   expect(seen.map((p) => p.total)).toEqual([4, 4, 4, 4]);
-  // Gemeldet wird vor dem Aufruf, also beginnt der Zähler bei 0.
-  expect(seen.map((p) => p.done)).toEqual([0, 1, 2, 3]);
+  // Gemeldet wird vor dem Aufruf, also beginnt der Zähler bei 0. Seit dem Pool
+  // starten beide Anzeigen gleichzeitig (zwei Jobs, POOL erlaubt mindestens
+  // zwei) – keine ist fertig, wenn die andere beginnt, also melden beide
+  // denselben Stand, bevor die erste durch ist.
+  expect(seen.map((p) => p.done)).toEqual([0, 1, 2, 2]);
   expect(seen[0].label).toContain(oneAdSet.campaignName);
   expect(seen[1].label).toContain("Ads");
   expect(seen[2].label).toContain("a.mp4");
@@ -453,11 +486,23 @@ test("progress is reported before each call, and reaches its own total", async (
 });
 
 test("a failed ad still counts as done, so the bar never sticks", async () => {
-  // 1 campaign, 2 adset, 3 creative, 4 ad, 5 creative, 6 ad -> fail the last
-  const { g } = fakeGraph((path, n) => path.endsWith("/ads") && n === 6);
+  // Vier Anzeigen bei einem Pool von drei: der vierte Job startet erst, wenn
+  // einer der ersten drei durch ist – ob geglückt oder gescheitert. Zählte ein
+  // gescheiterter Job nicht als erledigt, bliebe der gemeldete Stand vor dem
+  // Start des vierten Jobs zu niedrig hängen.
+  const four = {
+    ...oneAdSet,
+    adSets: [
+      {
+        ...oneAdSet.adSets[0],
+        ads: [adOf("a.mp4", "v1"), adOf("b.mp4", "v2"), adOf("c.mp4", "v3"), adOf("d.mp4", "v4")],
+      },
+    ],
+  };
+  const { g } = fakeGraph((path, _n, p) => path.endsWith("/ads") && p?.name === "b.mp4");
   const seen: LaunchProgress[] = [];
-  await launch(oneAdSet, { graph: g, onProgress: (p) => seen.push(p) });
-  expect(seen.at(-1)!.done).toBe(launchSteps(oneAdSet) - 1);
+  await launch(four, { graph: g, onProgress: (p) => seen.push(p) });
+  expect(seen.at(-1)!.done).toBe(launchSteps(four) - 1);
 });
 
 test("a whole ad set that fails does not leave its ads hanging in the count", async () => {
