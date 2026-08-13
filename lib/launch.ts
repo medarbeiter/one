@@ -1,38 +1,105 @@
 /**
  * Anlegen einer Kampagne nach dem Standardablauf der Agentur.
- * Die Creative-Form ist aus laufenden Kampagnen abgelesen, nicht aus der Doku:
- * asset_feed_spec trägt nur Text, object_story_spec Video und Formular –
- * beide zusammen in einem Creative. onsite_destinations wird nicht benutzt.
+ *
+ * Zwei Creative-Formen, beide aus laufenden Kampagnen abgelesen und mit
+ * execution_options=['validate_only'] gegen die Graph API geprüft:
+ *
+ * - **UGC** (ein Video): asset_feed_spec trägt nur Text, object_story_spec Video
+ *   und Formular. optimization_type DEGREES_OF_FREEDOM.
+ * - **Split** (9:16 + 1:1): alles liegt in asset_feed_spec, das Formular
+ *   eingeschlossen; object_story_spec trägt nur noch Seite und Instagram-Konto.
+ *   optimization_type PLACEMENT, zwei asset_customization_rules.
+ *
+ * Der UGC-Pfad ist praktisch das gesamte Volumen und bleibt unverändert – die
+ * Verzweigung kostet ein paar Zeilen und schützt den Normalfall davor, für den
+ * selteneren umgebaut zu werden (siehe docs/adr/0001).
  */
+import { PORTRAIT_PLACEMENTS, SQUARE_PLACEMENTS } from "./targeting";
+
+export type FormatAsset =
+  | { kind: "video"; videoId: string; thumbnailUrl?: string; fileName: string }
+  | { kind: "image"; hash: string; fileName: string };
+
+/** UGC ist per Definition ein Video – ein Foto dreht niemand von sich selbst. */
+export type AdInput =
+  | { name: string; type: "ugc"; asset: Extract<FormatAsset, { kind: "video" }> }
+  | { name: string; type: "split"; portrait: FormatAsset; square: FormatAsset };
+
 export type CreativeInput = {
   pageId: string;
   instagramUserId?: string;
-  videoId: string;
-  thumbnailHash?: string;
-  thumbnailUrl?: string;
   formId: string;
   bodies: string[];
   titles: string[];
   description: string;
   callToAction?: string;
+  ad: AdInput;
 };
+
+/**
+ * standard_enhancements ist abgekündigt: Meta lehnt das Feld inzwischen ab
+ * ("Das Feld „Standardoptimierungen“ … ist veraltet. Bitte richte stattdessen
+ * einzelne Features ein."), und zwar jede Anzeigengestaltung, die es mitschickt.
+ * Die Einzelfeatures sind die Übersetzung derselben Absicht: Meta soll nichts
+ * an den Creatives verändern.
+ */
+const CREATIVE_FEATURES = {
+  creative_features_spec: {
+    advantage_plus_creative: { enroll_status: "OPT_OUT" },
+    image_enhancement: { enroll_status: "OPT_OUT" },
+    image_templates: { enroll_status: "OPT_OUT" },
+    image_touchups: { enroll_status: "OPT_OUT" },
+    inline_comment: { enroll_status: "OPT_OUT" },
+    text_optimizations: { enroll_status: "OPT_OUT" },
+  },
+} as const;
+
+const assetKey = (a: FormatAsset) => (a.kind === "video" ? a.videoId : a.hash);
+
+const mediaEntry = (a: FormatAsset, label: string) =>
+  a.kind === "video"
+    ? { video_id: a.videoId, adlabels: [{ name: label }] }
+    : { hash: a.hash, adlabels: [{ name: label }] };
+
+const mediaLabel = (a: FormatAsset, label: string) =>
+  a.kind === "video" ? { video_label: { name: label } } : { image_label: { name: label } };
+
+function adFormats(portrait: FormatAsset, square: FormatAsset): string[] {
+  if (portrait.kind === square.kind)
+    return portrait.kind === "video" ? ["SINGLE_VIDEO"] : ["SINGLE_IMAGE"];
+  // Gemischte Paare sind der ausdrücklich erlaubte Ausnahmefall; in den
+  // laufenden Kampagnen stehen die drei Beispiele dafür genau so da.
+  return ["AUTOMATIC_FORMAT"];
+}
 
 export function buildCreative(i: CreativeInput) {
   if (!i.bodies.length || !i.titles.length)
-    throw new Error("At least one primary text and one headline are required.");
+    throw new Error("Mindestens ein Primärtext und eine Überschrift sind erforderlich.");
   if (i.bodies.length > 5 || i.titles.length > 5)
-    throw new Error("Meta allows at most 5 primary texts and 5 headlines.");
-  if (!i.formId) throw new Error("A lead form must be selected.");
+    throw new Error("Meta erlaubt höchstens 5 Primärtexte und 5 Überschriften.");
+  if (!i.formId) throw new Error("Ein Lead-Formular muss ausgewählt sein.");
+
+  return i.ad.type === "ugc" ? ugcCreative(i, i.ad) : splitCreative(i, i.ad);
+}
+
+function ugcCreative(i: CreativeInput, ad: Extract<AdInput, { type: "ugc" }>) {
+  // DEGREES_OF_FREEDOM verlangt, dass mindestens ein Feld mehr als einen Eintrag
+  // trägt; mit je einem Text lehnt Meta ab ("Anzeigen mit Gestaltungsfreiraum
+  // benötigen mindestens ein Gestaltungsfreiraum-Feld mit mehr als einem Asset").
+  // Die Meldung hier zu werfen ist der Unterschied zwischen einem verständlichen
+  // Hinweis im Assistenten und dem Satz oben mitten im Anlegen.
+  if (i.bodies.length < 2 && i.titles.length < 2)
+    throw new Error(
+      "Eine UGC-Anzeige braucht mindestens zwei Primärtexte oder zwei Überschriften — Meta lehnt je einen ab.",
+    );
 
   return {
     object_story_spec: {
       page_id: i.pageId,
       ...(i.instagramUserId ? { instagram_user_id: i.instagramUserId } : {}),
       video_data: {
-        video_id: i.videoId,
-        ...(i.thumbnailHash
-          ? { image_hash: i.thumbnailHash }
-          : { image_url: i.thumbnailUrl }),
+        video_id: ad.asset.videoId,
+        image_url: ad.asset.thumbnailUrl,
         call_to_action: {
           type: i.callToAction ?? "APPLY_NOW",
           // link ist bei Lead-Ads ein Platzhalter – Meta verlangt ihn trotzdem.
@@ -44,12 +111,98 @@ export function buildCreative(i: CreativeInput) {
       bodies: i.bodies.map((text) => ({ text })),
       titles: i.titles.map((text) => ({ text })),
       descriptions: [{ text: i.description }],
+      // Ohne diese Zeile liest Meta den Feed als Format-Variation und lehnt ab:
+      // "Ein Asset Feed kann nur ein bestimmtes Format haben." Das Format steht
+      // schon in object_story_spec (ein Video); variieren darf nur der Text.
+      optimization_type: "DEGREES_OF_FREEDOM",
     },
-    degrees_of_freedom_spec: {
-      creative_features_spec: {
-        standard_enhancements: { enroll_status: "OPT_OUT" },
-      },
+    degrees_of_freedom_spec: CREATIVE_FEATURES,
+  };
+}
+
+function splitCreative(i: CreativeInput, ad: Extract<AdInput, { type: "split" }>) {
+  const p = assetKey(ad.portrait);
+  const s = assetKey(ad.square);
+  // Aus den Asset-IDs abgeleitet: eindeutig je Inhalt, stabil über Läufe hinweg
+  // und damit testbar – anders als die Zufallsnamen, die der Ads Manager vergibt.
+  const L = {
+    p: `mo_asset_p_${p}`,
+    s: `mo_asset_s_${s}`,
+    bp: `mo_body_p_${p}`,
+    bs: `mo_body_s_${s}`,
+    tp: `mo_title_p_${p}`,
+    ts: `mo_title_s_${s}`,
+    up: `mo_url_p_${p}`,
+    us: `mo_url_s_${s}`,
+  };
+  const cta = i.callToAction ?? "APPLY_NOW";
+  const media = [
+    { asset: ad.portrait, label: L.p },
+    { asset: ad.square, label: L.s },
+  ];
+  const videos = media.filter((m) => m.asset.kind === "video");
+  const images = media.filter((m) => m.asset.kind === "image");
+
+  return {
+    // Kein Medium hier: bei PLACEMENT liegt alles im Asset Feed, und
+    // object_story_spec trägt nur noch die Identität.
+    object_story_spec: {
+      page_id: i.pageId,
+      ...(i.instagramUserId ? { instagram_user_id: i.instagramUserId } : {}),
     },
+    asset_feed_spec: {
+      ...(videos.length
+        ? { videos: videos.map((m) => mediaEntry(m.asset, m.label)) }
+        : {}),
+      ...(images.length
+        ? { images: images.map((m) => mediaEntry(m.asset, m.label)) }
+        : {}),
+      // Beide Regeln bekommen dieselben Texte – variieren soll nur das Medium.
+      // Deshalb trägt jeder Text die Labels *beider* Regeln.
+      bodies: i.bodies.map((text) => ({
+        text,
+        adlabels: [{ name: L.bp }, { name: L.bs }],
+      })),
+      titles: i.titles.map((text) => ({
+        text,
+        adlabels: [{ name: L.tp }, { name: L.ts }],
+      })),
+      // Ohne Label und damit für beide Regeln gültig.
+      descriptions: [{ text: i.description }],
+      call_to_action_types: [cta],
+      call_to_actions: [{ type: cta, value: { lead_gen_form_id: i.formId } }],
+      link_urls: [
+        {
+          website_url: "http://fb.me/",
+          display_url: "",
+          adlabels: [{ name: L.up }, { name: L.us }],
+        },
+      ],
+      ad_formats: adFormats(ad.portrait, ad.square),
+      optimization_type: "PLACEMENT",
+      // Reihenfolge ist bedeutungslos – gebunden wird über die Labels, nicht über
+      // die Position. In den laufenden Kampagnen steht mal die eine, mal die
+      // andere Regel vorn; priority sagt, was gilt.
+      asset_customization_rules: [
+        {
+          priority: 1,
+          customization_spec: PORTRAIT_PLACEMENTS,
+          ...mediaLabel(ad.portrait, L.p),
+          body_label: { name: L.bp },
+          title_label: { name: L.tp },
+          link_url_label: { name: L.up },
+        },
+        {
+          priority: 2,
+          customization_spec: SQUARE_PLACEMENTS,
+          ...mediaLabel(ad.square, L.s),
+          body_label: { name: L.bs },
+          title_label: { name: L.ts },
+          link_url_label: { name: L.us },
+        },
+      ],
+    },
+    degrees_of_freedom_spec: CREATIVE_FEATURES,
   };
 }
 
@@ -65,7 +218,7 @@ export type AdSetInput = {
   bodies: string[];
   titles: string[];
   description: string;
-  videos: { videoId: string; thumbnailUrl?: string; fileName: string }[];
+  ads: AdInput[];
   dailyBudgetCents?: number;
   /** Vorhandenes Ad Set weiterbauen statt neu anlegen (Retry) – sonst entstünde
    * neben dem Original ein zweites Ad Set mit demselben Namen. */
@@ -86,24 +239,118 @@ export type LaunchInput = {
 export type Receipt = {
   campaignId?: string;
   adSets: { id?: string; name: string; adIds: string[]; error?: string }[];
-  failed: { adSetName: string; fileName: string; error: string }[];
+  /** Nach Anzeige geschlüsselt, nicht nach Datei: eine Split-Anzeige hat zwei
+   * Dateien, hochgeladen sind zu diesem Zeitpunkt beide, und gescheitert ist die
+   * Anzeige. Der Retry baut ohnehin je Anzeige nach. */
+  failed: { adSetName: string; adName: string; error: string }[];
 };
 
-export type LaunchDeps = { graph: typeof realGraph };
+/**
+ * Ein Schritt, wie ihn die Oberfläche zeigt. Eine Kampagne mit drei
+ * Anzeigengruppen à fünf Anzeigen sind über dreißig Aufrufe nacheinander, jeder
+ * gegen Metas Server – ohne diese Meldungen steht dort eine Minute lang nur
+ * "Creating…" und niemand kann ein Hängen von normalem Arbeiten unterscheiden.
+ */
+export type LaunchProgress = { label: string; done: number; total: number };
+
+export type LaunchDeps = { graph?: typeof realGraph; onProgress?: (p: LaunchProgress) => void };
+
+/** Jeder Aufruf, den launch() gegen Meta macht – die Nenner der Fortschrittsanzeige. */
+export function launchSteps(input: LaunchInput): number {
+  return (
+    (input.existingCampaignId ? 0 : 1) +
+    input.adSets.reduce((n, s) => n + (s.existingAdSetId ? 0 : 1) + s.ads.length, 0)
+  );
+}
+
+/** Eine Anzeige mit allem, was zu ihrem Anlegen gehört: die Gruppe, aus der ihre
+ * Texte und ihr Formular kommen, und die Quittungszeile, in die ihre Id gehört. */
+type AdJob = { set: AdSetInput; entry: Receipt["adSets"][number]; ad: AdInput };
+
+type Ctx = {
+  graph: typeof realGraph;
+  acct: string;
+  pageId: string;
+  receipt: Receipt;
+  step: (label: string) => void;
+  stepDone: () => void;
+};
+
+/** Einmal gebaut, von beiden Wegen benutzt: einzeln und im Batch geht dieselbe
+ * Nutzlast an Meta, sonst wäre der schnelle Weg nicht derselbe Weg. */
+function creativeParams(ctx: Ctx, { set, ad }: AdJob): Record<string, unknown> {
+  return {
+    // Nur der Name der Anzeige. Der Kampagnenname steht schon auf der Kampagne;
+    // in der Anzeigenliste wiederholt er sich sonst in jeder Zeile und schiebt
+    // genau das aus dem Bild, was man dort sucht.
+    name: ad.name,
+    ...buildCreative({
+      pageId: ctx.pageId,
+      instagramUserId: set.instagramUserId,
+      formId: set.formId,
+      bodies: set.bodies,
+      titles: set.titles,
+      description: set.description,
+      ad,
+    }),
+  };
+}
+
+const adParams = (job: AdJob) => ({
+  name: job.ad.name,
+  adset_id: job.entry.id,
+  status: "ACTIVE",
+});
+
+const fail = (ctx: Ctx, job: AdJob, error: string) =>
+  ctx.receipt.failed.push({ adSetName: job.set.name, adName: job.ad.name, error });
+
+/** Creative und Anzeige einzeln, zwei Aufrufe nacheinander. */
+async function createAd(ctx: Ctx, job: AdJob): Promise<void> {
+  try {
+    ctx.step(`Anzeige „${job.ad.name}“ in „${job.set.name}“ wird erstellt`);
+    const creative = await ctx.graph<{ id: string }>(`${ctx.acct}/adcreatives`, {
+      method: "POST",
+      params: creativeParams(ctx, job),
+    });
+    const created = await ctx.graph<{ id: string }>(`${ctx.acct}/ads`, {
+      method: "POST",
+      params: { ...adParams(job), creative: { creative_id: creative.id } },
+    });
+    job.entry.adIds.push(created.id);
+  } catch (e) {
+    fail(ctx, job, (e as Error).message);
+  } finally {
+    // Auch eine gescheiterte Anzeige ist abgearbeitet – der Fehler steht in der
+    // Receipt, die Anzeige darf deswegen nicht stehen bleiben.
+    ctx.stepDone();
+  }
+}
 
 export async function launch(
   input: LaunchInput,
-  deps: LaunchDeps = { graph: realGraph },
+  deps: LaunchDeps = {},
 ): Promise<Receipt> {
-  const { graph } = deps;
+  const graph = deps.graph ?? realGraph;
   const acct = input.adAccount;
   const receipt: Receipt = { adSets: [], failed: [] };
+
+  const total = launchSteps(input);
+  let done = 0;
+  // Vor dem Aufruf melden, nicht danach: die Meldung soll benennen, worauf
+  // gerade gewartet wird.
+  const step = (label: string) => deps.onProgress?.({ label, done, total });
+  const stepDone = () => {
+    done++;
+  };
+  const ctx: Ctx = { graph, acct, pageId: input.pageId, receipt, step, stepDone };
 
   // Kampagne pausiert, alles darunter aktiv: so startet Metas Prüfung sofort,
   // ohne dass Budget fließt. Genau die Reihenfolge des manuellen Ablaufs.
   if (input.existingCampaignId) {
     receipt.campaignId = input.existingCampaignId;
   } else {
+    step(`Kampagne „${input.campaignName}“ wird erstellt`);
     const campaign = await graph<{ id: string }>(`${acct}/campaigns`, {
       method: "POST",
       params: {
@@ -113,11 +360,20 @@ export async function launch(
         special_ad_categories: ["EMPLOYMENT"],
         special_ad_category_country: ["DE"],
         daily_budget: input.dailyBudgetCents,
+        // Das Budget liegt auf der Kampagne, also gilt ihre Gebotsstrategie für
+        // jedes Ad Set darunter – die des Ad Sets ist dann nur Beiwerk. Ohne
+        // dieses Feld wählt Meta selbst und nahm zuletzt LOWEST_COST_WITH_BID_CAP;
+        // eine Cap-Strategie lehnt jedes Ad Set ohne bid_amount ab ("Gebotswert
+        // erforderlich"). Genau das zeigt der Assistent auch an.
+        bid_strategy: "LOWEST_COST_WITHOUT_CAP",
         ...(input.spendCapCents ? { spend_cap: input.spendCapCents } : {}),
       },
     });
     receipt.campaignId = campaign.id;
+    stepDone();
   }
+
+  const jobs: AdJob[] = [];
 
   for (const set of input.adSets) {
     const entry: Receipt["adSets"][number] = { name: set.name, adIds: [] };
@@ -128,6 +384,7 @@ export async function launch(
       entry.id = set.existingAdSetId;
     } else {
       try {
+        step(`Anzeigengruppe „${set.name}“ wird erstellt`);
         const adset = await graph<{ id: string }>(`${acct}/adsets`, {
           method: "POST",
           params: {
@@ -147,56 +404,27 @@ export async function launch(
           },
         });
         entry.id = adset.id;
+        stepDone();
       } catch (e) {
         entry.error = (e as Error).message;
         // Ohne das hätte der Bediener keinen Weg, das komplette Ad Set über den
         // Retry nachzuholen – genau der Reparaturfall, für den die Receipt
-        // existiert. Jedes Video zählt als "fehlgeschlagen", obwohl keins
+        // existiert. Jede Anzeige zählt als "fehlgeschlagen", obwohl keine
         // einzeln versucht wurde.
-        for (const video of set.videos) {
-          receipt.failed.push({ adSetName: set.name, fileName: video.fileName, error: entry.error });
+        for (const ad of set.ads) {
+          receipt.failed.push({ adSetName: set.name, adName: ad.name, error: entry.error });
         }
+        // Übersprungen, nicht offen: sonst bliebe die Anzeige bei 6 von 10
+        // stehen, während längst die nächste Gruppe läuft.
+        done += set.ads.length;
         continue;
       }
     }
 
-    for (const video of set.videos) {
-      try {
-        const creative = await graph<{ id: string }>(`${acct}/adcreatives`, {
-          method: "POST",
-          params: {
-            name: `${input.campaignName} – ${video.fileName}`,
-            ...buildCreative({
-              pageId: input.pageId,
-              instagramUserId: set.instagramUserId,
-              videoId: video.videoId,
-              thumbnailUrl: video.thumbnailUrl,
-              formId: set.formId,
-              bodies: set.bodies,
-              titles: set.titles,
-              description: set.description,
-            }),
-          },
-        });
-        const ad = await graph<{ id: string }>(`${acct}/ads`, {
-          method: "POST",
-          params: {
-            name: `${input.campaignName} – ${video.fileName}`,
-            adset_id: entry.id,
-            creative: { creative_id: creative.id },
-            status: "ACTIVE",
-          },
-        });
-        entry.adIds.push(ad.id);
-      } catch (e) {
-        receipt.failed.push({
-          adSetName: set.name,
-          fileName: video.fileName,
-          error: (e as Error).message,
-        });
-      }
-    }
+    for (const ad of set.ads) jobs.push({ set, entry, ad });
   }
+
+  for (const job of jobs) await createAd(ctx, job);
 
   return receipt;
 }
