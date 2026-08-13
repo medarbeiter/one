@@ -206,7 +206,7 @@ function splitCreative(i: CreativeInput, ad: Extract<AdInput, { type: "split" }>
   };
 }
 
-import { batch as realBatch, graph as realGraph, unwrapBatchItem } from "./graph";
+import { batch as realBatch, graph as realGraph, unwrapBatchItem, GraphError } from "./graph";
 import { buildTargeting } from "./targeting";
 
 export type AdSetInput = {
@@ -395,22 +395,48 @@ async function batchAds(ctx: Ctx, jobs: AdJob[]): Promise<void> {
     const chunk = jobs.slice(i, i + CHUNK);
     ctx.step(`Anzeigen ${i + 1}–${i + chunk.length} von ${jobs.length} werden erstellt`);
 
-    const items = await ctx.batch<{ id: string }>(
-      chunk.flatMap((job, k) => [
-        {
-          method: "POST" as const,
-          relative_url: `${ctx.acct}/adcreatives`,
-          name: `cr_${i + k}`,
-          body: creativeParams(ctx, job),
-        },
-        {
-          method: "POST" as const,
-          relative_url: `${ctx.acct}/ads`,
-          depends_on: `cr_${i + k}`,
-          body: { ...adParams(job), creative: { creative_id: `{result=cr_${i + k}:$.id}` } },
-        },
-      ]),
-    );
+    let items: PromiseSettledResult<{ id: string }>[];
+    try {
+      items = await ctx.batch<{ id: string }>(
+        chunk.flatMap((job, k) => [
+          {
+            method: "POST" as const,
+            relative_url: `${ctx.acct}/adcreatives`,
+            name: `cr_${i + k}`,
+            body: creativeParams(ctx, job),
+          },
+          {
+            method: "POST" as const,
+            relative_url: `${ctx.acct}/ads`,
+            depends_on: `cr_${i + k}`,
+            body: { ...adParams(job), creative: { creative_id: `{result=cr_${i + k}:$.id}` } },
+          },
+        ]),
+      );
+    } catch (e) {
+      if (e instanceof GraphError) {
+        // Meta hat geantwortet, also mit einem Fehler-Body: ein Batch, der
+        // gelaufen ist, kommt mit 200 und Einzelcodes zurück. Kein Sub-Request
+        // ist also entstanden, und dieselben Anzeigen dürfen einzeln los.
+        await poolAds(ctx, chunk);
+        continue;
+      }
+      // Ohne Antwort von Meta ist das Gegenteil nicht gesagt: die zehn
+      // Sub-Requests können längst gelaufen sein. Ein zweiter Versuch legt sie
+      // dann ein zweites Mal an, und das sieht in der Anzeigengruppe niemand als
+      // Fehler – deshalb hier stehen lassen und benennen. Route über fail(), damit
+      // adSetIndex korrekt mitgeführt wird, auch wenn der Chunk Anzeigen aus
+      // mehreren Anzeigengruppen enthält.
+      for (const job of chunk) {
+        fail(
+          ctx,
+          job,
+          `${(e as Error).message} — diese Anzeigen wurden möglicherweise trotzdem erstellt. Prüfe die Anzeigengruppe, bevor du sie erneut anlegst.`,
+        );
+        ctx.stepDone();
+      }
+      continue;
+    }
 
     chunk.forEach((job, k) => {
       // Fehlt ein Eintrag ganz, ist das derselbe Fall wie ein leerer: keine

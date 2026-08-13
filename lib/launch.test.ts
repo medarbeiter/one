@@ -6,6 +6,7 @@ import {
   type AdInput,
   type LaunchProgress,
 } from "./launch";
+import { GraphError } from "./graph";
 
 const ugcAd: AdInput = {
   name: "Laura 1.mp4",
@@ -676,6 +677,34 @@ test("eine gescheiterte Anzeige nach heilem Creative steht mit ihrem Fehler da",
   expect(r.failed).toEqual([
     { adSetIndex: 0, adSetName: "Ads", adName: "a0.mp4", error: "anzeige kaputt" },
   ]);
+});
+
+test("ein Batch-Fehler von Meta wird einzeln nachgeholt", async () => {
+  // Meta hat mit einem Fehler-Body geantwortet – dann ist kein Sub-Request
+  // gelaufen und dieselben Anzeigen dürfen noch einmal los.
+  const b = async () => {
+    throw new GraphError({ kind: "rate", message: "limit", retryable: true });
+  };
+  const { g, calls } = fakeGraph();
+  const r = await launch(manyAds(9), { graph: g, batch: b as any });
+  expect(r.adSets[0].adIds).toHaveLength(9);
+  expect(r.failed).toHaveLength(0);
+  expect(calls.filter((c) => c.path.endsWith("/adcreatives"))).toHaveLength(9);
+});
+
+test("ein abgerissener Batch wird nicht nachgeholt, sondern benannt", async () => {
+  // Ohne Antwort von Meta ist offen, ob die zehn Sub-Requests gelaufen sind.
+  // Ein zweiter Versuch legt im Zweifel jede Anzeige doppelt an.
+  const b = async () => {
+    throw new TypeError("fetch failed");
+  };
+  const { g, calls } = fakeGraph();
+  const r = await launch(manyAds(9), { graph: g, batch: b as any });
+  expect(calls.some((c) => c.path.endsWith("/adcreatives"))).toBe(false);
+  expect(r.failed).toHaveLength(9);
+  expect(r.failed[0].error).toContain("fetch failed");
+  expect(r.failed[0].error).toContain("möglicherweise");
+  expect(r.campaignId).toBeTruthy();
 });
 
 test("der Fortschritt zählt weiter in Anzeigen", async () => {
