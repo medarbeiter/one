@@ -460,11 +460,25 @@ async function batchAds(ctx: Ctx, jobs: AdJob[]): Promise<void> {
       // Antwort zu dieser Anzeige.
       const creative = items[k * 2] ?? unwrapBatchItem<{ id: string }>(null);
       const ad = items[k * 2 + 1] ?? unwrapBatchItem<{ id: string }>(null);
-      // Reihenfolge ist die Aussage: scheitert das Creative, ist die Anzeige
-      // dahinter nur die Folge davon und kein zweiter Fehler.
-      if (creative.status === "rejected") fail(ctx, job, (creative.reason as Error).message);
+      // Eine Id zuerst: existiert die Anzeige bei Meta, gehört sie in die
+      // Quittung, egal wie der Sub-Request davor ausging – sonst legte der Retry
+      // sie ein zweites Mal an. Danach ist die Reihenfolge die Aussage:
+      // scheitert das Creative, ist die Anzeige dahinter nur die Folge davon und
+      // kein zweiter Fehler.
+      if (ad.status === "fulfilled" && ad.value?.id) job.entry.adIds.push(ad.value.id);
+      else if (creative.status === "rejected") fail(ctx, job, (creative.reason as Error).message);
       else if (ad.status === "rejected") fail(ctx, job, (ad.reason as Error).message);
-      else job.entry.adIds.push(ad.value.id);
+      // 2xx, dessen Body sich nicht lesen ließ: unwrapBatchItem gibt dafür
+      // absichtlich einen erfüllten Eintrag ohne Wert zurück. Ungeprüft wäre das
+      // ein TypeError, der launch() ganz abbräche – und zwar nachdem Kampagne
+      // und Anzeigengruppe längst bei Meta stehen, sodass die Quittung samt
+      // Retry-Möglichkeit verloren ginge.
+      else
+        fail(
+          ctx,
+          job,
+          "Meta hat die Anzeige bestätigt, aber ohne lesbare Id — sie wurde möglicherweise trotzdem erstellt. Prüfe die Anzeigengruppe, bevor du sie erneut anlegst.",
+        );
       ctx.stepDone();
     });
   }

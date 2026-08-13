@@ -6,7 +6,7 @@ import {
   type AdInput,
   type LaunchProgress,
 } from "./launch";
-import { GraphError } from "./graph";
+import { GraphError, unwrapBatchItem } from "./graph";
 
 const ugcAd: AdInput = {
   name: "Laura 1.mp4",
@@ -677,6 +677,35 @@ test("eine gescheiterte Anzeige nach heilem Creative steht mit ihrem Fehler da",
   expect(r.failed).toEqual([
     { adSetIndex: 0, adSetName: "Ads", adName: "a0.mp4", error: "anzeige kaputt" },
   ]);
+});
+
+test("eine bestätigte Anzeige ohne lesbare Id kostet die Anzeige, nicht die Quittung", async () => {
+  // unwrapBatchItem liefert für einen 2xx-Sub-Request, dessen Body kein JSON ist,
+  // absichtlich einen erfüllten Eintrag ohne Wert. Ungeprüft wäre der Zugriff auf
+  // die Id ein TypeError – und der entstünde in der Ergebnisauswertung außerhalb
+  // des try, risse also launch() ganz ab, obwohl Kampagne und Anzeigengruppe bei
+  // Meta längst stehen. Ohne Quittung hat das Retry-UI keine campaignId und
+  // bietet gar keinen zweiten Versuch an; die einzige Rettung wäre eine zweite,
+  // doppelte Kampagne. Der Pool isoliert denselben Fall auf eine Anzeige, der
+  // Batch muss das auch.
+  let n = 0;
+  const b = async <T = any>(reqs: any[]): Promise<PromiseSettledResult<T>[]> =>
+    reqs.map(() => {
+      const i = n++;
+      return i === 1
+        ? unwrapBatchItem<T>({ code: 200, body: "<html>Bad Gateway</html>" })
+        : { status: "fulfilled" as const, value: { id: `x-${i}` } as T };
+    });
+  const r = await launch(manyAds(9), { graph: fakeGraph().g, batch: b });
+
+  expect(r.campaignId).toBeTruthy();
+  expect(r.failed).toHaveLength(1);
+  expect(r.failed[0]).toMatchObject({ adSetIndex: 0, adSetName: "Ads", adName: "a0.mp4" });
+  expect(r.failed[0].error).toContain("ohne lesbare Id");
+  // Die übrigen acht bleiben heil, und keine undefined-Id schleicht sich in die
+  // Liste, aus der das Retry-UI die fehlenden Anzeigen ableitet.
+  expect(r.adSets[0].adIds).toHaveLength(8);
+  expect(r.adSets[0].adIds).not.toContain(undefined);
 });
 
 test("ein Batch-Fehler von Meta wird einzeln nachgeholt", async () => {
