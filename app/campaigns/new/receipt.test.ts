@@ -32,7 +32,7 @@ const submission: WizardSubmission = {
 
 test("Retry ordnet Fehler über adSetIndex zu, nicht über Position im Fehler-Array", () => {
   // receipt.failed kommt hier absichtlich NICHT in Eingabereihenfolge an –
-  // genau das bricht der Pool (Task 6) und, unabhängig davon, schon eine
+  // genau das bricht die nebenläufige Anzeigen-Phase und, unabhängig davon, schon eine
   // Ad-Set-Anlage-Fehler-vor-Ad-Fehler-Konstellation (siehe Commit 86923bd).
   const receipt: Receipt = {
     campaignId: "camp_1",

@@ -489,7 +489,12 @@ export function AdSetBlock({
 
     const fresh = planned.map((p): WizardAd => {
       if (p.type === "ugc") {
-        // Ohne Endung und ohne Kampagnennamen: so steht es später in Meta.
+        // Der Dateiname auf eine Schreibweise gebracht: Endung weg, Wörter
+        // groß, Ziffern abgesetzt, Kürzel aus KEEP_CAPS in Versalien
+        // (normalizeAdName in lib/media.ts). Sonst steht dieselbe Person in
+        // Metas Anzeigenliste als „Lea1“, „lea 1“ und „LEA  1“ nebeneinander
+        // und ist in der Auswertung nicht mehr gruppierbar. Erst danach
+        // entdoppeln, damit uniqueName die endgültige Schreibweise sieht.
         const name = uniqueName(normalizeAdName(p.asset.fileName), taken);
         taken.add(name);
         return {

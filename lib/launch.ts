@@ -398,8 +398,9 @@ const BATCH_THRESHOLD = 9;
  * <= 50 bleiben. batch() in lib/graph.ts schickt Sub-Requests in Blöcken von
  * 50 nacheinander los; träfe ein GraphError erst den zweiten Block, wären die
  * 50 Sub-Requests des ersten Blocks längst gelaufen, und der Rückfall auf
- * poolAds in batchAds legte sie ein zweites Mal an – genau die Dopplung, die
- * dieser Task verhindern soll. Vor jeder Erhöhung von CHUNK diese Grenze prüfen.
+ * poolAds in batchAds legte sie ein zweites Mal an – genau die Dopplung, die der
+ * GraphError-Vorbehalt verhindern soll. Vor jeder Erhöhung von CHUNK diese
+ * Grenze prüfen.
  */
 const CHUNK = 5;
 
@@ -440,8 +441,9 @@ async function batchAds(ctx: Ctx, jobs: AdJob[]): Promise<void> {
         await poolAds(ctx, chunk);
         continue;
       }
-      // Ohne Antwort von Meta ist das Gegenteil nicht gesagt: die zehn
-      // Sub-Requests können längst gelaufen sein. Ein zweiter Versuch legt sie
+      // Ohne Antwort von Meta ist das Gegenteil nicht gesagt: die Sub-Requests
+      // dieses Chunks – zwei je Anzeige, also höchstens zehn – können längst
+      // gelaufen sein. Ein zweiter Versuch legt sie
       // dann ein zweites Mal an, und das sieht in der Anzeigengruppe niemand als
       // Fehler – deshalb hier stehen lassen und benennen. Route über fail(), damit
       // adSetIndex korrekt mitgeführt wird, auch wenn der Chunk Anzeigen aus

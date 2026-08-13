@@ -365,11 +365,11 @@ test("an ad set that fails to create records every one of its ads as failed", as
 test("ads run as one phase across all ad sets, not interleaved per ad set", async () => {
   // Absichtlich anders als früher: alle Anzeigengruppen entstehen zuerst, danach
   // laufen alle Anzeigen als eine gemeinsame Phase – nicht mehr Gruppe für Gruppe
-  // verschachtelt. Nur so können in Task 7 Anzeigen aus verschiedenen
-  // Anzeigengruppen denselben Batch-Chunk teilen (Spec §3.1). Dieser Test hält die
-  // Reihenfolge fest, damit eine spätere Änderung sie nicht unbemerkt wieder kippt.
+  // verschachtelt. Nur so können Anzeigen aus verschiedenen Anzeigengruppen
+  // denselben Batch-Chunk teilen (Spec §3.1). Dieser Test hält die Reihenfolge
+  // fest, damit eine spätere Änderung sie nicht unbemerkt wieder kippt.
   //
-  // Seit dem Pool (Task 6) ist die genaue Verzahnung von adcreatives- und
+  // Seit die Anzeigen nebenläufig laufen, ist die genaue Verzahnung von adcreatives- und
   // ads-Aufrufen Sache von POOL gleichzeitigen Anzeigen und nicht mehr eins zu
   // eins je Anzeige vorhersagbar – das war ohnehin nie das Versprechen. Selbst
   // die Fertigstellungsreihenfolge der Anzeigen ist damit nicht mehr garantiert
@@ -406,7 +406,7 @@ test("an ad-set-level failure lands in receipt.failed before a later ad-level fa
   // später, in der gemeinsamen Anzeigen-Phase. Weil die Anzeigen-Phase komplett
   // nach der Anzeigengruppen-Schleife läuft, steht der Fehler der zweiten Gruppe
   // zuerst in der Receipt, obwohl die erste Gruppe im Input vorn steht — genau
-  // die Umkehrung, die Spec §3.1 verlangt. Ein späterer Task darf das nicht
+  // die Umkehrung, die Spec §3.1 verlangt. Eine spätere Änderung darf das nicht
   // unbemerkt wieder umdrehen.
   //
   // Nach Namen und nicht nach Aufrufnummer: im Anzeigen-Pool ist die Reihenfolge
@@ -508,7 +508,7 @@ test("a failed ad still counts as done, so the bar never sticks", async () => {
   // stellen sicher, dass mindestens ein Worker auf eine Fertigstellung warten
   // muss, ob POOL nun 2, 3 oder 5 ist. Unter BATCH_THRESHOLD gehalten (8, nicht
   // 12), damit dieser Test weiter den Pool prüft und nicht unbeabsichtigt auf
-  // den seit Task 7 existierenden Batch-Pfad rutscht.
+  // den Batch-Pfad rutscht.
   const many = {
     ...oneAdSet,
     adSets: [
@@ -729,7 +729,8 @@ test("ein Batch-Fehler von Meta wird einzeln nachgeholt", async () => {
 });
 
 test("ein abgerissener Batch wird nicht nachgeholt, sondern benannt", async () => {
-  // Ohne Antwort von Meta ist offen, ob die zehn Sub-Requests gelaufen sind.
+  // Ohne Antwort von Meta ist offen, ob die Sub-Requests dieses Chunks – zwei
+  // je Anzeige, also höchstens zehn – gelaufen sind.
   // Ein zweiter Versuch legt im Zweifel jede Anzeige doppelt an.
   let batchCalls = 0;
   const b = async () => {
@@ -743,7 +744,7 @@ test("ein abgerissener Batch wird nicht nachgeholt, sondern benannt", async () =
   expect(r.failed[0].error).toContain("fetch failed");
   expect(r.failed[0].error).toContain("möglicherweise");
   expect(r.campaignId).toBeTruthy();
-  // Die eigentliche Katastrophe, die dieser Task verhindern soll: ein zweiter,
+  // Die eigentliche Katastrophe, die der GraphError-Vorbehalt verhindern soll: ein zweiter,
   // stiller Versuch auf denselben Chunk, bevor er als abgerissen benannt wird.
   // Genau ein Aufruf je Chunk (zwei bei neun Anzeigen), nie ein dritter.
   expect(batchCalls).toBe(2);

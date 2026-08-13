@@ -23,9 +23,9 @@ const campaignUrl = (adAccount: string, campaignId: string) =>
  * eindeutig, ein find() könnte den falschen Eintrag treffen oder undefined
  * liefern und crashen.
  *
- * Array-Position allein reicht seit der flachen Job-Liste (Task 5) auch für
- * receipt.failed nicht mehr aus, und mit dem Anzeigen-Pool (Task 6) erst
- * recht nicht: Ad-Set-Anlage-Fehler und Anzeigen-Fehler entstehen in zwei
+ * Array-Position allein reicht auch für receipt.failed nicht mehr aus, seit die
+ * Anzeigen aller Ad Sets als eine gemeinsame, nebenläufige Phase laufen:
+ * Ad-Set-Anlage-Fehler und Anzeigen-Fehler entstehen in zwei
  * getrennten Phasen (erst alle Ad Sets, dann – nebenläufig – alle Anzeigen),
  * und innerhalb der Anzeigen-Phase ist die Fertigstellungs-, nicht mehr die
  * Eingabereihenfolge maßgeblich. Scheitert zum Beispiel ein späteres Ad Set
