@@ -501,13 +501,15 @@ test("a failed ad still counts as done, so the bar never sticks", async () => {
   // zu verlangen, dass der höchste gemeldete Stand in beiden Fällen gleich
   // hoch ist. Viele Anzeigen (deutlich mehr als jede plausible Poolbreite)
   // stellen sicher, dass mindestens ein Worker auf eine Fertigstellung warten
-  // muss, ob POOL nun 2, 3 oder 5 ist.
+  // muss, ob POOL nun 2, 3 oder 5 ist. Unter BATCH_THRESHOLD gehalten (8, nicht
+  // 12), damit dieser Test weiter den Pool prüft und nicht unbeabsichtigt auf
+  // den seit Task 7 existierenden Batch-Pfad rutscht.
   const many = {
     ...oneAdSet,
     adSets: [
       {
         ...oneAdSet.adSets[0],
-        ads: Array.from({ length: 12 }, (_, i) => adOf(`ad${i}.mp4`, `v${i}`)),
+        ads: Array.from({ length: 8 }, (_, i) => adOf(`ad${i}.mp4`, `v${i}`)),
       },
     ],
   };
@@ -548,4 +550,136 @@ test("retrying an existing campaign only counts what is left to build", async ()
       adSets: [{ ...oneAdSet.adSets[0], existingAdSetId: "s1" }],
     }),
   ).toBe(2);
+});
+
+// ----------------------------------------------------------------- Batch path
+
+function fakeBatch() {
+  const sent: any[][] = [];
+  const b = async <T = any>(reqs: any[]): Promise<PromiseSettledResult<T>[]> => {
+    sent.push(reqs);
+    return reqs.map((r, i) => ({
+      status: "fulfilled" as const,
+      value: { id: `${r.relative_url.split("/").pop()}-${sent.length}-${i}` } as T,
+    }));
+  };
+  return { b, sent };
+}
+
+const manyAds = (n: number) => ({
+  ...oneAdSet,
+  adSets: [
+    {
+      ...oneAdSet.adSets[0],
+      ads: Array.from({ length: n }, (_, i) => adOf(`a${i}.mp4`, `v${i}`)),
+    },
+  ],
+});
+
+test("ab neun Anzeigen wird gebündelt, darunter nicht", async () => {
+  const eight = fakeBatch();
+  await launch(manyAds(8), { graph: fakeGraph().g, batch: eight.b });
+  expect(eight.sent).toHaveLength(0);
+
+  const nine = fakeBatch();
+  await launch(manyAds(9), { graph: fakeGraph().g, batch: nine.b });
+  expect(nine.sent).not.toHaveLength(0);
+});
+
+test("zwanzig Anzeigen sind vier Aufrufe zu je fünf Anzeigen", async () => {
+  const { b, sent } = fakeBatch();
+  const r = await launch(manyAds(20), { graph: fakeGraph().g, batch: b });
+  expect(sent).toHaveLength(4);
+  for (const call of sent) expect(call).toHaveLength(10);
+  expect(r.adSets[0].adIds).toHaveLength(20);
+  expect(r.failed).toHaveLength(0);
+});
+
+test("die Anzeige hängt am Creative desselben Paares", async () => {
+  const { b, sent } = fakeBatch();
+  await launch(manyAds(9), { graph: fakeGraph().g, batch: b });
+  const [creative, ad] = sent[0];
+  expect(creative.relative_url).toBe("act_1/adcreatives");
+  expect(creative.name).toBe("cr_0");
+  expect(creative.body.name).toBe("a0.mp4");
+  expect(ad.relative_url).toBe("act_1/ads");
+  expect(ad.depends_on).toBe("cr_0");
+  expect(ad.body.creative).toEqual({ creative_id: "{result=cr_0:$.id}" });
+  expect(sent[1][0].name).toBe("cr_5");
+});
+
+test("Anzeigen zweier Gruppen teilen sich einen Aufruf und behalten ihre Gruppe", async () => {
+  const { b, sent } = fakeBatch();
+  const two = {
+    ...oneAdSet,
+    adSets: [
+      { ...oneAdSet.adSets[0], name: "A", ads: [adOf("a.mp4", "v1")] },
+      { ...oneAdSet.adSets[0], name: "B", ads: Array.from({ length: 8 }, (_, i) => adOf(`b${i}.mp4`, `w${i}`)) },
+    ],
+  };
+  await launch(two, { graph: fakeGraph().g, batch: b });
+  const adsIn = sent[0].filter((r: any) => r.relative_url.endsWith("/ads"));
+  expect(new Set(adsIn.map((r: any) => r.body.adset_id)).size).toBe(2);
+});
+
+test("ein gescheitertes Creative ist ein Fehler und nicht zwei", async () => {
+  // Meta liefert für den abhängigen Sub-Request dann null, und unwrapBatchItem
+  // macht daraus "timed out" – das darf nicht als zweiter Fehler derselben
+  // Anzeige in der Receipt landen.
+  //
+  // Neun Anzeigen sind bei CHUNK=5 zwei Aufrufe (5 + 4), das Fake bekommt seine
+  // reqs also zweimal mit je eigenem lokalem Index 0. Gezählt wird deshalb über
+  // beide Aufrufe hinweg, sonst träfe dieselbe Regel den ersten Job jedes
+  // Aufrufs und es entstünde der zweite Fehler, den dieser Test gerade
+  // ausschließen soll.
+  let n = 0;
+  const b = async <T = any>(reqs: any[]): Promise<PromiseSettledResult<T>[]> =>
+    reqs.map(() => {
+      const i = n++;
+      return i === 0
+        ? { status: "rejected" as const, reason: new Error("creative kaputt") }
+        : i === 1
+          ? { status: "rejected" as const, reason: new Error("Batch sub-request timed out") }
+          : { status: "fulfilled" as const, value: { id: `x-${i}` } as T };
+    });
+  const r = await launch(manyAds(9), { graph: fakeGraph().g, batch: b });
+  // adSetIndex gehört zur Fehlerform überall in dieser Datei (siehe fail() in
+  // lib/launch.ts) – das Retry-UI gruppiert danach und ohne ihn stünde die
+  // Anzeige an der falschen Stelle oder gar nicht im Retry.
+  expect(r.failed).toEqual([
+    { adSetIndex: 0, adSetName: "Ads", adName: "a0.mp4", error: "creative kaputt" },
+  ]);
+  expect(r.adSets[0].adIds).toHaveLength(8);
+});
+
+test("eine gescheiterte Anzeige nach heilem Creative steht mit ihrem Fehler da", async () => {
+  // Wie oben: über beide Aufrufe hinweg gezählt, damit nur die Anzeige des
+  // allerersten Sub-Request-Paares (a0) betroffen ist, nicht auch a5 im
+  // zweiten Chunk.
+  let n = 0;
+  const b = async <T = any>(reqs: any[]): Promise<PromiseSettledResult<T>[]> =>
+    reqs.map(() => {
+      const i = n++;
+      return i === 1
+        ? { status: "rejected" as const, reason: new Error("anzeige kaputt") }
+        : { status: "fulfilled" as const, value: { id: `x-${i}` } as T };
+    });
+  const r = await launch(manyAds(9), { graph: fakeGraph().g, batch: b });
+  expect(r.failed).toEqual([
+    { adSetIndex: 0, adSetName: "Ads", adName: "a0.mp4", error: "anzeige kaputt" },
+  ]);
+});
+
+test("der Fortschritt zählt weiter in Anzeigen", async () => {
+  const seen: LaunchProgress[] = [];
+  const { b } = fakeBatch();
+  await launch(manyAds(9), {
+    graph: fakeGraph().g,
+    batch: b,
+    onProgress: (p) => seen.push(p),
+  });
+  // 1 Kampagne + 1 Anzeigengruppe + 9 Anzeigen
+  expect(seen[0].total).toBe(11);
+  expect(seen.at(-1)!.done).toBe(7);
+  expect(seen.at(-1)!.label).toContain("6–9 von 9");
 });

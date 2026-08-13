@@ -206,7 +206,7 @@ function splitCreative(i: CreativeInput, ad: Extract<AdInput, { type: "split" }>
   };
 }
 
-import { graph as realGraph } from "./graph";
+import { batch as realBatch, graph as realGraph, unwrapBatchItem } from "./graph";
 import { buildTargeting } from "./targeting";
 
 export type AdSetInput = {
@@ -265,7 +265,11 @@ export type Receipt = {
  */
 export type LaunchProgress = { label: string; done: number; total: number };
 
-export type LaunchDeps = { graph?: typeof realGraph; onProgress?: (p: LaunchProgress) => void };
+export type LaunchDeps = {
+  graph?: typeof realGraph;
+  batch?: typeof realBatch;
+  onProgress?: (p: LaunchProgress) => void;
+};
 
 /** Jeder Aufruf, den launch() gegen Meta macht – die Nenner der Fortschrittsanzeige. */
 export function launchSteps(input: LaunchInput): number {
@@ -288,6 +292,7 @@ type AdJob = {
 
 type Ctx = {
   graph: typeof realGraph;
+  batch: typeof realBatch;
   acct: string;
   pageId: string;
   receipt: Receipt;
@@ -370,11 +375,64 @@ async function poolAds(ctx: Ctx, jobs: AdJob[]): Promise<void> {
   );
 }
 
+/**
+ * Ab hier lohnt das Bündeln. Darunter spart es gegenüber dem Pool ein bis zwei
+ * Sekunden und kostet dafür die Meldung je Anzeige – bei einer Kampagne, die
+ * klein genug ist, um ihr zuzusehen, ist das der schlechtere Tausch.
+ */
+const BATCH_THRESHOLD = 9;
+
+/**
+ * Fünf Anzeigen sind zehn Sub-Requests, Graph nimmt fünfzig. Zehn Anzeigen je
+ * Aufruf wären noch einmal halb so viele Aufrufe und ungefähr eine Sekunde; fünf
+ * halten dafür die Fortschrittsanzeige in Bewegung und die Nutzlast einer
+ * Split-Anzeige klein.
+ */
+const CHUNK = 5;
+
+async function batchAds(ctx: Ctx, jobs: AdJob[]): Promise<void> {
+  for (let i = 0; i < jobs.length; i += CHUNK) {
+    const chunk = jobs.slice(i, i + CHUNK);
+    ctx.step(`Anzeigen ${i + 1}–${i + chunk.length} von ${jobs.length} werden erstellt`);
+
+    const items = await ctx.batch<{ id: string }>(
+      chunk.flatMap((job, k) => [
+        {
+          method: "POST" as const,
+          relative_url: `${ctx.acct}/adcreatives`,
+          name: `cr_${i + k}`,
+          body: creativeParams(ctx, job),
+        },
+        {
+          method: "POST" as const,
+          relative_url: `${ctx.acct}/ads`,
+          depends_on: `cr_${i + k}`,
+          body: { ...adParams(job), creative: { creative_id: `{result=cr_${i + k}:$.id}` } },
+        },
+      ]),
+    );
+
+    chunk.forEach((job, k) => {
+      // Fehlt ein Eintrag ganz, ist das derselbe Fall wie ein leerer: keine
+      // Antwort zu dieser Anzeige.
+      const creative = items[k * 2] ?? unwrapBatchItem<{ id: string }>(null);
+      const ad = items[k * 2 + 1] ?? unwrapBatchItem<{ id: string }>(null);
+      // Reihenfolge ist die Aussage: scheitert das Creative, ist die Anzeige
+      // dahinter nur die Folge davon und kein zweiter Fehler.
+      if (creative.status === "rejected") fail(ctx, job, (creative.reason as Error).message);
+      else if (ad.status === "rejected") fail(ctx, job, (ad.reason as Error).message);
+      else job.entry.adIds.push(ad.value.id);
+      ctx.stepDone();
+    });
+  }
+}
+
 export async function launch(
   input: LaunchInput,
   deps: LaunchDeps = {},
 ): Promise<Receipt> {
   const graph = deps.graph ?? realGraph;
+  const batchFn = deps.batch ?? realBatch;
   const acct = input.adAccount;
   const receipt: Receipt = { adSets: [], failed: [] };
 
@@ -386,7 +444,7 @@ export async function launch(
   const stepDone = () => {
     done++;
   };
-  const ctx: Ctx = { graph, acct, pageId: input.pageId, receipt, step, stepDone };
+  const ctx: Ctx = { graph, batch: batchFn, acct, pageId: input.pageId, receipt, step, stepDone };
 
   // Kampagne pausiert, alles darunter aktiv: so startet Metas Prüfung sofort,
   // ohne dass Budget fließt. Genau die Reihenfolge des manuellen Ablaufs.
@@ -472,7 +530,8 @@ export async function launch(
     for (const ad of set.ads) jobs.push({ set, entry, ad, adSetIndex });
   }
 
-  await poolAds(ctx, jobs);
+  if (jobs.length >= BATCH_THRESHOLD) await batchAds(ctx, jobs);
+  else await poolAds(ctx, jobs);
 
   return receipt;
 }
