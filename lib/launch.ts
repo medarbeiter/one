@@ -326,6 +326,12 @@ const adParams = (job: AdJob) => ({
   status: "ACTIVE",
 });
 
+/** Was in die Receipt geschrieben wird, wenn etwas geworfen wurde. Nicht jeder
+ * Wurf ist ein Error – ein geworfener String etwa hat kein .message, und ohne
+ * diesen Fallback stünde dort "undefined" statt der Ursache. Einmal hier, weil
+ * jede Stelle, die einen Fehler in die Receipt legt, dieselbe Antwort braucht. */
+const causeOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
 const fail = (ctx: Ctx, job: AdJob, error: string) =>
   ctx.receipt.failed.push({
     adSetIndex: job.adSetIndex,
@@ -348,7 +354,7 @@ async function createAd(ctx: Ctx, job: AdJob): Promise<void> {
     });
     job.entry.adIds.push(created.id);
   } catch (e) {
-    fail(ctx, job, (e as Error).message);
+    fail(ctx, job, causeOf(e));
   } finally {
     // Auch eine gescheiterte Anzeige ist abgearbeitet – der Fehler steht in der
     // Receipt, die Anzeige darf deswegen nicht stehen bleiben.
@@ -440,10 +446,7 @@ async function batchAds(ctx: Ctx, jobs: AdJob[]): Promise<void> {
       // Fehler – deshalb hier stehen lassen und benennen. Route über fail(), damit
       // adSetIndex korrekt mitgeführt wird, auch wenn der Chunk Anzeigen aus
       // mehreren Anzeigengruppen enthält.
-      // Nicht jeder Wurf ist ein Error (z. B. ein geworfener String) – ohne
-      // diesen Fallback stünde hier "undefined" statt der eigentlichen Ursache.
-      // Das sichere Verhalten (nicht nachholen, benennen) bleibt unverändert.
-      const cause = e instanceof Error ? e.message : String(e);
+      const cause = causeOf(e);
       for (const job of chunk) {
         fail(
           ctx,
@@ -564,7 +567,7 @@ export async function launch(
         entry.id = adset.id;
         stepDone();
       } catch (e) {
-        entry.error = (e as Error).message;
+        entry.error = causeOf(e);
         // Ohne das hätte der Bediener keinen Weg, das komplette Ad Set über den
         // Retry nachzuholen – genau der Reparaturfall, für den die Receipt
         // existiert. Jede Anzeige zählt als "fehlgeschlagen", obwohl keine
