@@ -136,7 +136,15 @@ export async function graph<T = any>(path: string, opts: GraphOpts = {}): Promis
   }
 }
 
-export type BatchRequest = { method?: "GET" | "POST"; relative_url: string };
+export type BatchRequest = {
+  method?: "GET" | "POST";
+  relative_url: string;
+  /** POST-Nutzlast; wie `params` bei graph(), nur als Query-String im Sub-Request. */
+  body?: Record<string, unknown>;
+  /** Macht das Ergebnis referenzierbar: "{result=<name>:$.id}". */
+  name?: string;
+  depends_on?: string;
+};
 
 type BatchItem = { code: number; body: string } | null;
 
@@ -173,7 +181,16 @@ export async function batch<T = any>(
     const items = await graph<BatchItem[]>("", {
       method: "POST",
       params: {
-        batch: chunk.map((r) => ({ method: r.method ?? "GET", relative_url: r.relative_url })),
+        batch: chunk.map((r) => ({
+          method: r.method ?? "GET",
+          relative_url: r.relative_url,
+          ...(r.body ? { body: encodeParams(r.body).toString() } : {}),
+          // Ein benannter Sub-Request liefert im Erfolgsfall standardmäßig gar
+          // nichts zurück – und fehlt dann im Ergebnis-Array, statt als Lücke
+          // darin zu stehen.
+          ...(r.name ? { name: r.name, omit_response_on_success: false } : {}),
+          ...(r.depends_on ? { depends_on: r.depends_on } : {}),
+        })),
         include_headers: false,
       },
       ...opts,

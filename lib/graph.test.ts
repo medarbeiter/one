@@ -127,3 +127,49 @@ test("Mehr als 50 Requests werden gestückelt, Reihenfolge bleibt", async () => 
   expect(calls.flat()).toHaveLength(51);
   expect((out[50] as PromiseFulfilledResult<{ url: string }>).value.url).toBe("p50");
 });
+
+test("Batch-Sub-Requests tragen Body, Name und Abhängigkeit", async () => {
+  const original = globalThis.fetch;
+  let sent: any;
+  globalThis.fetch = (async (input: any) => {
+    sent = JSON.parse(new URL(String(input)).searchParams.get("batch")!);
+    return new Response(JSON.stringify([{ code: 200, body: '{"id":"cr9"}' }]), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as any;
+
+  try {
+    await batch([
+      {
+        method: "POST",
+        relative_url: "act_1/adcreatives",
+        name: "cr_0",
+        body: { name: "Lea 1", object_story_spec: { page_id: "p1" } },
+      },
+      {
+        method: "POST",
+        relative_url: "act_1/ads",
+        depends_on: "cr_0",
+        body: { creative: { creative_id: "{result=cr_0:$.id}" } },
+      },
+    ]);
+  } finally {
+    globalThis.fetch = original;
+  }
+
+  const body = new URLSearchParams(sent[0].body);
+  expect(body.get("name")).toBe("Lea 1");
+  expect(body.get("object_story_spec")).toBe('{"page_id":"p1"}');
+  // Ohne dieses Feld verschluckt Graph die Antwort des benannten Sub-Requests und
+  // mit ihr seinen Platz im Ergebnis-Array – jede Zuordnung danach wäre um eins
+  // verschoben.
+  expect(sent[0].omit_response_on_success).toBe(false);
+  expect(sent[0].name).toBe("cr_0");
+  expect(sent[1].depends_on).toBe("cr_0");
+  expect(new URLSearchParams(sent[1].body).get("creative")).toBe(
+    '{"creative_id":"{result=cr_0:$.id}"}',
+  );
+  // Ein GET ohne Body schickt auch keinen mit.
+  expect(sent[0]).not.toHaveProperty("body", undefined);
+});
