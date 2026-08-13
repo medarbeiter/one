@@ -173,16 +173,13 @@ test("Batch-Sub-Requests tragen Body, Name und Abhängigkeit", async () => {
   expect(new URLSearchParams(sent[1].body).get("creative")).toBe(
     '{"creative_id":"{result=cr_0:$.id}"}',
   );
-  // Ein GET ohne Body schickt auch keinen mit: Graph liest ein vorhandenes,
-  // leeres body-Feld als leere Nutzlast und nicht als "keine".
-  expect(sent[2]).not.toHaveProperty("body");
+  // Der schmucklose Sub-Request trägt genau zwei Felder – geprüft über die
+  // Schlüssel und nicht Feld für Feld: JSON.stringify wirft undefined-Werte
+  // weg, ein einzelnes not.toHaveProperty("depends_on") hielte also auch dann,
+  // wenn batch() das Feld immer setzte. Was hier zu viel stünde, wäre kein
+  // harmloser Beifang: ein automatisch vergebener Name zieht
+  // omit_response_on_success mit sich, und ein vorhandenes, leeres body-Feld
+  // liest Graph als leere Nutzlast statt als "keine".
+  expect(Object.keys(sent[2]).sort()).toEqual(["method", "relative_url"]);
   expect(sent[2].method).toBe("GET");
-  // Und was keinen Namen trägt, bekommt hier auch keinen – samt der Flagge, die
-  // nur zu einem Namen gehört. Ein automatisch vergebener Name wäre kein
-  // harmloser Beifang: er zieht omit_response_on_success mit sich und macht aus
-  // jedem Sub-Request einen referenzierbaren, dessen Antwort Graph anders
-  // behandelt.
-  expect(sent[2]).not.toHaveProperty("name");
-  expect(sent[2]).not.toHaveProperty("omit_response_on_success");
-  expect(sent[2]).not.toHaveProperty("depends_on");
 });
