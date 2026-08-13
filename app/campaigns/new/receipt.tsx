@@ -2,12 +2,67 @@
 
 import { Alert, Button, Link } from "@heroui/react";
 import { label } from "@/lib/labels";
+import type { Receipt } from "@/lib/launch";
 import type { LaunchState, WizardSubmission } from "../actions";
 
 // Ads Manager erwartet die Konto-ID ohne "act_"-Präfix als act=-Parameter,
 // selected_campaign_ids markiert die Zeile in der Tabelle vorausgewählt.
 const campaignUrl = (adAccount: string, campaignId: string) =>
   `https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=${adAccount.replace(/^act_/, "")}&selected_campaign_ids=${campaignId}`;
+
+/**
+ * Baut die adSets für einen Retry: nur die Ad Sets mit Fehlern, und darin nur
+ * die fehlgeschlagenen Anzeigen. Reine Funktion statt Closure in retry(),
+ * damit die Zuordnungslogik ohne Rendering testbar ist (receipt.test.ts).
+ *
+ * receipt.adSets[].index und receipt.failed[].adSetIndex sind von launch()
+ * explizit gesetzt (siehe lib/launch.ts) und referenzieren dieselbe Position
+ * in submission.adSets – die Zuordnung läuft also über diesen Index, nicht
+ * über Array-Position oder Namen. Ein Name-Lookup (submission.adSets.find)
+ * wäre riskant: Ad-Set-Namen sind vom Bediener frei editierbar und nicht
+ * eindeutig, ein find() könnte den falschen Eintrag treffen oder undefined
+ * liefern und crashen.
+ *
+ * Array-Position allein reicht seit der flachen Job-Liste (Task 5) auch für
+ * receipt.failed nicht mehr aus, und mit dem Anzeigen-Pool (Task 6) erst
+ * recht nicht: Ad-Set-Anlage-Fehler und Anzeigen-Fehler entstehen in zwei
+ * getrennten Phasen (erst alle Ad Sets, dann – nebenläufig – alle Anzeigen),
+ * und innerhalb der Anzeigen-Phase ist die Fertigstellungs-, nicht mehr die
+ * Eingabereihenfolge maßgeblich. Scheitert zum Beispiel ein späteres Ad Set
+ * schon beim Anlegen, landet sein Fehler in receipt.failed vor dem Fehler
+ * einer einzelnen Anzeige aus einem früheren, erfolgreich angelegten Ad Set –
+ * ein fortlaufender Zeiger (cursor), der Fehler nach ads.length -
+ * adIds.length abschneidet, griffe hier bereits ohne jeden Pool daneben (das
+ * war schon vor dem Pool ein Bug, siehe Commit 86923bd). Die Gruppierung nach
+ * adSetIndex ist unabhängig von beiden Reihenfolgen richtig.
+ *
+ * Innerhalb eines derart korrekt zugeordneten Ad Sets bleibt die Auswahl der
+ * einzelnen Anzeigen namensbasiert (AdInput trägt keine stabile Id) – das ist
+ * unverändert die bestehende, hier nicht behobene Einschränkung bei
+ * doppelten Anzeigennamen innerhalb desselben Ad Sets.
+ */
+export function buildRetryAdSets(
+  receipt: Receipt,
+  submission: WizardSubmission,
+): WizardSubmission["adSets"] {
+  const failedByAdSet = new Map<number, Receipt["failed"]>();
+  for (const f of receipt.failed) {
+    const list = failedByAdSet.get(f.adSetIndex);
+    if (list) list.push(f);
+    else failedByAdSet.set(f.adSetIndex, [f]);
+  }
+  return receipt.adSets
+    .map((set) => {
+      const original = submission.adSets[set.index];
+      if (!original) return null;
+      const ownFailed = failedByAdSet.get(set.index);
+      if (!ownFailed?.length) return null;
+      const failedNames = new Set(ownFailed.map((f) => f.adName));
+      const ads = original.ads.filter((a) => failedNames.has(a.name));
+      return ads.length ? { ...original, ads, existingAdSetId: set.id } : null;
+    })
+    .filter((s): s is NonNullable<typeof s> => s !== null);
+}
 
 export function ReceiptPanel({
   state,
@@ -29,37 +84,8 @@ export function ReceiptPanel({
   const retry = () => {
     if (!receipt?.campaignId) return;
 
-    // receipt.adSets ist von launch() Eintrag für Eintrag aus submission.adSets
-    // in genau derselben Reihenfolge aufgebaut (siehe lib/launch.ts) – der Index
-    // liefert also verlässlich das passende Original. Ein Name-Lookup
-    // (submission.adSets.find(name)) wäre hier riskant: Ad-Set-Namen sind vom
-    // Bediener frei editierbar und nicht eindeutig, ein find() könnte den
-    // falschen Eintrag treffen oder undefined liefern und crashen.
-    //
-    // Aus demselben Grund darf auch die Zuordnung der einzelnen Fehleinträge
-    // nicht über adSetName laufen: teilen sich zwei Ad Sets Namen UND
-    // Dateiname, würde ein bereits erfolgreiches Video im falschen Ad Set
-    // erneut angelegt. receipt.failed wird von launch() aber Ad Set für Ad
-    // Set, Video für Video in genau dieser Reihenfolge befüllt – die Anzahl
-    // der zu einem Ad Set gehörenden Fehler ergibt sich also eindeutig aus
-    // videos.length - adIds.length, unabhängig vom Namen. Ein Zeiger, der
-    // ausschließlich in dieser Reihenfolge vorrückt, schneidet damit den
-    // richtigen Ausschnitt heraus, auch bei doppelten Namen/Dateinamen.
-    let cursor = 0;
-    const adSets = receipt.adSets
-      .map((set, i) => {
-        const original = submission.adSets[i];
-        if (!original) return null;
-        const failedCount = original.videos.length - set.adIds.length;
-        const ownFailed = receipt.failed.slice(cursor, cursor + failedCount);
-        cursor += failedCount;
-        const failedNames = new Set(ownFailed.map((f) => f.fileName));
-        const videos = original.videos.filter((v) => failedNames.has(v.fileName));
-        return videos.length
-          ? { ...original, videos, existingAdSetId: set.id }
-          : null;
-      })
-      .filter((s): s is NonNullable<typeof s> => s !== null);
+    // Zuordnungslogik in buildRetryAdSets() oben – Begründung dort.
+    const adSets = buildRetryAdSets(receipt, submission);
 
     onRetry({ ...submission, existingCampaignId: receipt.campaignId, adSets });
   };
@@ -73,7 +99,7 @@ export function ReceiptPanel({
       {error && !receipt && (
         <Alert status="danger">
           <Alert.Content>
-            <Alert.Title>Could not create the campaign</Alert.Title>
+            <Alert.Title>Kampagne konnte nicht erstellt werden</Alert.Title>
             <Alert.Description>{label(error)}</Alert.Description>
           </Alert.Content>
         </Alert>
@@ -81,10 +107,10 @@ export function ReceiptPanel({
       {error && receipt && (
         <Alert status="warning">
           <Alert.Content>
-            <Alert.Title>Campaign created, but could not be verified</Alert.Title>
+            <Alert.Title>Kampagne erstellt, konnte aber nicht überprüft werden</Alert.Title>
             <Alert.Description>
-              The campaign and ads below were created on Meta — only the automatic
-              check afterwards failed: {label(error)}
+              Die Kampagne und die Anzeigen unten wurden bei Meta erstellt — nur die
+              anschließende automatische Prüfung ist fehlgeschlagen: {label(error)}
             </Alert.Description>
           </Alert.Content>
         </Alert>
@@ -95,22 +121,22 @@ export function ReceiptPanel({
           <Alert status={receipt.failed.length > 0 || error ? "warning" : "success"}>
             <Alert.Content>
               <Alert.Title>
-                Campaign {receipt.campaignId ?? "created"} — {receipt.adSets.length} ad
-                set(s)
+                Kampagne {receipt.campaignId ?? "erstellt"} — {receipt.adSets.length}{" "}
+                Anzeigengruppe(n)
               </Alert.Title>
               <Alert.Description>
                 {receipt.adSets
-                  .map((s) => `${s.name}: ${s.adIds.length} ad(s)`)
+                  .map((s) => `${s.name}: ${s.adIds.length} Anzeige(n)`)
                   .join(", ")}
                 {receipt.failed.length > 0 &&
-                  ` — ${receipt.failed.length} file(s) failed`}
+                  ` — ${receipt.failed.length} Anzeige(n) fehlgeschlagen`}
               </Alert.Description>
             </Alert.Content>
           </Alert>
 
           <div className="space-y-1 text-sm">
             <p>
-              <strong>Campaign:</strong>{" "}
+              <strong>Kampagne:</strong>{" "}
               {receipt.campaignId ? (
                 campaignHref ? (
                   <Link href={campaignHref} target="_blank" rel="noreferrer">
@@ -126,7 +152,7 @@ export function ReceiptPanel({
             <ul className="list-disc space-y-1 pl-5">
               {receipt.adSets.map((s, i) => (
                 <li key={`${s.name}-${i}`}>
-                  {s.name}: {s.id ?? "—"} — {s.adIds.length} ad(s)
+                  {s.name}: {s.id ?? "—"} — {s.adIds.length} Anzeige(n)
                   {s.error ? ` — ${label(s.error)}` : ""}
                 </li>
               ))}
@@ -150,12 +176,12 @@ export function ReceiptPanel({
         <div className="space-y-2">
           <ul className="list-disc space-y-1 pl-5 text-sm text-danger">
             {receipt.failed.map((f, i) => (
-              <li key={`${f.adSetName}-${f.fileName}-${i}`}>
-                {f.adSetName} / {f.fileName}: {label(f.error)}
+              <li key={`${f.adSetName}-${f.adName}-${i}`}>
+                {f.adSetName} / {f.adName}: {label(f.error)}
               </li>
             ))}
           </ul>
-          <Button onPress={retry}>Retry failed ads</Button>
+          <Button onPress={retry}>Fehlgeschlagene Anzeigen erneut versuchen</Button>
         </div>
       )}
     </div>

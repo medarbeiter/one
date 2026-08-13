@@ -238,11 +238,23 @@ export type LaunchInput = {
 
 export type Receipt = {
   campaignId?: string;
-  adSets: { id?: string; name: string; adIds: string[]; error?: string }[];
+  /** index ist die Position in submission.adSets, mit der dieser Eintrag
+   * entstand – explizit mitgeführt, weil das Retry-UI (receipt.tsx) einen
+   * Fehleintrag verlässlich seinem Ad Set zuordnen muss, ohne sich auf
+   * Array-Position oder auf Namen zu verlassen (beide sind vom Bediener frei
+   * änderbar und nicht eindeutig). */
+  adSets: { index: number; id?: string; name: string; adIds: string[]; error?: string }[];
   /** Nach Anzeige geschlüsselt, nicht nach Datei: eine Split-Anzeige hat zwei
    * Dateien, hochgeladen sind zu diesem Zeitpunkt beide, und gescheitert ist die
-   * Anzeige. Der Retry baut ohnehin je Anzeige nach. */
-  failed: { adSetName: string; adName: string; error: string }[];
+   * Anzeige. Der Retry baut ohnehin je Anzeige nach.
+   *
+   * adSetIndex ist Pflicht, nicht Beiwerk: Ad-Set-Anlage-Fehler und
+   * Anzeigen-Fehler entstehen in getrennten Phasen (erst alle Ad Sets, dann
+   * – seit dem Pool nebenläufig – alle Anzeigen), sodass die Reihenfolge
+   * dieser Liste weder der Eingabereihenfolge noch der Ad-Set-Reihenfolge
+   * folgt. Ohne den Index lässt sich ein Fehler seinem Ad Set nicht mehr
+   * verlässlich zuordnen. */
+  failed: { adSetIndex: number; adSetName: string; adName: string; error: string }[];
 };
 
 /**
@@ -264,8 +276,15 @@ export function launchSteps(input: LaunchInput): number {
 }
 
 /** Eine Anzeige mit allem, was zu ihrem Anlegen gehört: die Gruppe, aus der ihre
- * Texte und ihr Formular kommen, und die Quittungszeile, in die ihre Id gehört. */
-type AdJob = { set: AdSetInput; entry: Receipt["adSets"][number]; ad: AdInput };
+ * Texte und ihr Formular kommen, und die Quittungszeile, in die ihre Id gehört.
+ * adSetIndex reist mit, damit ein Fehlschlag (fail()) seinem Ad Set nicht per
+ * Namen oder Position, sondern explizit zugeordnet werden kann. */
+type AdJob = {
+  set: AdSetInput;
+  entry: Receipt["adSets"][number];
+  ad: AdInput;
+  adSetIndex: number;
+};
 
 type Ctx = {
   graph: typeof realGraph;
@@ -303,7 +322,12 @@ const adParams = (job: AdJob) => ({
 });
 
 const fail = (ctx: Ctx, job: AdJob, error: string) =>
-  ctx.receipt.failed.push({ adSetName: job.set.name, adName: job.ad.name, error });
+  ctx.receipt.failed.push({
+    adSetIndex: job.adSetIndex,
+    adSetName: job.set.name,
+    adName: job.ad.name,
+    error,
+  });
 
 /** Creative und Anzeige einzeln, zwei Aufrufe nacheinander. */
 async function createAd(ctx: Ctx, job: AdJob): Promise<void> {
@@ -394,8 +418,8 @@ export async function launch(
 
   const jobs: AdJob[] = [];
 
-  for (const set of input.adSets) {
-    const entry: Receipt["adSets"][number] = { name: set.name, adIds: [] };
+  for (const [adSetIndex, set] of input.adSets.entries()) {
+    const entry: Receipt["adSets"][number] = { index: adSetIndex, name: set.name, adIds: [] };
     receipt.adSets.push(entry);
 
     if (set.existingAdSetId) {
@@ -431,7 +455,12 @@ export async function launch(
         // existiert. Jede Anzeige zählt als "fehlgeschlagen", obwohl keine
         // einzeln versucht wurde.
         for (const ad of set.ads) {
-          receipt.failed.push({ adSetName: set.name, adName: ad.name, error: entry.error });
+          receipt.failed.push({
+            adSetIndex,
+            adSetName: set.name,
+            adName: ad.name,
+            error: entry.error,
+          });
         }
         // Übersprungen, nicht offen: sonst bliebe die Anzeige bei 6 von 10
         // stehen, während längst die nächste Gruppe läuft.
@@ -440,7 +469,7 @@ export async function launch(
       }
     }
 
-    for (const ad of set.ads) jobs.push({ set, entry, ad });
+    for (const ad of set.ads) jobs.push({ set, entry, ad, adSetIndex });
   }
 
   await poolAds(ctx, jobs);

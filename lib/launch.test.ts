@@ -298,7 +298,7 @@ test("a failing ad is recorded by ad name without losing the ids already created
   const r = await launch(oneAdSet, { graph: g });
   expect(r.campaignId).toBeTruthy();
   expect(r.adSets[0].adIds).toHaveLength(1);
-  expect(r.failed).toEqual([{ adSetName: "Ads", adName: "b.mp4", error: "boom" }]);
+  expect(r.failed).toEqual([{ adSetIndex: 0, adSetName: "Ads", adName: "b.mp4", error: "boom" }]);
 });
 
 test("a retry reuses the existing campaign instead of creating a second", async () => {
@@ -351,8 +351,8 @@ test("an ad set that fails to create records every one of its ads as failed", as
   const { g } = fakeGraph((path, n) => path.endsWith("/adsets") && n === 2);
   const r = await launch(twoAdSets, { graph: g });
   expect(r.failed).toEqual([
-    { adSetName: "Ads", adName: "a.mp4", error: "boom" },
-    { adSetName: "Ads", adName: "b.mp4", error: "boom" },
+    { adSetIndex: 0, adSetName: "Ads", adName: "a.mp4", error: "boom" },
+    { adSetIndex: 0, adSetName: "Ads", adName: "b.mp4", error: "boom" },
   ]);
   expect(r.adSets[1].adIds).toHaveLength(1);
 });
@@ -366,9 +366,14 @@ test("ads run as one phase across all ad sets, not interleaved per ad set", asyn
   //
   // Seit dem Pool (Task 6) ist die genaue Verzahnung von adcreatives- und
   // ads-Aufrufen Sache von POOL gleichzeitigen Anzeigen und nicht mehr eins zu
-  // eins je Anzeige vorhersagbar – das war ohnehin nie das Versprechen. Was
-  // bleibt: beide Gruppen vollständig vor der ersten Anzeige, und die Anzeigen
-  // selbst in Eingabereihenfolge über beide Gruppen hinweg.
+  // eins je Anzeige vorhersagbar – das war ohnehin nie das Versprechen. Selbst
+  // die Fertigstellungsreihenfolge der Anzeigen ist damit nicht mehr garantiert
+  // Eingabereihenfolge (FIFO gilt nur für den *Start* eines Jobs, nicht für
+  // seine Fertigstellung – eine langsamere Anzeige kann eine spätere
+  // überholen). Was bleibt und was dieser Test hält: beide Anzeigengruppen
+  // stehen vollständig, bevor die erste Anzeige beginnt, und am Ende sind
+  // genau die vier erwarteten Anzeigen entstanden – über welche Reihenfolge,
+  // ist nicht Teil des Versprechens.
   const twoAdSetsTwoAdsEach = {
     ...twoAdSets,
     adSets: [
@@ -384,10 +389,10 @@ test("ads run as one phase across all ad sets, not interleaved per ad set", asyn
   expect(paths.slice(3).every((p) => p === "adcreatives" || p === "ads")).toBe(true);
   expect(paths.filter((p) => p === "adcreatives")).toHaveLength(4);
   expect(paths.filter((p) => p === "ads")).toHaveLength(4);
-  // Beide Anzeigengruppen stehen, bevor die erste Anzeige entsteht — und danach
-  // kommen erst alle Anzeigen der ersten, dann alle der zweiten Gruppe.
+  // Welche vier Anzeigen entstanden sind, nicht in welcher Reihenfolge — die
+  // Reihenfolge ist mit dem Pool Fertigstellungsreihenfolge, keine Zusage.
   const adNames = calls.filter((c) => c.path.endsWith("/ads")).map((c) => c.params.name);
-  expect(adNames).toEqual(["a.mp4", "b.mp4", "c.mp4", "d.mp4"]);
+  expect(new Set(adNames)).toEqual(new Set(["a.mp4", "b.mp4", "c.mp4", "d.mp4"]));
 });
 
 test("an ad-set-level failure lands in receipt.failed before a later ad-level failure from an earlier ad set", async () => {
@@ -408,8 +413,8 @@ test("an ad-set-level failure lands in receipt.failed before a later ad-level fa
   );
   const r = await launch(twoAdSets, { graph: g });
   expect(r.failed).toEqual([
-    { adSetName: "Ads – Dresden", adName: "c.mp4", error: "boom" },
-    { adSetName: "Ads", adName: "b.mp4", error: "boom" },
+    { adSetIndex: 1, adSetName: "Ads – Dresden", adName: "c.mp4", error: "boom" },
+    { adSetIndex: 0, adSetName: "Ads", adName: "b.mp4", error: "boom" },
   ]);
 });
 
@@ -486,23 +491,37 @@ test("progress is reported before each call, and reaches its own total", async (
 });
 
 test("a failed ad still counts as done, so the bar never sticks", async () => {
-  // Vier Anzeigen bei einem Pool von drei: der vierte Job startet erst, wenn
-  // einer der ersten drei durch ist – ob geglückt oder gescheitert. Zählte ein
-  // gescheiterter Job nicht als erledigt, bliebe der gemeldete Stand vor dem
-  // Start des vierten Jobs zu niedrig hängen.
-  const four = {
+  // stepDone() steht in createAd() in einem finally, damit auch eine
+  // gescheiterte Anzeige den Zähler weiterschiebt – sonst bliebe der
+  // gemeldete Stand hängen, sobald ein wartender Pool-Worker auf genau diesen
+  // Job gewartet hätte. Das robust zu prüfen heißt: nicht an einem
+  // POOL-spezifischen "genau dieser Job muss warten"-Aufbau hängen (der bricht
+  // bei jeder anderen POOL-Breite und lebt vom exakten Timing des Fakes),
+  // sondern denselben Lauf einmal mit und einmal ohne Fehlschlag zu machen und
+  // zu verlangen, dass der höchste gemeldete Stand in beiden Fällen gleich
+  // hoch ist. Viele Anzeigen (deutlich mehr als jede plausible Poolbreite)
+  // stellen sicher, dass mindestens ein Worker auf eine Fertigstellung warten
+  // muss, ob POOL nun 2, 3 oder 5 ist.
+  const many = {
     ...oneAdSet,
     adSets: [
       {
         ...oneAdSet.adSets[0],
-        ads: [adOf("a.mp4", "v1"), adOf("b.mp4", "v2"), adOf("c.mp4", "v3"), adOf("d.mp4", "v4")],
+        ads: Array.from({ length: 12 }, (_, i) => adOf(`ad${i}.mp4`, `v${i}`)),
       },
     ],
   };
-  const { g } = fakeGraph((path, _n, p) => path.endsWith("/ads") && p?.name === "b.mp4");
-  const seen: LaunchProgress[] = [];
-  await launch(four, { graph: g, onProgress: (p) => seen.push(p) });
-  expect(seen.at(-1)!.done).toBe(launchSteps(four) - 1);
+
+  const maxDoneSeen = async (fail?: (path: string, n: number, params: any) => boolean) => {
+    const { g } = fakeGraph(fail);
+    const seen: LaunchProgress[] = [];
+    await launch(many, { graph: g, onProgress: (p) => seen.push(p) });
+    return Math.max(...seen.map((p) => p.done));
+  };
+
+  const allSucceed = await maxDoneSeen();
+  const oneFails = await maxDoneSeen((path, _n, p) => path.endsWith("/ads") && p?.name === "ad5.mp4");
+  expect(oneFails).toBe(allSucceed);
 });
 
 test("a whole ad set that fails does not leave its ads hanging in the count", async () => {
