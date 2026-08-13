@@ -1,0 +1,183 @@
+import { expect, test } from "bun:test";
+import {
+  nextCreativeName,
+  stripExtension,
+  uniqueName,
+  orientationOf,
+  pairByName,
+  planAds,
+  normalizeAdName,
+  KEEP_CAPS,
+  type Classified,
+} from "./media";
+
+const img = (fileName: string, orientation: "portrait" | "square"): Classified => ({
+  fileName,
+  kind: "image",
+  orientation,
+});
+const vid = (fileName: string): Classified => ({
+  fileName,
+  kind: "video",
+  orientation: "portrait",
+});
+
+test("9:16 is portrait, 1:1 and 16:9 are square", () => {
+  expect(orientationOf(1080, 1920)).toBe("portrait");
+  expect(orientationOf(1080, 1080)).toBe("square");
+  expect(orientationOf(3840, 2160)).toBe("square");
+});
+
+test("4:5 counts as square, because that is a feed format", () => {
+  // 0.8 liegt über der Grenze – sonst landete ein Feed-Bild im Story-Bucket.
+  expect(orientationOf(1080, 1350)).toBe("square");
+});
+
+test("unreadable dimensions fall back to square, so the file must be paired", () => {
+  expect(orientationOf(0, 0)).toBe("square");
+});
+
+test("adjacent numbers pair up, and the portrait half is identified", () => {
+  const { pairs, unpaired } = pairByName([
+    img("Creative 4.jpg", "square"),
+    img("Creative 3.jpg", "portrait"),
+  ]);
+  expect(unpaired).toHaveLength(0);
+  expect(pairs).toHaveLength(1);
+  const pair = pairs[0];
+  if (pair.type !== "split") throw new Error("expected a split");
+  expect(pair.portrait.fileName).toBe("Creative 3.jpg");
+  expect(pair.square.fileName).toBe("Creative 4.jpg");
+  expect(pair.reason).toContain("adjacent");
+});
+
+test("two separate pairs are found in one drop", () => {
+  const { pairs, unpaired } = pairByName([
+    img("Creative 3.jpg", "portrait"),
+    img("Creative 4.jpg", "square"),
+    img("Creative 5.jpg", "portrait"),
+    img("Creative 6.jpg", "square"),
+  ]);
+  expect(pairs).toHaveLength(2);
+  expect(unpaired).toHaveLength(0);
+});
+
+test("different name stems never pair, however close the numbers", () => {
+  const { pairs, unpaired } = pairByName([
+    img("Creative 3.jpg", "portrait"),
+    img("Laura 4.jpg", "square"),
+  ]);
+  expect(pairs).toHaveLength(0);
+  expect(unpaired).toHaveLength(2);
+});
+
+test("two portraits in a row are not a pair", () => {
+  const { pairs, unpaired } = pairByName([
+    img("Creative 3.jpg", "portrait"),
+    img("Creative 4.jpg", "portrait"),
+  ]);
+  expect(pairs).toHaveLength(0);
+  expect(unpaired).toHaveLength(2);
+});
+
+test("a leftover image is left unpaired rather than guessed at", () => {
+  const { pairs, unpaired } = pairByName([
+    img("Creative 3.jpg", "portrait"),
+    img("Creative 4.jpg", "square"),
+    img("Creative 9.jpg", "square"),
+  ]);
+  expect(pairs).toHaveLength(1);
+  expect(unpaired.map((u) => u.fileName)).toEqual(["Creative 9.jpg"]);
+});
+
+test("names without a trailing number never auto-pair", () => {
+  const { pairs, unpaired } = pairByName([
+    img("hochformat.jpg", "portrait"),
+    img("quadrat.jpg", "square"),
+  ]);
+  expect(pairs).toHaveLength(0);
+  expect(unpaired).toHaveLength(2);
+});
+
+test("every video becomes its own UGC ad and is never paired", () => {
+  const { ads, unpaired } = planAds([vid("Laura 1.mp4"), vid("Laura 2.mp4")]);
+  expect(unpaired).toHaveLength(0);
+  expect(ads).toHaveLength(2);
+  expect(ads.every((a) => a.type === "ugc")).toBe(true);
+});
+
+test("videos and images in one drop become UGC ads and a split, side by side", () => {
+  const { ads, unpaired } = planAds([
+    vid("Laura 1.mp4"),
+    img("Creative 3.jpg", "portrait"),
+    img("Creative 4.jpg", "square"),
+  ]);
+  expect(unpaired).toHaveLength(0);
+  expect(ads.filter((a) => a.type === "ugc")).toHaveLength(1);
+  expect(ads.filter((a) => a.type === "split")).toHaveLength(1);
+});
+
+test("two adjacent videos stay two UGC ads, even though a pair would fit", () => {
+  // Q1 der Abstimmung: Videos sind immer UGC. Paaren geht nur von Hand.
+  const { ads } = planAds([
+    { fileName: "Creative 3.mp4", kind: "video", orientation: "portrait" },
+    { fileName: "Creative 4.mp4", kind: "video", orientation: "square" },
+  ]);
+  expect(ads).toHaveLength(2);
+  expect(ads.every((a) => a.type === "ugc")).toBe(true);
+});
+
+test("creative names fill the first free number", () => {
+  expect(nextCreativeName([])).toBe("Creative 1");
+  expect(nextCreativeName(["Creative 1", "Creative 2"])).toBe("Creative 3");
+  // Eine geliehene Anzeige behält ihren Namen; lokale zählen darum herum.
+  expect(nextCreativeName(["Creative 1", "Creative 3"])).toBe("Creative 2");
+});
+
+test("the ad name is the file name without its extension", () => {
+  // "Elisabeth 5.MOV" stand so in Metas Anzeigenliste – die Endung sagt dort
+  // niemandem etwas.
+  expect(stripExtension("Elisabeth 5.MOV")).toBe("Elisabeth 5");
+  expect(stripExtension("Creative 3.jpeg")).toBe("Creative 3");
+  // Punkte im Namen bleiben, nur die letzte Endung fällt weg.
+  expect(stripExtension("Laura 2.1 final.mp4")).toBe("Laura 2.1 final");
+  // Ohne Endung bleibt der Name, wie er ist.
+  expect(stripExtension("Laura 1")).toBe("Laura 1");
+  // Eine Datei, die nur aus einer Endung besteht, darf nicht namenlos werden.
+  expect(stripExtension(".mp4")).toBe(".mp4");
+});
+
+test("two files that collide after stripping keep distinct ad names", () => {
+  // "Laura 1.mov" und "Laura 1.mp4" fielen sonst auf denselben Namen zusammen
+  // und wären in der Auswertung nicht mehr auseinanderzuhalten.
+  const taken = new Set<string>();
+  const first = uniqueName("Laura 1", taken);
+  taken.add(first);
+  const second = uniqueName("Laura 1", taken);
+  expect(first).toBe("Laura 1");
+  expect(second).toBe("Laura 1 (2)");
+});
+
+test("dieselbe Person bekommt aus jeder Schreibweise denselben Namen", () => {
+  for (const f of ["Lea1.mov", "lea1.MP4", "Lea 1.mov", "LEA  1.mov", "lea_1.mp4"])
+    expect(normalizeAdName(f)).toBe("Lea 1");
+});
+
+test("Bindestrich-Namen und mehrteilige Namen bleiben lesbar", () => {
+  expect(normalizeAdName("anna-lena2.mov")).toBe("Anna-Lena 2");
+  expect(normalizeAdName("anna maria 3.mov")).toBe("Anna Maria 3");
+  expect(normalizeAdName("jörg2.mov")).toBe("Jörg 2");
+});
+
+test("Kürzel aus der Liste behalten ihre Großschreibung, der Rest nicht", () => {
+  expect(normalizeAdName("UGC lea1.mov")).toBe("UGC Lea 1");
+  expect(normalizeAdName("ugc Lea1.mov")).toBe("UGC Lea 1");
+  expect(KEEP_CAPS).toContain("UGC");
+  // Ganze Wörter, kein Textbestandteil: sonst würde aus "Maria" ein "MAria".
+  expect(normalizeAdName("maria 1.mov")).toBe("Maria 1");
+  expect(normalizeAdName("ma 2.mov")).toBe("MA 2");
+});
+
+test("ein Name, der zu nichts normalisiert, behält seinen Stamm", () => {
+  expect(normalizeAdName("___.mov")).toBe("___");
+});
