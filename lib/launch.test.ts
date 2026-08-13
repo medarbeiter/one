@@ -767,3 +767,55 @@ test("der Fortschritt zählt weiter in Anzeigen", async () => {
   expect(seen.at(-1)!.done).toBe(7);
   expect(seen.at(-1)!.label).toContain("6–9 von 9");
 });
+
+test("beide Wege liefern dieselbe Quittung", async () => {
+  // Welcher Pfad lief, darf im Ergebnis nicht sichtbar sein. Es gibt bewusst
+  // keine LaunchDeps-Option, den Pfad zu erzwingen – das wäre ein zweiter Weg
+  // für die Produktion, ihn zu wählen. Also acht Anzeigen (Pool) gegen neun
+  // (Batch), verglichen wird die Form der Quittung, nicht ihre Zahlen.
+  const shape = (r: Awaited<ReturnType<typeof launch>>) => ({
+    campaign: Boolean(r.campaignId),
+    sets: r.adSets.map((s) => ({ name: s.name, ads: s.adIds.length, error: s.error })),
+    failed: r.failed,
+  });
+
+  const pool = shape(await launch(manyAds(8), { graph: fakeGraph().g, batch: fakeBatch().b }));
+  const batched = shape(await launch(manyAds(9), { graph: fakeGraph().g, batch: fakeBatch().b }));
+
+  expect(pool.campaign).toBe(true);
+  expect(batched.campaign).toBe(true);
+  expect(pool.failed).toEqual([]);
+  expect(batched.failed).toEqual([]);
+  expect(pool.sets[0]).toEqual({ name: "Ads", ads: 8, error: undefined });
+  expect(batched.sets[0]).toEqual({ name: "Ads", ads: 9, error: undefined });
+});
+
+test("eine gewöhnliche Anzeigenpanne liefert auf beiden Wegen dieselbe Fehlerform", async () => {
+  // Über die reine Erfolgs-Quittung hinaus (Test oben): auch ein normaler
+  // Anzeigen-Fehlschlag (keine zerrissene Batch, kein Baufehler) muss auf
+  // beiden Pfaden dieselbe Fehlerform ergeben – adSetIndex eingeschlossen,
+  // an dem receipt.tsx den Retry-Button gruppiert. Getroffen wird jeweils die
+  // erste Anzeige ("a0.mp4"), damit derselbe Job auf beiden Pfaden scheitert.
+  const shape = (r: Awaited<ReturnType<typeof launch>>) => ({
+    ads: r.adSets[0].adIds.length,
+    failed: r.failed.map((f) => ({ adSetIndex: f.adSetIndex, adSetName: f.adSetName, adName: f.adName })),
+  });
+
+  const poolFail = fakeGraph((path, _n, p) => path.endsWith("/ads") && p?.name === "a0.mp4");
+  const pool = shape(await launch(manyAds(8), { graph: poolFail.g, batch: fakeBatch().b }));
+
+  let n = 0;
+  const batchFail = async <T = any>(reqs: any[]): Promise<PromiseSettledResult<T>[]> =>
+    reqs.map(() => {
+      const i = n++;
+      return i === 1
+        ? { status: "rejected" as const, reason: new Error("anzeige kaputt") }
+        : { status: "fulfilled" as const, value: { id: `x-${i}` } as T };
+    });
+  const batched = shape(await launch(manyAds(9), { graph: fakeGraph().g, batch: batchFail }));
+
+  expect(pool.ads).toBe(7);
+  expect(batched.ads).toBe(8);
+  expect(pool.failed).toEqual([{ adSetIndex: 0, adSetName: "Ads", adName: "a0.mp4" }]);
+  expect(batched.failed).toEqual([{ adSetIndex: 0, adSetName: "Ads", adName: "a0.mp4" }]);
+});
