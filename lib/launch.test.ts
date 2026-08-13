@@ -779,8 +779,18 @@ test("beide Wege liefern dieselbe Quittung", async () => {
     failed: r.failed,
   });
 
-  const pool = shape(await launch(manyAds(8), { graph: fakeGraph().g, batch: fakeBatch().b }));
-  const batched = shape(await launch(manyAds(9), { graph: fakeGraph().g, batch: fakeBatch().b }));
+  const poolBatch = fakeBatch();
+  const pool = shape(await launch(manyAds(8), { graph: fakeGraph().g, batch: poolBatch.b }));
+  const batchedBatch = fakeBatch();
+  const batched = shape(await launch(manyAds(9), { graph: fakeGraph().g, batch: batchedBatch.b }));
+
+  // Die reine Quittungsform ist bei beiden Fakes auch dann identisch, wenn
+  // heimlich immer derselbe Pfad läuft (fakeGraph/fakeBatch liefern beide
+  // gleichförmig eine Id je Anzeige). Ohne diesen Beweis, welcher Pfad
+  // tatsächlich lief, hieße der Test "dieselbe Quittung", würde aber nicht
+  // scheitern, wenn ihm einer der beiden Wege abhandenkäme.
+  expect(poolBatch.sent).toHaveLength(0);
+  expect(batchedBatch.sent).toHaveLength(2); // CHUNK=5 bei 9 Anzeigen: 5 + 4
 
   expect(pool.campaign).toBe(true);
   expect(batched.campaign).toBe(true);
