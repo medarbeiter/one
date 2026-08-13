@@ -1,19 +1,44 @@
 import { expect, test } from "bun:test";
-import { buildCreative, launch } from "./launch";
+import {
+  buildCreative,
+  launch,
+  launchSteps,
+  type AdInput,
+  type LaunchProgress,
+} from "./launch";
+
+const ugcAd: AdInput = {
+  name: "Laura 1.mp4",
+  type: "ugc",
+  asset: {
+    kind: "video",
+    videoId: "1675767910156250",
+    thumbnailUrl: "https://example.test/t.jpg",
+    fileName: "Laura 1.mp4",
+  },
+};
+
+const splitAd: AdInput = {
+  name: "Creative 1",
+  type: "split",
+  portrait: { kind: "image", hash: "hash_p", fileName: "Creative 3.jpg" },
+  square: { kind: "image", hash: "hash_s", fileName: "Creative 4.jpg" },
+};
 
 const input = {
   pageId: "1189746767562744",
   instagramUserId: "17841436659257779",
-  videoId: "1675767910156250",
-  thumbnailUrl: "https://example.test/t.jpg",
   formId: "2095967427699237",
   bodies: ["b1", "b2", "b3", "b4", "b5"],
   titles: ["t1", "t2", "t3", "t4", "t5"],
   description: "d1",
+  ad: ugcAd,
 };
 
+// ---------------------------------------------------------------- UGC creative
+
 test("the lead form hangs off the story spec, not the feed spec", () => {
-  const c = buildCreative(input);
+  const c = buildCreative(input) as any;
   expect(c.object_story_spec.video_data.call_to_action).toEqual({
     type: "APPLY_NOW",
     value: { lead_gen_form_id: "2095967427699237", link: "http://fb.me/" },
@@ -25,14 +50,14 @@ test("the lead form hangs off the story spec, not the feed spec", () => {
 });
 
 test("the feed spec carries only text variants", () => {
-  const c = buildCreative(input);
+  const c = buildCreative(input) as any;
   expect(c.asset_feed_spec.bodies).toEqual(input.bodies.map((text) => ({ text })));
   expect(c.asset_feed_spec.titles).toHaveLength(5);
   expect(c.asset_feed_spec.descriptions).toEqual([{ text: "d1" }]);
 });
 
 test("instagram uses the current field name", () => {
-  const c = buildCreative(input);
+  const c = buildCreative(input) as any;
   expect(c.object_story_spec.instagram_user_id).toBe("17841436659257779");
   expect("instagram_actor_id" in c.object_story_spec).toBe(false);
 });
@@ -43,20 +68,145 @@ test("more than five bodies or titles is rejected", () => {
 });
 
 test("at least one body and one title are required", () => {
-  expect(() => buildCreative({ ...input, bodies: [] })).toThrow(/at least one/i);
-  expect(() => buildCreative({ ...input, titles: [] })).toThrow(/at least one/i);
+  expect(() => buildCreative({ ...input, bodies: [] })).toThrow(/mindestens ein/i);
+  expect(() => buildCreative({ ...input, titles: [] })).toThrow(/mindestens ein/i);
 });
 
 test("a lead form id is required", () => {
   expect(() => buildCreative({ ...input, formId: "" })).toThrow();
 });
 
-test("standard enhancements stay opted out", () => {
-  const c = buildCreative(input);
-  expect(
-    c.degrees_of_freedom_spec.creative_features_spec.standard_enhancements.enroll_status,
-  ).toBe("OPT_OUT");
+test("a single body and a single headline is rejected before Meta rejects it", () => {
+  // Meta: "Anzeigen mit Gestaltungsfreiraum benötigen mindestens ein
+  // Gestaltungsfreiraum-Feld mit mehr als einem Asset." Genau die Vorbelegung
+  // des Assistenten (je ein Feld) lief in diesen Satz hinein.
+  expect(() => buildCreative({ ...input, bodies: ["b"], titles: ["t"] })).toThrow(
+    /mindestens zwei/i,
+  );
+  // Zwei in *einem* der beiden Felder reichen Meta.
+  expect(() => buildCreative({ ...input, bodies: ["b1", "b2"], titles: ["t"] })).not.toThrow();
 });
+
+test("the deprecated standard_enhancements field is never sent", () => {
+  // Meta lehnt jede Anzeigengestaltung mit diesem Feld ab; die Einzelfeatures
+  // tragen dieselbe Absicht.
+  for (const ad of [ugcAd, splitAd]) {
+    const c = buildCreative({ ...input, ad }) as any;
+    const features = c.degrees_of_freedom_spec.creative_features_spec;
+    expect("standard_enhancements" in features).toBe(false);
+    expect(features.advantage_plus_creative.enroll_status).toBe("OPT_OUT");
+    expect(features.text_optimizations.enroll_status).toBe("OPT_OUT");
+  }
+});
+
+test("der Asset Feed sagt Meta, dass nur Text variiert", () => {
+  const c = buildCreative(input) as any;
+  expect(c.asset_feed_spec.optimization_type).toBe("DEGREES_OF_FREEDOM");
+  expect("ad_formats" in c.asset_feed_spec).toBe(false);
+  expect("videos" in c.asset_feed_spec).toBe(false);
+});
+
+// -------------------------------------------------------------- Split creative
+
+const split = () => buildCreative({ ...input, ad: splitAd }) as any;
+
+test("a split ad keeps no media in the story spec", () => {
+  const c = split();
+  expect(c.object_story_spec).toEqual({
+    page_id: "1189746767562744",
+    instagram_user_id: "17841436659257779",
+  });
+  expect(c.asset_feed_spec.optimization_type).toBe("PLACEMENT");
+});
+
+test("a split ad carries its lead form inside the asset feed spec", () => {
+  const c = split();
+  expect(c.asset_feed_spec.call_to_actions).toEqual([
+    { type: "APPLY_NOW", value: { lead_gen_form_id: "2095967427699237" } },
+  ]);
+  expect(c.asset_feed_spec.call_to_action_types).toEqual(["APPLY_NOW"]);
+});
+
+test("the portrait rule buys stories and reels, the square rule catches the rest", () => {
+  const [portrait, square] = split().asset_feed_spec.asset_customization_rules;
+  expect(portrait.customization_spec.facebook_positions).toEqual(["story", "facebook_reels"]);
+  expect(portrait.customization_spec.instagram_positions).toEqual(["story", "reels"]);
+  // Leere Spec = Auffangregel. Zwei Regeln decken damit jede Platzierung ab.
+  expect(square.customization_spec).toEqual({});
+  expect(portrait.priority).toBe(1);
+  expect(square.priority).toBe(2);
+});
+
+test("no age targeting is sent, because EMPLOYMENT forbids it", () => {
+  const rules = split().asset_feed_spec.asset_customization_rules;
+  for (const r of rules) {
+    expect("age_min" in r.customization_spec).toBe(false);
+    expect("age_max" in r.customization_spec).toBe(false);
+  }
+});
+
+test("each rule binds to its own asset by label, never by position", () => {
+  const c = split();
+  const [portrait, square] = c.asset_feed_spec.asset_customization_rules;
+  const labelOf = (hash: string) =>
+    c.asset_feed_spec.images.find((i: any) => i.hash === hash).adlabels[0].name;
+
+  expect(portrait.image_label.name).toBe(labelOf("hash_p"));
+  expect(square.image_label.name).toBe(labelOf("hash_s"));
+  expect(portrait.image_label.name).not.toBe(square.image_label.name);
+});
+
+test("both rules get the same texts, so only the media varies", () => {
+  const c = split();
+  const [portrait, square] = c.asset_feed_spec.asset_customization_rules;
+  expect(c.asset_feed_spec.bodies).toHaveLength(5);
+  for (const body of c.asset_feed_spec.bodies) {
+    expect(body.adlabels.map((l: any) => l.name).sort()).toEqual(
+      [portrait.body_label.name, square.body_label.name].sort(),
+    );
+  }
+  // Die Description gilt ungelabelt für beide.
+  expect(c.asset_feed_spec.descriptions).toEqual([{ text: "d1" }]);
+});
+
+test("the ad format follows the media kind", () => {
+  expect(split().asset_feed_spec.ad_formats).toEqual(["SINGLE_IMAGE"]);
+
+  const videoPair = buildCreative({
+    ...input,
+    ad: {
+      name: "Creative 1",
+      type: "split",
+      portrait: { kind: "video", videoId: "vp", fileName: "p.mp4" },
+      square: { kind: "video", videoId: "vs", fileName: "s.mp4" },
+    },
+  }) as any;
+  expect(videoPair.asset_feed_spec.ad_formats).toEqual(["SINGLE_VIDEO"]);
+  expect(videoPair.asset_feed_spec.videos).toHaveLength(2);
+  expect("images" in videoPair.asset_feed_spec).toBe(false);
+
+  const mixed = buildCreative({
+    ...input,
+    ad: {
+      name: "Creative 1",
+      type: "split",
+      portrait: { kind: "video", videoId: "vp", fileName: "p.mp4" },
+      square: { kind: "image", hash: "hs", fileName: "s.jpg" },
+    },
+  }) as any;
+  expect(mixed.asset_feed_spec.ad_formats).toEqual(["AUTOMATIC_FORMAT"]);
+  expect(mixed.asset_feed_spec.videos).toHaveLength(1);
+  expect(mixed.asset_feed_spec.images).toHaveLength(1);
+});
+
+test("a split ad is happy with a single body and headline", () => {
+  // Der Zwang zu zwei Texten gilt nur für DEGREES_OF_FREEDOM, nicht für PLACEMENT.
+  expect(() =>
+    buildCreative({ ...input, ad: splitAd, bodies: ["b"], titles: ["t"] }),
+  ).not.toThrow();
+});
+
+// --------------------------------------------------------------------- launch
 
 function fakeGraph(fail?: (path: string, n: number) => boolean) {
   let n = 0;
@@ -72,6 +222,12 @@ function fakeGraph(fail?: (path: string, n: number) => boolean) {
   return { g, calls };
 }
 
+const adOf = (name: string, videoId: string): AdInput => ({
+  name,
+  type: "ugc",
+  asset: { kind: "video", videoId, fileName: name },
+});
+
 const oneAdSet = {
   adAccount: "act_1",
   pageId: "p1",
@@ -83,13 +239,10 @@ const oneAdSet = {
       addressString: "Hauptstr. 1, Dresden",
       radiusKm: 17,
       formId: "f1",
-      bodies: ["b"],
+      bodies: ["b1", "b2"],
       titles: ["t"],
       description: "d",
-      videos: [
-        { videoId: "v1", fileName: "a.mp4" },
-        { videoId: "v2", fileName: "b.mp4" },
-      ],
+      ads: [adOf("a.mp4", "v1"), adOf("b.mp4", "v2")],
     },
   ],
 };
@@ -120,22 +273,31 @@ test("the ad set carries the lead form destination", async () => {
   expect(set.promoted_object).toEqual({ page_id: "p1" });
 });
 
-test("one ad per video", async () => {
-  const { g } = fakeGraph();
+test("one ad per planned ad, named after it", async () => {
+  const { g, calls } = fakeGraph();
   const r = await launch(oneAdSet, { graph: g });
   expect(r.adSets[0].adIds).toHaveLength(2);
   expect(r.failed).toHaveLength(0);
+  expect(calls.find((c) => c.path.endsWith("/ads"))!.params.name).toBe("a.mp4");
 });
 
-test("a failing ad is recorded without losing the ids already created", async () => {
+test("the campaign name never appears on an ad or its creative", async () => {
+  // Vorher hieß jede Anzeige "<Kampagne> – <Datei>", also in der Anzeigenliste
+  // 60 Zeichen Kampagnenname vor der einzigen Angabe, die dort unterscheidet.
+  const { g, calls } = fakeGraph();
+  await launch(oneAdSet, { graph: g });
+  const named = calls.filter((c) => c.path.endsWith("/ads") || c.path.endsWith("/adcreatives"));
+  expect(named).not.toHaveLength(0);
+  for (const c of named) expect(String(c.params.name)).not.toContain(oneAdSet.campaignName);
+});
+
+test("a failing ad is recorded by ad name without losing the ids already created", async () => {
   // 1 campaign, 2 adset, 3 creative, 4 ad, 5 creative, 6 ad -> fail the last
   const { g } = fakeGraph((path, n) => path.endsWith("/ads") && n === 6);
   const r = await launch(oneAdSet, { graph: g });
   expect(r.campaignId).toBeTruthy();
   expect(r.adSets[0].adIds).toHaveLength(1);
-  expect(r.failed).toEqual([
-    { adSetName: "Ads", fileName: "b.mp4", error: "boom" },
-  ]);
+  expect(r.failed).toEqual([{ adSetName: "Ads", adName: "b.mp4", error: "boom" }]);
 });
 
 test("a retry reuses the existing campaign instead of creating a second", async () => {
@@ -164,10 +326,10 @@ const twoAdSets = {
       addressString: "Bahnhofstr. 2, Dresden",
       radiusKm: 10,
       formId: "f2",
-      bodies: ["b2"],
+      bodies: ["b2", "b3"],
       titles: ["t2"],
       description: "d2",
-      videos: [{ videoId: "v3", fileName: "c.mp4" }],
+      ads: [adOf("c.mp4", "v3")],
     },
   ],
 };
@@ -183,16 +345,69 @@ test("a failing ad set does not stop the remaining ad sets from being created", 
   expect(r.adSets[1].adIds).toHaveLength(1);
 });
 
-test("an ad set that fails to create records every one of its videos as failed", async () => {
+test("an ad set that fails to create records every one of its ads as failed", async () => {
   // Sonst hat der Retry nichts, woraus er das komplette Ad Set nachbauen könnte.
   const { g } = fakeGraph((path, n) => path.endsWith("/adsets") && n === 2);
   const r = await launch(twoAdSets, { graph: g });
   expect(r.failed).toEqual([
-    { adSetName: "Ads", fileName: "a.mp4", error: "boom" },
-    { adSetName: "Ads", fileName: "b.mp4", error: "boom" },
+    { adSetName: "Ads", adName: "a.mp4", error: "boom" },
+    { adSetName: "Ads", adName: "b.mp4", error: "boom" },
   ]);
-  // die zweite Ad-Set-Erstellung läuft normal weiter
   expect(r.adSets[1].adIds).toHaveLength(1);
+});
+
+test("ads run as one phase across all ad sets, not interleaved per ad set", async () => {
+  // Absichtlich anders als früher: alle Anzeigengruppen entstehen zuerst, danach
+  // laufen alle Anzeigen als eine gemeinsame Phase – nicht mehr Gruppe für Gruppe
+  // verschachtelt. Nur so können in Task 7 Anzeigen aus verschiedenen
+  // Anzeigengruppen denselben Batch-Chunk teilen (Spec §3.1). Dieser Test hält die
+  // Reihenfolge fest, damit eine spätere Änderung sie nicht unbemerkt wieder kippt.
+  const twoAdSetsTwoAdsEach = {
+    ...twoAdSets,
+    adSets: [
+      twoAdSets.adSets[0],
+      { ...twoAdSets.adSets[1], ads: [adOf("c.mp4", "v3"), adOf("d.mp4", "v4")] },
+    ],
+  };
+  const { g, calls } = fakeGraph();
+  await launch(twoAdSetsTwoAdsEach, { graph: g });
+
+  const paths = calls.map((c) => c.path.split("/").pop());
+  expect(paths).toEqual([
+    "campaigns",
+    "adsets",
+    "adsets",
+    "adcreatives",
+    "ads",
+    "adcreatives",
+    "ads",
+    "adcreatives",
+    "ads",
+    "adcreatives",
+    "ads",
+  ]);
+  // Beide Anzeigengruppen stehen, bevor die erste Anzeige entsteht — und danach
+  // kommen erst alle Anzeigen der ersten, dann alle der zweiten Gruppe.
+  const adNames = calls.filter((c) => c.path.endsWith("/ads")).map((c) => c.params.name);
+  expect(adNames).toEqual(["a.mp4", "b.mp4", "c.mp4", "d.mp4"]);
+});
+
+test("an ad-set-level failure lands in receipt.failed before a later ad-level failure from an earlier ad set", async () => {
+  // Zweite Gruppe scheitert beim Anlegen (Fehler kommt sofort, in der
+  // Anzeigengruppen-Schleife) und eine Anzeige der ersten Gruppe scheitert erst
+  // später, in der gemeinsamen Anzeigen-Phase. Weil die Anzeigen-Phase komplett
+  // nach der Anzeigengruppen-Schleife läuft, steht der Fehler der zweiten Gruppe
+  // zuerst in der Receipt, obwohl die erste Gruppe im Input vorn steht — genau
+  // die Umkehrung, die Spec §3.1 verlangt. Ein späterer Task darf das nicht
+  // unbemerkt wieder umdrehen.
+  const { g } = fakeGraph(
+    (path, n) => (path.endsWith("/adsets") && n === 3) || (path.endsWith("/ads") && n === 7),
+  );
+  const r = await launch(twoAdSets, { graph: g });
+  expect(r.failed).toEqual([
+    { adSetName: "Ads – Dresden", adName: "c.mp4", error: "boom" },
+    { adSetName: "Ads", adName: "b.mp4", error: "boom" },
+  ]);
 });
 
 test("a retry with an existing ad set id skips creating a new ad set", async () => {
@@ -208,4 +423,65 @@ test("a retry with an existing ad set id skips creating a new ad set", async () 
   expect(calls.some((c) => c.path.endsWith("/adsets"))).toBe(false);
   expect(r.adSets[0].id).toBe("as9");
   expect(r.adSets[0].adIds).toHaveLength(2);
+});
+
+test("die Gebotsstrategie steht auf der Kampagne, wo CBO sie ausliest", async () => {
+  const { g, calls } = fakeGraph();
+  await launch(oneAdSet, { graph: g });
+  const campaign = calls.find((c) => c.path.endsWith("/campaigns"))!.params;
+  // Fehlt das Feld, wählt Meta selbst – zuletzt LOWEST_COST_WITH_BID_CAP.
+  expect(campaign.bid_strategy).toBe("LOWEST_COST_WITHOUT_CAP");
+  expect(campaign.bid_amount).toBeUndefined();
+});
+
+test("progress is reported before each call, and reaches its own total", async () => {
+  // Vorher stand für die ganze Zeit nur "Creating…" da – bei einer Kampagne mit
+  // drei Gruppen à fünf Anzeigen über eine Minute lang.
+  const { g } = fakeGraph();
+  const seen: LaunchProgress[] = [];
+  await launch(oneAdSet, { graph: g, onProgress: (p) => seen.push(p) });
+
+  // 1 Kampagne + 1 Ad Set + 2 Anzeigen.
+  expect(launchSteps(oneAdSet)).toBe(4);
+  expect(seen.map((p) => p.total)).toEqual([4, 4, 4, 4]);
+  // Gemeldet wird vor dem Aufruf, also beginnt der Zähler bei 0.
+  expect(seen.map((p) => p.done)).toEqual([0, 1, 2, 3]);
+  expect(seen[0].label).toContain(oneAdSet.campaignName);
+  expect(seen[1].label).toContain("Ads");
+  expect(seen[2].label).toContain("a.mp4");
+  expect(seen[3].label).toContain("b.mp4");
+});
+
+test("a failed ad still counts as done, so the bar never sticks", async () => {
+  // 1 campaign, 2 adset, 3 creative, 4 ad, 5 creative, 6 ad -> fail the last
+  const { g } = fakeGraph((path, n) => path.endsWith("/ads") && n === 6);
+  const seen: LaunchProgress[] = [];
+  await launch(oneAdSet, { graph: g, onProgress: (p) => seen.push(p) });
+  expect(seen.at(-1)!.done).toBe(launchSteps(oneAdSet) - 1);
+});
+
+test("a whole ad set that fails does not leave its ads hanging in the count", async () => {
+  // Scheitert das Ad Set, wird keine seiner Anzeigen versucht – sie dürfen den
+  // Zähler trotzdem nicht dauerhaft unter dem Nenner festhalten.
+  const two = {
+    ...oneAdSet,
+    adSets: [{ ...oneAdSet.adSets[0], name: "Broken" }, { ...oneAdSet.adSets[0], name: "Fine" }],
+  };
+  // 1 campaign, 2 adset(Broken) -> fail
+  const { g } = fakeGraph((path, n) => path.endsWith("/adsets") && n === 2);
+  const seen: LaunchProgress[] = [];
+  await launch(two, { graph: g, onProgress: (p) => seen.push(p) });
+  // Die erste Anzeige der zweiten Gruppe zählt schon die drei übersprungenen mit.
+  const fine = seen.find((p) => p.label.includes("Anzeigengruppe „Fine“"))!;
+  expect(fine.done).toBe(3);
+});
+
+test("retrying an existing campaign only counts what is left to build", async () => {
+  expect(
+    launchSteps({
+      ...oneAdSet,
+      existingCampaignId: "c1",
+      adSets: [{ ...oneAdSet.adSets[0], existingAdSetId: "s1" }],
+    }),
+  ).toBe(2);
 });
