@@ -279,6 +279,10 @@ test("one ad per planned ad, named after it", async () => {
   expect(r.adSets[0].adIds).toHaveLength(2);
   expect(r.failed).toHaveLength(0);
   expect(calls.find((c) => c.path.endsWith("/ads"))!.params.name).toBe("a.mp4");
+  // Nicht nur die Anzahl: die Receipt muss die Id der Anzeige tragen, nicht die
+  // ihres Creatives – zwei Antworten je Anzeige lassen sich leicht vertauschen,
+  // und eine vertauschte Id sieht in jedem längenbasierten Test gesund aus.
+  for (const id of r.adSets[0].adIds) expect(id.startsWith("ads-")).toBe(true);
 });
 
 test("the campaign name never appears on an ad or its creative", async () => {
@@ -593,6 +597,10 @@ test("zwanzig Anzeigen sind vier Aufrufe zu je fünf Anzeigen", async () => {
   for (const call of sent) expect(call).toHaveLength(10);
   expect(r.adSets[0].adIds).toHaveLength(20);
   expect(r.failed).toHaveLength(0);
+  // Nicht nur die Anzahl: jede Id muss aus der /ads-Antwort stammen, nicht aus
+  // der /adcreatives-Antwort desselben Paares – fakeBatch kodiert relative_url
+  // in die Id, genau dafür.
+  for (const id of r.adSets[0].adIds) expect(id.startsWith("ads-")).toBe(true);
 });
 
 test("die Anzeige hängt am Creative desselben Paares", async () => {
