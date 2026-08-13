@@ -387,6 +387,13 @@ const BATCH_THRESHOLD = 9;
  * Aufruf wären noch einmal halb so viele Aufrufe und ungefähr eine Sekunde; fünf
  * halten dafür die Fortschrittsanzeige in Bewegung und die Nutzlast einer
  * Split-Anzeige klein.
+ *
+ * Sicherheitsbedingung, die diese Zahl nicht verlassen darf: CHUNK * 2 muss
+ * <= 50 bleiben. batch() in lib/graph.ts schickt Sub-Requests in Blöcken von
+ * 50 nacheinander los; träfe ein GraphError erst den zweiten Block, wären die
+ * 50 Sub-Requests des ersten Blocks längst gelaufen, und der Rückfall auf
+ * poolAds in batchAds legte sie ein zweites Mal an – genau die Dopplung, die
+ * dieser Task verhindern soll. Vor jeder Erhöhung von CHUNK diese Grenze prüfen.
  */
 const CHUNK = 5;
 
@@ -395,24 +402,30 @@ async function batchAds(ctx: Ctx, jobs: AdJob[]): Promise<void> {
     const chunk = jobs.slice(i, i + CHUNK);
     ctx.step(`Anzeigen ${i + 1}–${i + chunk.length} von ${jobs.length} werden erstellt`);
 
+    // Außerhalb des try: Baut eine Anzeige gar nicht erst (z. B. eine UGC-Anzeige
+    // mit nur einem Text), ist das ein Programmfehler und keine unklare
+    // Netzwerklage – Meta wurde noch gar nicht gefragt. Läge das im try, würde
+    // GraphError-Prüfung diesen Fall nie treffen und der Fehler liefe in den
+    // "abgerissen"-Zweig, der Anzeigen fälschlich als "möglicherweise trotzdem
+    // erstellt" meldet, obwohl beweisbar keine einzige losging.
+    const reqs = chunk.flatMap((job, k) => [
+      {
+        method: "POST" as const,
+        relative_url: `${ctx.acct}/adcreatives`,
+        name: `cr_${i + k}`,
+        body: creativeParams(ctx, job),
+      },
+      {
+        method: "POST" as const,
+        relative_url: `${ctx.acct}/ads`,
+        depends_on: `cr_${i + k}`,
+        body: { ...adParams(job), creative: { creative_id: `{result=cr_${i + k}:$.id}` } },
+      },
+    ]);
+
     let items: PromiseSettledResult<{ id: string }>[];
     try {
-      items = await ctx.batch<{ id: string }>(
-        chunk.flatMap((job, k) => [
-          {
-            method: "POST" as const,
-            relative_url: `${ctx.acct}/adcreatives`,
-            name: `cr_${i + k}`,
-            body: creativeParams(ctx, job),
-          },
-          {
-            method: "POST" as const,
-            relative_url: `${ctx.acct}/ads`,
-            depends_on: `cr_${i + k}`,
-            body: { ...adParams(job), creative: { creative_id: `{result=cr_${i + k}:$.id}` } },
-          },
-        ]),
-      );
+      items = await ctx.batch<{ id: string }>(reqs);
     } catch (e) {
       if (e instanceof GraphError) {
         // Meta hat geantwortet, also mit einem Fehler-Body: ein Batch, der

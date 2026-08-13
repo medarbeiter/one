@@ -682,7 +682,9 @@ test("eine gescheiterte Anzeige nach heilem Creative steht mit ihrem Fehler da",
 test("ein Batch-Fehler von Meta wird einzeln nachgeholt", async () => {
   // Meta hat mit einem Fehler-Body geantwortet – dann ist kein Sub-Request
   // gelaufen und dieselben Anzeigen dürfen noch einmal los.
+  let batchCalls = 0;
   const b = async () => {
+    batchCalls++;
     throw new GraphError({ kind: "rate", message: "limit", retryable: true });
   };
   const { g, calls } = fakeGraph();
@@ -690,12 +692,19 @@ test("ein Batch-Fehler von Meta wird einzeln nachgeholt", async () => {
   expect(r.adSets[0].adIds).toHaveLength(9);
   expect(r.failed).toHaveLength(0);
   expect(calls.filter((c) => c.path.endsWith("/adcreatives"))).toHaveLength(9);
+  // Neun Anzeigen sind bei CHUNK=5 zwei Chunks (5 + 4) – also genau zwei
+  // Batch-Aufrufe, nie ein dritter. Ohne diesen Zähler bliebe ein zusätzlicher,
+  // stiller Wiederholungsversuch von ctx.batch() selbst unbemerkt, weil kein
+  // anderer Test die Aufrufe des Fakes zählt.
+  expect(batchCalls).toBe(2);
 });
 
 test("ein abgerissener Batch wird nicht nachgeholt, sondern benannt", async () => {
   // Ohne Antwort von Meta ist offen, ob die zehn Sub-Requests gelaufen sind.
   // Ein zweiter Versuch legt im Zweifel jede Anzeige doppelt an.
+  let batchCalls = 0;
   const b = async () => {
+    batchCalls++;
     throw new TypeError("fetch failed");
   };
   const { g, calls } = fakeGraph();
@@ -705,6 +714,30 @@ test("ein abgerissener Batch wird nicht nachgeholt, sondern benannt", async () =
   expect(r.failed[0].error).toContain("fetch failed");
   expect(r.failed[0].error).toContain("möglicherweise");
   expect(r.campaignId).toBeTruthy();
+  // Die eigentliche Katastrophe, die dieser Task verhindern soll: ein zweiter,
+  // stiller Versuch auf denselben Chunk, bevor er als abgerissen benannt wird.
+  // Genau ein Aufruf je Chunk (zwei bei neun Anzeigen), nie ein dritter.
+  expect(batchCalls).toBe(2);
+});
+
+test("ein Baufehler vor dem Batch-Aufruf wird nicht als abgerissen gemeldet", async () => {
+  // Eine UGC-Anzeige mit nur einem Text scheitert schon beim Bauen der
+  // Sub-Requests, also bevor ctx.batch() überhaupt gerufen wird. Das ist ein
+  // Programmfehler und keine unklare Netzwerklage – die Anzeigen sind beweisbar
+  // nie losgegangen. Die "möglicherweise trotzdem erstellt"-Meldung wäre hier
+  // falsch und schickte den Bediener in den Ads Manager, eine Anzeige zu
+  // suchen, die es nicht gibt.
+  const base = manyAds(9);
+  const broken = { ...base, adSets: [{ ...base.adSets[0], bodies: ["b"], titles: ["t"] }] };
+  let error: Error | undefined;
+  try {
+    await launch(broken, { graph: fakeGraph().g, batch: fakeBatch().b });
+  } catch (e) {
+    error = e as Error;
+  }
+  expect(error).toBeDefined();
+  expect(error!.message).toContain("mindestens zwei");
+  expect(error!.message).not.toContain("möglicherweise");
 });
 
 test("der Fortschritt zählt weiter in Anzeigen", async () => {
