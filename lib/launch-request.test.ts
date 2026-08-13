@@ -56,6 +56,19 @@ test("eine gültige Anzeigengruppe kommt durch", async () => {
   expect(await resolveLaunch(base, deps)).toEqual({ adAccount: "act_1", pageId: "p1" });
 });
 
+test("genau fünf Primärtexte und Überschriften sind das erlaubte Maximum, kein Fehler", async () => {
+  // Fünf ist Metas dokumentiertes Limit und MAX_ITEMS im Assistenten – eine
+  // 5/5-Anzeigengruppe ist der vorgesehene Höchstfall, keine exotische Eingabe.
+  // Ohne diesen Test würde ">" versehentlich zu ">=" verkommen können, ohne
+  // dass die Testsuite es bemerkt (der Grenzwert war bisher nur von oben
+  // gepinnt, nicht von der erlaubten Obergrenze selbst).
+  const atMax: WizardSubmission = {
+    ...base,
+    adSets: [{ ...base.adSets[0], bodies: Array(5).fill("b"), titles: Array(5).fill("t") }],
+  };
+  expect(await resolveLaunch(atMax, deps)).toEqual({ adAccount: "act_1", pageId: "p1" });
+});
+
 test("eine Anzeigengruppe ohne Primärtext oder Überschrift wird vor Meta abgefangen", async () => {
   // needsSecondText() prüft nur UGC-Anzeigen. Eine reine Split-Gruppe ganz
   // ohne Text rutscht daran vorbei und würde erst in buildCreative() werfen –
