@@ -3,7 +3,7 @@
  * Rechtsformen weg, customerId benennt den Kunden und behält seinen Namen.
  */
 import { expect, test } from "bun:test";
-import { customerId, matchAdAccounts, matchKey, normalise } from "./derive";
+import { customerId, dedupeIds, matchAdAccounts, matchKey, normalise } from "./derive";
 
 const acc = (name: string) => ({
   id: `act_${name}`,
@@ -37,4 +37,28 @@ test("Werbekonten treffen ihre Seite in beide Richtungen", () => {
 test("ein Name, der nur aus Rechtsformen besteht, trifft nichts", () => {
   // Sonst wäre der Schlüssel leer und träfe per Teilstring jedes Konto.
   expect(matchAdAccounts("GmbH", [acc("Irgendwas")])).toEqual([]);
+});
+
+const c = (source: string, id: string) => ({ source, id });
+
+test("gleiche Ids werden nach Asset-Id durchnummeriert, nicht nach Array-Reihenfolge", () => {
+  const a = dedupeIds([c("p2", "caritas"), c("p1", "caritas")], new Set());
+  const b = dedupeIds([c("p1", "caritas"), c("p2", "caritas")], new Set());
+  // Die Reihenfolge einer Graph-Edge ist nicht zugesichert. Hinge das Suffix an
+  // ihr, tauschten zwei Kunden ihre Ids zwischen zwei Renderings – und ein
+  // Lesezeichen zeigte auf den falschen.
+  expect(a.find((x) => x.source === "p1")!.id).toBe("caritas");
+  expect(a.find((x) => x.source === "p2")!.id).toBe("caritas-2");
+  expect(b).toEqual(a.slice().reverse());
+});
+
+test("die Reihenfolge der Eingabe bleibt erhalten", () => {
+  const out = dedupeIds([c("p2", "x"), c("p1", "x")], new Set());
+  expect(out.map((o) => o.source)).toEqual(["p2", "p1"]);
+});
+
+test("festgesetzte Ids bleiben, die anderen weichen aus", () => {
+  const out = dedupeIds([c("p1", "caritas"), c("p2", "caritas")], new Set(["p2"]));
+  expect(out.find((x) => x.source === "p2")!.id).toBe("caritas");
+  expect(out.find((x) => x.source === "p1")!.id).toBe("caritas-2");
 });

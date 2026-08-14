@@ -49,3 +49,30 @@ export function matchAdAccounts(pageName: string, accounts: AdAccount[]): AdAcco
     return !!other && (other.includes(key) || key.includes(other));
   });
 }
+
+/**
+ * Zwei Häuser eines Trägers heißen fast gleich und bekämen dieselbe Id. Das
+ * Suffix richtet sich nach der Asset-Id, weil die stabil ist; die Reihenfolge,
+ * in der Graph die Edge liefert, ist es nicht.
+ *
+ * `pinned` sind die Quellen mit fester Id aus den Overrides: die weichen nie
+ * aus, alles andere weicht ihnen aus.
+ */
+export function dedupeIds<T extends { id: string; source: string }>(
+  customers: T[],
+  pinned: Set<string>,
+): T[] {
+  const used = new Set<string>();
+  for (const c of customers) if (pinned.has(c.source)) used.add(c.id);
+
+  const fixed = new Map<string, string>();
+  for (const c of [...customers].sort((a, b) => a.source.localeCompare(b.source))) {
+    if (pinned.has(c.source)) continue;
+    let id = c.id;
+    for (let n = 2; used.has(id); n++) id = `${c.id}-${n}`;
+    used.add(id);
+    fixed.set(c.source, id);
+  }
+
+  return customers.map((c) => (fixed.has(c.source) ? { ...c, id: fixed.get(c.source)! } : c));
+}
