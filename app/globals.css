@@ -1,46 +1,274 @@
 @import "@heroui/react/styles" source("../");
 
-/* Markenfarben von med-arbeiter.de. HeroUI 3 liest genau diese Variablen,
-   deshalb färben sich Button, Chip, Switch & Co. ohne eigene Klassen mit.
-   Unlayered – schlägt damit die @layer-base-Defaults des Pakets. */
-:root {
-  --accent: #daa21d;
-  /* ponytail: Ink statt Weiß auf Gold. #fff auf #DAA21D sind 2.29:1,
-     die Marke selbst nutzt es trotzdem. Hier ist es 7.8:1. */
-  --accent-foreground: #1a1a1a;
+/*
+ * HeroUI Theme Customization
+ * Nur die Variablen, die wir wirklich anfassen – HeroUI 3 leitet daraus alles
+ * Weitere ab (Radius-Skala, Feldfarben, Komponenten-Slots).
+ * @see https://heroui.com/docs/react/getting-started/theming
+ * Unlayered – schlägt damit die @layer-base-Defaults des Pakets.
+ */
+:root,
+.light,
+.default,
+[data-theme="light"],
+[data-theme="default"] {
+  /*
+   * Drei Ebenen, und jede muss von der darunter zu unterscheiden sein:
+   * Fläche (--background) trägt Karten (--surface), Karten tragen Felder.
+   * Vorher waren Karte und Feld beide reines Weiß und randlos – ein Eingabefeld
+   * hatte damit 1,00:1 gegen seinen Untergrund und war schlicht nicht zu sehen.
+   */
+  --accent: oklch(78.07% 0.1511 87.02);
+  /* Tinte auf Gold, nicht Weiß: #fff auf dem Markengold sind 2.2:1. */
+  --accent-foreground: oklch(15% 0.03 87.02);
+  /* Goldene *Schrift* auf hellem Grund: HeroUI leitet sie direkt aus dem Akzent
+     ab und kommt am zweitrangigen Knopf auf 3,2:1 – zu wenig für 14 px. Dieselbe
+     Farbe, dunkler, sind dort 7,1:1. */
+  --accent-soft-foreground: oklch(42% 0.09 87.02);
+  /* Die Fläche trägt sichtbar: 1,18:1 gegen die weiße Karte statt 1,09:1. */
+  --background: oklch(94.8% 0.0015 87.02);
+  --border: oklch(87% 0.002 87.02);
+  --danger: oklch(65.32% 0.2332 5.72);
+  --danger-foreground: oklch(99.11% 0 0);
+  --default: oklch(94% 0.0009 87.02);
+  --default-foreground: oklch(21.03% 0.0059 87.02);
+  --field-background: oklch(100% 0.0004 87.02);
+  /*
+   * Der Rand ist das Feld: 4,0:1 gegen Weiß, also über der Grenze, die
+   * WCAG 1.4.11 für ein Bedienelement verlangt, das nur an seinem Umriss zu
+   * erkennen ist. Der Abstand nach oben ist kein Geiz: bei 3,1:1 fiel
+   * derselbe Rand auf getöntem Grund – Knopf im Hinweis, Knopf im Dateikasten –
+   * wieder unter 3:1. Gilt über --field-border-width genauso für Kästchen und
+   * Auswahlfelder.
+   */
+  --field-border: oklch(63% 0.004 87.02);
+  --field-foreground: oklch(21.03% 0.0009 87.02);
+  --field-placeholder: oklch(52% 0.0018 87.02);
+  /* Das Markengold hat auf Weiß 2,0:1 und taugt so nicht als Fokusring;
+     eine Stufe dunkler sind es 3,3:1, und Gold bleibt es trotzdem. */
+  --focus: oklch(65% 0.1511 87.02);
+  --foreground: oklch(21.03% 0.0009 87.02);
+  /* Jeder Hinweis unter jedem Feld steht in dieser Farbe. Bei 55 % Helligkeit
+     waren das 4,2:1 auf weißer Karte – knapp unter dem, was Fließtext braucht,
+     und zwar an der Stelle, an der die Bedingungen stehen. 50 % sind 5,3:1. */
+  --muted: oklch(50% 0.0018 87.02);
+  --overlay: oklch(100% 0.0003 87.02);
+  --overlay-foreground: oklch(21.03% 0.0009 87.02);
+  --scrollbar: oklch(87.1% 0.0009 87.02);
+  --segment: oklch(100% 0.0009 87.02);
+  --segment-foreground: oklch(21.03% 0.0009 87.02);
+  --separator: oklch(90% 0.002 87.02);
+  --success: oklch(73.29% 0.1938 130.79);
+  --success-foreground: oklch(21.03% 0.0059 130.79);
+  --surface: oklch(100% 0.0004 87.02);
+  --surface-foreground: oklch(21.03% 0.0009 87.02);
+  /* Eine Stufe über der Fläche, damit eine zweitrangige Karte auch dort noch
+     zu sehen ist, wo sie direkt auf dem Hintergrund liegt. */
+  --surface-secondary: oklch(96.8% 0.0007 87.02);
+  --surface-secondary-foreground: oklch(21.03% 0.0009 87.02);
+  --surface-tertiary: oklch(93.73% 0.0007 87.02);
+  --surface-tertiary-foreground: oklch(21.03% 0.0009 87.02);
+  --warning: oklch(78.19% 0.1588 52.31);
+  --warning-foreground: oklch(21.03% 0.0059 52.31);
 
-  --foreground: #1a1a1a;
-  --muted: #6b6b6b;
-  --background: #f9f9f9;
-  --surface: #ffffff;
-  --overlay: #ffffff;
-  --border: #e8e8e8;
-  --separator: #e8e8e8;
-  --focus: #8a6410;
-  --link: #8a6410;
+  /*
+   * HeroUI liefert --border-width: 0px aus. Das ist der Grund, warum bis hier
+   * weder Karte noch Feld noch Kästchen einen Rand hatte – die Farbe stand da,
+   * gezeichnet wurde nichts.
+   */
+  --border-width: 1px;
+  --field-border-width: 1px;
 
-  --success: #0f7b4f;
-  --success-foreground: #ffffff;
-  --danger: #c4342a;
-  --danger-foreground: #ffffff;
-  /* Bernstein ist die Marke – als Warnfarbe verschwindet es in der Navigation.
-     Dringlichkeit ist deshalb rot, --warning wird nicht benutzt. */
-
-  --radius: 0.5rem; /* 8px Karten */
-  --field-radius: 0.375rem; /* 6px Bedienelemente */
+  /* Border Radius */
+  --radius: 0.5rem;
+  /* 1rem an einem 40 px hohen Feld ist eine Pille; 0.75rem ist ein Feld. */
+  --field-radius: 0.75rem;
 }
 
-@theme {
-  --color-gold-500: #daa21d;
-  --color-gold-600: #c08f14;
-  --color-gold-700: #8a6410; /* goldfarbener *Text* auf Hell – 5.4:1 */
-  --color-gold-100: #fbf3de;
-  --color-ink-900: #1a1a1a;
-  --color-ink-700: #494949;
-  --color-ink-500: #6b6b6b;
-  --color-ink-300: #949494;
-  --color-line: #e8e8e8;
-  --color-canvas: #f9f9f9;
-  --color-attention: color-mix(in oklab, #c4342a 12%, transparent);
-  --font-display: var(--font-poppins), ui-sans-serif, system-ui, sans-serif;
+.dark,
+[data-theme="dark"] {
+  color-scheme: dark;
+  /* Theme Colors (Dark Mode) */
+  --accent: oklch(78.07% 0.1511 87.02);
+  --accent-foreground: oklch(15% 0.03 87.02);
+  /* Umgekehrt zum Hellen: dort dunkler als das Gold, hier heller. */
+  --accent-soft-foreground: oklch(88% 0.09 87.02);
+  --background: oklch(12% 0.0009 87.02);
+  --border: oklch(32% 0.0009 87.02);
+  --danger: oklch(59.4% 0.1971 4.61);
+  --danger-foreground: oklch(99.11% 0 0);
+  --default: oklch(27.4% 0.0009 87.02);
+  --default-foreground: oklch(99.11% 0 0);
+  /* Wie im Hellen: das Feld lag exakt auf der Farbe seiner Karte. Hier liegt es
+     tiefer statt heller – Vertiefung ist im Dunkeln das, was im Hellen der
+     weiße Kasten ist. */
+  --field-background: oklch(16.5% 0.0018 87.02);
+  --field-border: oklch(42% 0.004 87.02);
+  --field-foreground: oklch(99.11% 0.0009 87.02);
+  --field-placeholder: oklch(70.5% 0.0018 87.02);
+  --focus: oklch(78.07% 0.1511 87.02);
+  --foreground: oklch(99.11% 0.0009 87.02);
+  --muted: oklch(70.5% 0.0018 87.02);
+  --overlay: oklch(21.03% 0.0018 87.02);
+  --overlay-foreground: oklch(99.11% 0.0009 87.02);
+  --scrollbar: oklch(70.5% 0.0009 87.02);
+  --segment: oklch(39.64% 0.0009 87.02);
+  --segment-foreground: oklch(99.11% 0.0009 87.02);
+  --separator: oklch(25% 0.0009 87.02);
+  --success: oklch(73.29% 0.1938 130.79);
+  --success-foreground: oklch(21.03% 0.0059 130.79);
+  --surface: oklch(21.03% 0.0018 87.02);
+  --surface-foreground: oklch(99.11% 0.0009 87.02);
+  --surface-secondary: oklch(25.7% 0.0014 87.02);
+  --surface-secondary-foreground: oklch(99.11% 0.0009 87.02);
+  --surface-tertiary: oklch(27.21% 0.0014 87.02);
+  --surface-tertiary-foreground: oklch(99.11% 0.0009 87.02);
+  --warning: oklch(82.03% 0.139 56.32);
+  --warning-foreground: oklch(21.03% 0.0059 56.32);
+}
+
+/* ==========================================================================
+   Typografie-Rollen
+
+   Vier Rollen, mehr braucht ein Formular nicht – aber jede muss ohne Lesen
+   von der nächsten zu unterscheiden sein. Vorher trennte Abschnitt (16px/500)
+   und Feldbeschriftung (14px/500) nur ein Punkt Schriftgröße bei gleicher
+   Farbe und gleichem Gewicht; auf dem Bildschirm war das keine Rangfolge.
+
+   Abschnitt   15px · System 600 · Tinte     ← trägt die Gruppe
+   Beschriftung 13px · 500 · gedämpfte Tinte ← benennt ein Feld
+   Eingabe/Wert 14px · 400 · Tinte           ← was jemand geschrieben hat
+   Hinweis      12px · 400 · Grau            ← warum, Randbedingung, Grenze
+
+   Der Größenschritt ist klein (1,15), das Gewicht und die Schriftfamilie
+   machen den Unterschied – dafür genügt die bereits geladene Systemschrift.
+   ========================================================================== */
+.fieldset__legend,
+.card__title {
+  font-family: var(--font-display);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--foreground);
+}
+
+.label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: color-mix(in oklab, var(--foreground) 80%, var(--muted));
+}
+
+/* Ein Pflichtfeld erkennt man am Stern, nicht an einer zweiten Farbe:
+   HeroUI setzt ihn in Warnrot, obwohl nichts falsch ist. */
+.label--required::after,
+[data-required="true"] > .label::after {
+  color: var(--muted);
+}
+
+/* ==========================================================================
+   Abstandsregeln
+
+   Eine Überschrift gehört zu dem, was unter ihr steht – also steht mehr Raum
+   über ihr als unter ihr. HeroUI setzt zwischen Legende und Feldern 24px und
+   überlässt den Abstand zwischen zwei Abschnitten dem Aufrufer; damit stand
+   jede Legende genau in der Mitte zwischen dem, was sie überschreibt, und dem,
+   was sie nicht mehr betrifft.
+
+   4er-Basis, vier Stufen: 6 im Feld · 16 zwischen Feldern · 12 unter der
+   Legende · 32 zwischen Abschnitten.
+   ========================================================================== */
+.fieldset {
+  gap: 0.75rem;
+}
+
+/* ==========================================================================
+   Zustände, die sich vorher nicht gezeigt haben
+   ========================================================================== */
+
+/* Ein Hinweis auf weißer Karte war selbst weiß – zu sehen war nur die farbige
+   Überschrift. Der Status gehört auf die Fläche, sonst ist er keiner. */
+.alert--warning {
+  background-color: color-mix(in oklab, var(--warning) 12%, var(--surface));
+  border-color: color-mix(in oklab, var(--warning) 40%, var(--surface));
+}
+
+.alert--danger {
+  background-color: color-mix(in oklab, var(--danger) 8%, var(--surface));
+  border-color: color-mix(in oklab, var(--danger) 32%, var(--surface));
+}
+
+.alert--success {
+  background-color: color-mix(in oklab, var(--success) 12%, var(--surface));
+  border-color: color-mix(in oklab, var(--success) 40%, var(--surface));
+}
+
+.alert--default {
+  background-color: var(--surface-secondary);
+}
+
+/* Dieselbe Ursache wie beim Eingabefeld, nur am Knopf: „secondary" ist --default
+   (94 % Helligkeit) ohne Rand, „outline" hat einen Rand in --border (87 %). Auf
+   weißer Karte sind das 1,07:1 bzw. 1,2:1 – beide Knöpfe waren da, zu sehen
+   waren sie nicht. Ein Knopf, den nur sein Umriss ausweist, braucht nach
+   WCAG 1.4.11 dieselben 3:1 wie ein Feld, also auch denselben Umriss. */
+.button--outline,
+.button--secondary,
+.button--tertiary {
+  border: var(--border-width) solid var(--field-border);
+}
+
+/* Der Schieberegler nimmt für seinen Knopf --accent-foreground, bei uns Tinte:
+   auf goldener Bahn war das ein schwarzer Klotz. Weiß mit goldenem Ring ist
+   dasselbe Bauteil wie ein Feld – heller Körper, sichtbarer Umriss.
+   Der sichtbare Knopf ist das ::after des Griffs, nicht der Griff selbst;
+   der Ring liegt deshalb innen, sonst wüchse der Knopf über sein Maß. */
+.slider__thumb::after {
+  background-color: var(--surface);
+  box-shadow:
+    inset 0 0 0 2px var(--accent),
+    0 1px 3px oklch(0% 0 0 / 0.2);
+}
+
+/* Der Schalter färbt seinen Knopf mit --accent-foreground. Das ist bei uns
+   Tinte, damit Beschriftungen auf Gold lesbar bleiben – als Knopf auf goldener
+   Bahn wäre es ein schwarzer Klotz. Unlayered, schlägt damit @layer components. */
+.switch[aria-checked="true"] .switch__thumb,
+.switch[data-selected="true"] .switch__thumb {
+  background-color: var(--surface);
+  color: var(--accent);
+}
+
+/* Das Zahlenfeld legt sein Raster fest auf 40px 1fr 40px – zwei Spalten für
+   Knöpfe, die wir nirgends rendern. Ohne sie rutscht die Eingabe in die erste
+   40px-Spalte: vom Tagesbudget blieb „€1“ zu sehen und anzuklicken. Also nur
+   dann eine Spalte, wenn kein Knopf danebensteht. Unlayered, schlägt damit
+   @layer components. */
+.number-field__group:not(:has([slot="increment"], [slot="decrement"])) {
+  grid-template-columns: 1fr;
+}
+
+/* Unsere Utility-Namen zeigen auf die Theme-Variablen statt auf feste Hex-Werte:
+   `inline` setzt die Referenz in die Utility selbst, deshalb folgen sie dem
+   Theme-Wechsel am Element statt am :root einzufrieren. */
+@theme inline {
+  --color-gold-500: var(--accent);
+  --color-gold-600: color-mix(in oklab, var(--accent) 85%, var(--foreground));
+  /* Goldfarbener *Text*: reines Gold auf Hell trägt keine Schrift. */
+  --color-gold-700: color-mix(in oklab, var(--accent) 60%, var(--foreground));
+  --color-gold-100: color-mix(in oklab, var(--accent) 18%, var(--background));
+  --color-ink-900: var(--foreground);
+  --color-ink-700: color-mix(in oklab, var(--foreground) 80%, var(--muted));
+  --color-ink-500: var(--muted);
+  --color-ink-300: color-mix(in oklab, var(--muted) 65%, var(--background));
+  /* Statusfarben als *Schrift*. --danger, --warning und --success sind
+     Flächenfarben: auf Weiß tragen sie 3,9:1, 2,3:1 und 2,0:1. Ein Satz, der
+     vor etwas warnt, ist damit schlechter zu lesen als der Rest der Seite –
+     also derselbe Farbton, tief genug für Fließtext. */
+  --color-danger-700: color-mix(in oklab, var(--danger) 62%, var(--foreground));
+  --color-warning-700: color-mix(in oklab, var(--warning) 45%, var(--foreground));
+  --color-success-700: color-mix(in oklab, var(--success) 45%, var(--foreground));
+  --color-line: var(--border);
+  --color-canvas: var(--background);
+  --color-attention: color-mix(in oklab, var(--danger) 12%, transparent);
+  --font-display: ui-sans-serif, system-ui, sans-serif;
 }

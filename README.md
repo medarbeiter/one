@@ -13,27 +13,54 @@ bun test         # Checks für lib/meta.ts
 
 ## Coolify
 
-1. Repository als Anwendung anlegen und **Dockerfile** als Build Pack wählen.
-2. Base Directory `/` und Port Exposes `3000` lassen; kein Port Mapping anlegen.
+1. Repository als Anwendung anlegen und **Docker Compose** als Build Pack wählen;
+   Compose-Datei ist `/compose.yaml`.
+2. Beim Service `app` die Domain als `https://<domain>:3000` eintragen. Die
+   Portangabe sagt Coolify, wohin Traefik intern routet; öffentlich bleibt HTTPS
+   auf Port 443. Kein Host-Port-Mapping anlegen.
 3. Unter Environment Variables diese Laufzeitvariablen setzen:
    ```env
    META_ACCESS_TOKEN=EAA...
    META_BUSINESS_ID=...
    META_AD_ACCOUNT_ID=act_...
+   MEDARBEITER_URL=https://hub.med-arbeiter.de
+   MEDARBEITER_CLIENT_ID=...
+   MEDARBEITER_CLIENT_SECRET=...
+   MEDARBEITER_REDIRECT_URI=https://<domain>/anmelden/rueckkehr
+   SESSION_SECRET=...
    ```
    `META_ACCESS_TOKEN` und `META_BUSINESS_ID` sind nötig;
    `META_AD_ACCOUNT_ID` ist nur die Vorauswahl. Optional lässt sich mit
-   `META_API_VERSION` die standardmäßig verwendete Version `v26.0` überschreiben.
+   `META_API_VERSION` die standardmäßig verwendete Version `v26.0` überschreiben
+   und mit `META_SYSTEM_USER_ID` die sonst aus dem Token gelesene System-User-ID
+   festlegen.
    Die Meta-Werte nicht als Build Variables markieren: Der Build braucht sie
    nicht, und so landen die Geheimnisse nicht in Image-Metadaten.
-4. Domain verbinden und deployen. Der Docker-Healthcheck auf `/api/health`
-   steuert den Rollout; eine zusätzliche Healthcheck-Konfiguration in Coolify
-   ist nicht nötig.
+4. Deployen. Coolify hängt den Service an sein verwaltetes Netzwerk und erzeugt
+   Traefik-Routing sowie TLS-Zertifikate aus der Domain. Deshalb enthält Compose
+   bewusst weder eigene Netzwerke noch statische Traefik-Labels.
 
-Das Image installiert exakt `bun.lock`, hält Bun- und Next-Build-Caches zwischen
-Deployments warm und enthält zur Laufzeit nur den Next.js-Standalone-Server.
-Der Container schreibt keine dauerhaften Anwendungsdaten; Volumes und Docker
-Compose sind deshalb nicht nötig.
+Der Docker-Healthcheck auf `/api/health` steuert den Rollout; eine zusätzliche
+Healthcheck-Konfiguration in Coolify ist nicht nötig. Das Image installiert
+exakt `bun.lock`, hält Bun- und Next-Build-Caches zwischen Deployments warm und
+enthält zur Laufzeit nur den Next.js-Standalone-Server. Der Container schreibt
+keine dauerhaften Anwendungsdaten; Volumes sind deshalb nicht nötig.
+
+Für einen lokalen Compose-Start alle Pflichtwerte in `.env` setzen und
+`docker compose up --build` ausführen.
+
+## Anmelden über MedArbeiter
+
+Die App hat keine eigenen Passwörter: Wer keine Sitzung hat, wird nach
+`/anmelden` und von dort zum MedArbeiter-Hub umgeleitet (OAuth
+Authorization-Code, siehe `lib/hub.ts`). Der Hub zeigt dabei immer seine
+Freigabeseite – mit lebender Hub-Sitzung kostet der Umweg einen Klick.
+Dafür muss die App im Hub unter **/apps** registriert sein –
+die Registrierung liefert `MEDARBEITER_CLIENT_ID` und (genau einmal angezeigt)
+`MEDARBEITER_CLIENT_SECRET`; als Rücksprung-URL gehört dort byte-identisch
+`https://<domain>/anmelden/rueckkehr` hinein. `SESSION_SECRET`
+(`openssl rand -base64 32`) signiert den eigenen Sitzungs-Cookie; die Sitzung
+lebt einen Arbeitstag und erneuert sich danach über denselben Umweg.
 
 ### Token besorgen (einmalig, ~5 Min)
 

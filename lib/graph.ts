@@ -44,6 +44,22 @@ function token() {
   return t;
 }
 
+/**
+ * Metas Nutzungsbedingungen für Lead-Anzeigen, nicht von der Seite angenommen.
+ * Steht nicht im code, sondern im Subcode: der code ist 100 ("Invalid
+ * parameter") und sagt für sich genommen nichts.
+ *
+ * Hier aufgeführt, weil dieser Fehler das Gegenteil von behebbar ist – kein
+ * Retry hilft, solange kein Administrator der Seite sie annimmt, und über die
+ * API annehmen lassen sie sich nicht (siehe leadgenTosUrl in customers.ts).
+ * resolveLaunch() fängt den Fall vorher ab; hierher kommt nur, wessen Seite dem
+ * System User nicht zugewiesen ist – deren Status dürfen wir gar nicht lesen.
+ *
+ * 1892291 ist die Partnerschafts-Variante: dort fehlt die Zustimmung nicht auf
+ * unserer, sondern auf der beworbenen Seite.
+ */
+const LEADGEN_TOS_SUBCODES = [1815089, 1892181, 1892291];
+
 // 190 = Token tot, 4/17/32/613 = Rate-Limit, 10/200/272 = fehlende Berechtigung.
 // Die Einordnung entscheidet, was der Mensch zu sehen bekommt – nicht der Text.
 export function mapGraphError(err: any, status = 0): GraphFailure {
@@ -52,6 +68,11 @@ export function mapGraphError(err: any, status = 0): GraphFailure {
   if (code === 190) return { kind: "token", message, retryable: false };
   if ([4, 17, 32, 613].includes(code)) return { kind: "rate", message, retryable: true };
   if ([10, 200, 272, 294].includes(code))
+    return { kind: "permission", message, retryable: false };
+  // Vor dem unknown-Zweig: der trüge diesen Fehler bei einer 500er-Antwort als
+  // retryable weiter, und ein Retry legte dieselben Anzeigen ein zweites Mal an,
+  // ohne dass die zweite Runde besser ausgehen könnte als die erste.
+  if (LEADGEN_TOS_SUBCODES.includes(err?.error_subcode ?? 0))
     return { kind: "permission", message, retryable: false };
   return { kind: "unknown", message, retryable: status >= 500 };
 }

@@ -2,68 +2,28 @@
 
 import { updateTag } from "next/cache";
 import { setDailyBudget, setStatus } from "@/lib/campaigns";
-import { launch, type LaunchInput, type Receipt } from "@/lib/launch";
-import { verifyCampaign, type Check } from "@/lib/verify";
-import { listCustomers } from "@/lib/customers";
-import { listLeadForms, type LeadForm } from "@/lib/forms";
+import type { Receipt } from "@/lib/launch";
+import type { Check } from "@/lib/verify";
+import { getLeadForm, listLeadForms, parseFormId, type LeadForm } from "@/lib/forms";
+import { locationProblem, type GeoPlace } from "@/lib/geo";
+import { estimateReach, searchPlaces, type Reach } from "@/lib/geo-search";
 import { lastCampaignDefaults, type Prefill } from "@/lib/prefill";
 
 export type LaunchResult = { ok?: string; error?: string };
 
-export type WizardSubmission = Omit<LaunchInput, "adAccount" | "pageId"> & {
-  customerId: string;
-  adAccount?: string;
-};
+export type { WizardSubmission } from "@/lib/launch-request";
 
 export type LaunchState = { receipt?: Receipt; checks?: Check[]; error?: string };
 
-export async function launchAction(
-  _prev: LaunchState,
-  input: WizardSubmission,
-): Promise<LaunchState> {
-  // Konto und Seite kommen vom Kunden, nicht vom Client – sonst zeigt ein
-  // manipuliertes Feld auf ein fremdes Werbekonto.
-  const { customers } = await listCustomers();
-  const customer = customers.find((c) => c.id === input.customerId);
-  if (!customer?.page) return { error: "Pick a customer with a connected page." };
-  const owned = customer.adAccounts.map((a) => a.id);
-  const adAccount = input.adAccount ?? owned[0];
-  if (!adAccount) return { error: `${customer.name} has no ad account assigned.` };
-  // Ein Client-Feld darf nur auf ein Konto zeigen, das dem Kunden auch gehört –
-  // sonst kann eine POST direkt auf ein fremdes Werbekonto zielen.
-  if (!owned.includes(adAccount))
-    return { error: "That ad account does not belong to the selected customer." };
-
-  if (!input.adSets.length) return { error: "Add at least one ad set." };
-  for (const s of input.adSets) {
-    if (!s.videos.length) return { error: `“${s.name}” has no videos.` };
-    if (!s.formId) return { error: `“${s.name}” has no lead form selected.` };
-  }
-  if (input.spendCapCents !== undefined && input.spendCapCents < 10000)
-    return { error: "The spend cap must be at least 100 €." };
-
-  let receipt: Receipt;
-  try {
-    receipt = await launch({ ...input, adAccount, pageId: customer.page.id });
-    updateTag("campaigns");
-  } catch (e) {
-    return { error: (e as Error).message };
-  }
-
-  // Verifikation ist Best-Effort: die Kampagne existiert bei Meta bereits und
-  // die Receipt ist der einzige Griff für den Retry-Pfad – ein Lesefehler
-  // danach darf sie nicht verschlucken.
-  if (!receipt.campaignId) return { receipt };
-  try {
-    const checks = await verifyCampaign(receipt.campaignId, {
-      formIds: Object.fromEntries(input.adSets.map((s) => [s.name, s.formId])),
-      radiusKm: Object.fromEntries(input.adSets.map((s) => [s.name, s.radiusKm])),
-      adCount: input.adSets.reduce((n, s) => n + s.videos.length, 0),
-    });
-    return { receipt, checks };
-  } catch (e) {
-    return { receipt, error: (e as Error).message };
-  }
+/**
+ * Das Anlegen selbst läuft über app/api/launch – ein Route Handler, weil eine
+ * Server Action erst am Ende antwortet und dort eine Minute lang nichts zu
+ * sehen wäre. Nur den Cache kann der Handler nicht anfassen: updateTag() gibt
+ * es ausschließlich in Server Actions. Ohne diesen Aufruf danach stünde die
+ * frisch angelegte Kampagne bis zu 60 Sekunden nicht in der Tabelle.
+ */
+export async function refreshCampaignsAction(): Promise<void> {
+  updateTag("campaigns");
 }
 
 export async function setStatusAction(
@@ -75,7 +35,7 @@ export async function setStatusAction(
     // updateTag statt revalidatePath: der Read direkt danach muss die neue
     // Zeile sehen, nicht die letzte gecachte – das ist Read-your-own-write.
     updateTag("campaigns");
-    return { ok: status === "ACTIVE" ? "Campaign is live." : "Campaign paused." };
+    return { ok: status === "ACTIVE" ? "Kampagne ist live." : "Kampagne pausiert." };
   } catch (e) {
     return { error: (e as Error).message };
   }
@@ -88,9 +48,38 @@ export type FormsResult = { forms: LeadForm[]; error?: string };
 // gefangen statt geworfen: eine geworfene Server Action liefert dem Client in
 // Produktion nur eine generische Meldung, aber genau der Text von Meta
 // ("(#10) User has insufficient privileges…") ist es, den die Person sehen muss.
-export async function listFormsAction(pageId: string): Promise<FormsResult> {
+export async function listFormsAction(pageId: string, refresh = false): Promise<FormsResult> {
   try {
-    return { forms: await listLeadForms(pageId) };
+    // Der Aktualisieren-Knopf muss den Cache anfassen, nicht nur neu rendern:
+    // sonst antwortet der Datei-Cache bis zu 60 Sekunden lang mit derselben
+    // Liste, in der das gerade gebaute Formular eben fehlt. updateTag wirft die
+    // gecachte Kopie weg, `fresh` holt für diesen Klick ungecacht.
+    if (refresh) updateTag(`forms:${pageId}`);
+    return { forms: await listLeadForms(pageId, refresh) };
+  } catch (e) {
+    return { forms: [], error: (e as Error).message };
+  }
+}
+
+/**
+ * Der Notausgang zur Liste: manche frisch in Meta gebauten Formulare tauchen
+ * dort minutenlang nicht auf (und über 100 Formulare passen ohnehin nicht in
+ * eine Antwort). Mit der ID aus dem Baukasten kommt das Formular direkt.
+ */
+export async function pullFormAction(pageId: string, input: string): Promise<FormsResult> {
+  const formId = parseFormId(input);
+  if (!formId)
+    return {
+      forms: [],
+      error: "Das ist keine Formular-ID. Erwartet wird die Zahl aus Meta, z. B. 1234567890123456.",
+    };
+  try {
+    const form = await getLeadForm(pageId, formId);
+    // Archiviert nimmt Meta beim Anlegen nicht an – lieber hier sagen als in
+    // der Fehlermeldung einer halb angelegten Kampagne.
+    if (form.status === "ARCHIVED")
+      return { forms: [], error: `„${form.name}“ ist in Meta archiviert und kann nicht beworben werden.` };
+    return { forms: [form] };
   } catch (e) {
     return { forms: [], error: (e as Error).message };
   }
@@ -109,12 +98,44 @@ export async function prefillAction(adAccount: string): Promise<Prefill | undefi
   }
 }
 
+/**
+ * Ortssuche für das Standortfeld. Ein Fehler kommt hier als leere Liste zurück
+ * statt als Meldung: die Suche läuft beim Tippen, und ein hängengebliebener
+ * Netzfehler von vor drei Buchstaben hilft niemandem. Wer keine Treffer findet,
+ * tippt weiter eine Adresse – das Feld nimmt beides.
+ */
+export async function searchPlacesAction(q: string): Promise<GeoPlace[]> {
+  try {
+    return await searchPlaces(q);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Wie groß die Zielgruppe wäre. Der Fehlerfall kommt hier ausdrücklich als Text
+ * zurück, nicht still: die Zahl steht am Formular und ihr Fehlen sähe sonst aus
+ * wie "0 Menschen im Umkreis".
+ */
+export async function reachAction(
+  adAccount: string,
+  location: { addressString: string; radiusKm: number; place?: GeoPlace },
+): Promise<Reach | { error: string }> {
+  const problem = locationProblem(location);
+  if (problem) return { error: problem };
+  try {
+    return await estimateReach(adAccount, location);
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+}
+
 export async function setBudgetAction(id: string, euros: number): Promise<LaunchResult> {
-  if (!Number.isFinite(euros) || euros <= 0) return { error: "Daily budget must be above 0." };
+  if (!Number.isFinite(euros) || euros <= 0) return { error: "Tagesbudget muss über 0 liegen." };
   try {
     await setDailyBudget(id, Math.round(euros * 100));
     updateTag("campaigns");
-    return { ok: "Daily budget updated." };
+    return { ok: "Tagesbudget aktualisiert." };
   } catch (e) {
     return { error: (e as Error).message };
   }

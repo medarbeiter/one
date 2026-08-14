@@ -1,30 +1,37 @@
 /**
  * Vorbelegung aus der letzten Kampagne des Kunden. Meta ist der einzige Speicher
- * der App – Adresse und Texte stehen schon in der vorherigen Anzeigengruppe.
- * Das Formular wird bewusst nicht übernommen: es ist jedes Mal ein anderes.
+ * der App – die Adresse steht schon in der vorherigen Anzeigengruppe.
+ *
+ * Übernommen wird ausschließlich der Ort. Weder das Formular noch die Texte:
+ * das Formular ist jedes Mal ein anderes, und die Texte werden je Kampagne neu
+ * geschrieben. Vorbelegte Texte aus der letzten Stellenanzeige stehen dann still
+ * in der neuen, was schlimmer ist als ein leeres Feld – ein leeres Feld sieht
+ * man, einen falschen Text von letztem Mal nicht.
  */
+import type { GeoPlace } from "./geo";
 import { graph } from "./graph";
 
 export type Prefill = {
   addressString?: string;
   radiusKm?: number;
-  bodies?: string[];
-  titles?: string[];
-  description?: string;
+  place?: GeoPlace;
 };
 
-const texts = (a?: { text: string }[]) => a?.map((x) => x.text);
-
 export function defaultsFromAdSet(set: any): Prefill {
-  const loc = set?.targeting?.geo_locations?.custom_locations?.[0];
-  const feed = set?.ads?.data?.[0]?.creative?.asset_feed_spec;
-  return {
-    addressString: loc?.address_string,
-    radiusKm: loc?.radius,
-    bodies: texts(feed?.bodies),
-    titles: texts(feed?.titles),
-    description: texts(feed?.descriptions)?.[0],
-  };
+  const geo = set?.targeting?.geo_locations;
+  // Zielte die letzte Kampagne auf eine Stadt statt auf eine Adresse, steht der
+  // Ort in einem anderen Topf. Nur custom_locations zu lesen hieße: der Kunde
+  // bekommt ein leeres Feld, obwohl sein Ort bei Meta steht. Namen liefert Meta
+  // beim Lesen nicht mit – der Schlüssel allein reicht fürs Targeting, die
+  // Beschriftung holt der Assistent über die Ortssuche nach.
+  const city = geo?.cities?.[0];
+  if (city?.key)
+    return {
+      place: { type: "city", key: String(city.key), name: geo.cities[0].name ?? String(city.key) },
+      radiusKm: city.radius,
+    };
+  const loc = geo?.custom_locations?.[0];
+  return { addressString: loc?.address_string, radiusKm: loc?.radius };
 }
 
 /**
@@ -60,27 +67,13 @@ export async function lastCampaignDefaults(
   const newest = newestAdSet(data ?? []);
   if (!newest) return undefined;
 
-  // Zweiter Aufruf: gezielt das eine gefundene Ad Set mit den Feldern, die
-  // defaultsFromAdSet braucht.
+  // Zweiter Aufruf: gezielt das eine gefundene Ad Set. Nur targeting – seit die
+  // Texte nicht mehr übernommen werden, muss dafür auch keine Anzeige samt
+  // Creative mitgeladen werden.
   const full = await graph<any>(newest.id, {
-    params: { fields: "targeting,ads.limit(1){creative{asset_feed_spec}}" },
+    params: { fields: "targeting" },
     revalidate: 300,
     tags: ["campaigns"],
   });
   return defaultsFromAdSet(full);
-}
-
-export async function pageInstagramId(pageId: string): Promise<string | undefined> {
-  // Braucht die Seite am System-Nutzer (bun run assign) – fehlt sie, ist das
-  // kein Grund, den Assistenten zu blockieren.
-  try {
-    const r = await graph<{ instagram_business_account?: { id: string } }>(pageId, {
-      params: { fields: "instagram_business_account" },
-      revalidate: 3600,
-      tags: ["assets"],
-    });
-    return r.instagram_business_account?.id;
-  } catch {
-    return undefined;
-  }
 }

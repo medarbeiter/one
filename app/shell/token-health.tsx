@@ -1,16 +1,17 @@
-import { Popover } from "@heroui/react";
+import { Chip, Popover, Typography } from "@/app/shell/ui";
+import { buttonVariants } from "@heroui/styles";
 
 const COPY = {
-  ok: { dot: "bg-success", title: "Connected", body: "The system user token is working." },
+  ok: { color: "success", title: "Verbunden", body: "Der System-User-Token funktioniert." },
   degraded: {
-    dot: "bg-danger",
-    title: "Partly connected",
-    body: "Some assets are not assigned to the system user. Grant access in Business Manager, then run `bun run assign`.",
+    color: "danger",
+    title: "Teilweise verbunden",
+    body: "Einige Assets sind dem System User nicht zugewiesen. Gib im Business Manager Zugriff frei und führe dann `bun run assign` aus.",
   },
   dead: {
-    dot: "bg-danger",
-    title: "Not connected",
-    body: "Create a system user token in Business Manager and put it into .env.local as META_ACCESS_TOKEN. Steps are in the README.",
+    color: "danger",
+    title: "Nicht verbunden",
+    body: "Erstelle im Business Manager einen System-User-Token und trage ihn in .env.local als META_ACCESS_TOKEN ein. Die Schritte stehen in der README.",
   },
 } as const;
 
@@ -24,19 +25,24 @@ export function TokenHealth({
   const c = COPY[state];
   return (
     <Popover>
+      {/* Der Auslöser trägt die Button-Optik des Designsystems statt eigener
+          Rahmen- und Hover-Klassen. */}
       <Popover.Trigger
-        aria-label={`Connection: ${c.title}`}
-        className="border-line hover:bg-canvas flex items-center gap-2 rounded-md border px-2 py-1 text-xs"
+        aria-label={`Verbindung: ${c.title}`}
+        className={buttonVariants({ variant: "outline", size: "sm", fullWidth: true })}
       >
-        <span className={`size-2 rounded-full ${c.dot}`} />
-        {c.title}
+        <Chip size="sm" variant="soft" color={c.color}>
+          {c.title}
+        </Chip>
       </Popover.Trigger>
       <Popover.Content className="max-w-80">
         {/* Popover.Dialog liefert role="dialog", die Titel-Verknüpfung (aria-labelledby) und
             Escape-to-close – ohne dieses Sub-Part fehlt die Aria-Semantik. */}
         <Popover.Dialog className="space-y-2 text-sm">
           <Popover.Heading>{c.title}</Popover.Heading>
-          <p className="text-ink-500 text-xs">{c.body}</p>
+          <Typography.Paragraph color="muted" size="xs">
+            {c.body}
+          </Typography.Paragraph>
           {detail.length > 0 && (
             <ul className="text-ink-500 list-disc space-y-1 pl-4 text-xs">
               {detail.slice(0, 8).map((d, i) => (

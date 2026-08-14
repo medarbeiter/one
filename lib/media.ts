@@ -24,6 +24,15 @@ export function orientationOf(width: number, height: number): Orientation {
   return width / height < PORTRAIT_MAX_RATIO ? "portrait" : "square";
 }
 
+/**
+ * Die anzeigbare Adresse eines hochgeladenen Bildes. Meta gibt beim Upload nur
+ * einen Hash zurück; app/api/image löst ihn auf und liefert das Bild über den
+ * eigenen Server aus – gleicher Ursprung, damit der Zuschnitt es ins Canvas
+ * legen darf.
+ */
+export const imagePreviewUrl = (hash: string, adAccount: string) =>
+  `/api/image?hash=${encodeURIComponent(hash)}&adAccount=${encodeURIComponent(adAccount)}`;
+
 /** Das Minimum, das Klassifizierung und Paarung brauchen. */
 export type Classified = {
   fileName: string;
@@ -41,6 +50,28 @@ export type PlannedAd<T> =
  */
 export function stripExtension(fileName: string): string {
   return fileName.replace(/\.[^./\\]+$/, "").trim() || fileName.trim();
+}
+
+/**
+ * Was Drive, Finder und Explorer beim Duplizieren an den Namen hängen. Der
+ * Sammelordner ist voll davon, und ohne diese Reinigung steht „Kopie von
+ * Lea 1 (1)“ in Metas Anzeigenliste – oder schlimmer: die Klammer verdeckt die
+ * Nummer, an der pairByName() die beiden Hälften einer Anzeige erkennt.
+ *
+ * Der Zähler ist bewusst auf zwei Stellen begrenzt: „Sommer (2024)“ ist eine
+ * Jahreszahl und keine dritte Kopie.
+ */
+const COPY_PREFIX = /^(?:kopie von|copy of)\s+/i;
+const COPY_SUFFIX = /(?:[\s._-]*(?:\(\s*\d{1,2}\s*\)|(?:-\s*)?(?:kopie|copy)(?:\s*\d{1,2})?))+$/i;
+
+/**
+ * Der Dateiname ohne Endung und ohne Kopierspuren. Bleibt davon nichts übrig,
+ * gilt der Stamm – eine Datei, die wirklich „Kopie.jpg“ heißt, wird nicht
+ * namenlos.
+ */
+export function cleanStem(fileName: string): string {
+  const stem = stripExtension(fileName);
+  return stem.replace(COPY_PREFIX, "").replace(COPY_SUFFIX, "").trim() || stem;
 }
 
 /**
@@ -67,7 +98,7 @@ function capitalize(part: string): string {
  * ist ein Name und keine Trennung.
  */
 export function normalizeAdName(fileName: string): string {
-  const stem = stripExtension(fileName);
+  const stem = cleanStem(fileName);
   const spaced = stem
     .replace(/_+/g, " ")
     // \p{L} statt [a-z]: sonst zerfiele "Jörg2" zu "Jör g2".
@@ -84,7 +115,7 @@ export function normalizeAdName(fileName: string): string {
 
 /** "Creative 3.jpg" → { prefix: "creative", n: 3 }; ohne Zahl am Ende: null. */
 function parseName(fileName: string): { prefix: string; n: number } | null {
-  const stem = stripExtension(fileName);
+  const stem = cleanStem(fileName);
   const m = /^(.*?)(\d+)$/.exec(stem);
   return m ? { prefix: m[1].trim().toLowerCase(), n: Number(m[2]) } : null;
 }

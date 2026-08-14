@@ -22,6 +22,7 @@ export type Campaign = {
   objective: string;
   daily_budget?: string;
   start_time?: string;
+  /** Erster Eigentümer des Kontos; bei geteiltem Konto nennt customerName alle. */
   customerId?: string;
   customerName?: string;
   insights?: Insights;
@@ -58,11 +59,17 @@ const FIELDS = (period: Period) =>
   `name,status,objective,daily_budget,start_time,insights.date_preset(${period}){spend,impressions,cpm,actions}`;
 
 export async function listCampaigns(customers: Customer[], period: Period) {
-  // Ein Sub-Request pro Werbekonto; die Zuordnung zum Kunden merkt sich der Index.
-  const owners = customers.flatMap((c) => c.adAccounts.map((a) => ({ acct: a.id, c })));
+  // Ein Sub-Request pro Werbekonto – nicht pro Kunde: ein Konto kann mehreren
+  // Kunden gehören (MedArbeiter zahlt über dasselbe Konto auch für "Jobs -
+  // MedArbeiter"). Je Kunde gefragt, käme dieselbe Kampagne doppelt zurück.
+  const owners = new Map<string, Customer[]>();
+  for (const c of customers)
+    for (const a of c.adAccounts) owners.set(a.id, [...(owners.get(a.id) ?? []), c]);
+
+  const accounts = [...owners.keys()];
   const settled = await batch<{ data: Campaign[] }>(
-    owners.map((o) => ({
-      relative_url: `${o.acct}/campaigns?fields=${encodeURIComponent(FIELDS(period))}&limit=100`,
+    accounts.map((acct) => ({
+      relative_url: `${acct}/campaigns?fields=${encodeURIComponent(FIELDS(period))}&limit=100`,
     })),
     { revalidate: 60, tags: ["campaigns"] },
   );
@@ -74,13 +81,13 @@ export async function listCampaigns(customers: Customer[], period: Period) {
       errors.push(r.reason as GraphError);
       return;
     }
-    const { c } = owners[i];
+    const cs = owners.get(accounts[i])!;
     for (const raw of r.value.data ?? [])
       campaigns.push({
         ...raw,
         insights: (raw as any).insights?.data?.[0],
-        customerId: c.id,
-        customerName: c.name,
+        customerId: cs[0].id,
+        customerName: cs.map((c) => c.name).join(", "),
       });
   });
 

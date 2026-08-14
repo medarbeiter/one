@@ -20,9 +20,14 @@ export type FormatAsset =
   | { kind: "video"; videoId: string; thumbnailUrl?: string; fileName: string }
   | { kind: "image"; hash: string; fileName: string };
 
-/** UGC ist per Definition ein Video – ein Foto dreht niemand von sich selbst. */
+/**
+ * UGC ist per Definition ein Video – ein Foto dreht niemand von sich selbst.
+ * "single" ist das einzelne Bild: nicht jedes Motiv gibt es in zwei Formaten,
+ * und ein Bild, das nur im Feed laufen soll, ist kein halbes Paar.
+ */
 export type AdInput =
   | { name: string; type: "ugc"; asset: Extract<FormatAsset, { kind: "video" }> }
+  | { name: string; type: "single"; asset: Extract<FormatAsset, { kind: "image" }> }
   | { name: string; type: "split"; portrait: FormatAsset; square: FormatAsset };
 
 export type CreativeInput = {
@@ -79,7 +84,50 @@ export function buildCreative(i: CreativeInput) {
     throw new Error("Meta erlaubt höchstens 5 Primärtexte und 5 Überschriften.");
   if (!i.formId) throw new Error("Ein Lead-Formular muss ausgewählt sein.");
 
-  return i.ad.type === "ugc" ? ugcCreative(i, i.ad) : splitCreative(i, i.ad);
+  if (i.ad.type === "ugc") return ugcCreative(i, i.ad);
+  if (i.ad.type === "single") return singleCreative(i, i.ad);
+  return splitCreative(i, i.ad);
+}
+
+/**
+ * Ein Bild, alle Platzierungen. Aufgebaut wie der UGC-Pfad – nur dass an der
+ * Stelle des Videos ein link_data mit dem Bild-Hash steht. Meta skaliert das
+ * Motiv dann selbst in die Platzierungen, die es nicht ausfüllt; wer das
+ * genauer steuern will, gibt der Anzeige über den Zuschnitt eine zweite Hälfte
+ * und landet damit im Split-Pfad.
+ */
+function singleCreative(i: CreativeInput, ad: Extract<AdInput, { type: "single" }>) {
+  // Dieselbe Bedingung wie bei UGC: DEGREES_OF_FREEDOM verlangt ein Feld mit
+  // mehr als einem Eintrag, egal ob Video oder Bild darunter liegt.
+  if (i.bodies.length < 2 && i.titles.length < 2)
+    throw new Error(
+      "Eine Anzeige mit einem einzelnen Motiv braucht mindestens zwei Primärtexte oder zwei Überschriften — Meta lehnt je einen ab.",
+    );
+
+  return {
+    object_story_spec: {
+      page_id: i.pageId,
+      ...(i.instagramUserId ? { instagram_user_id: i.instagramUserId } : {}),
+      link_data: {
+        image_hash: ad.asset.hash,
+        // link ist bei Lead-Ads ein Platzhalter – Meta verlangt ihn trotzdem.
+        link: "http://fb.me/",
+        call_to_action: {
+          type: i.callToAction ?? "APPLY_NOW",
+          value: { lead_gen_form_id: i.formId, link: "http://fb.me/" },
+        },
+      },
+    },
+    asset_feed_spec: {
+      bodies: i.bodies.map((text) => ({ text })),
+      titles: i.titles.map((text) => ({ text })),
+      descriptions: [{ text: i.description }],
+      // Wie bei UGC: das Format steht schon in object_story_spec, variieren
+      // darf nur der Text.
+      optimization_type: "DEGREES_OF_FREEDOM",
+    },
+    degrees_of_freedom_spec: CREATIVE_FEATURES,
+  };
 }
 
 function ugcCreative(i: CreativeInput, ad: Extract<AdInput, { type: "ugc" }>) {
@@ -208,11 +256,15 @@ function splitCreative(i: CreativeInput, ad: Extract<AdInput, { type: "split" }>
 
 import { batch as realBatch, graph as realGraph, unwrapBatchItem, GraphError } from "./graph";
 import { buildTargeting } from "./targeting";
+import type { GeoPlace } from "./geo";
 
 export type AdSetInput = {
   name: string;
   addressString: string;
   radiusKm: number;
+  /** Statt der Adresse ein Ort aus Metas Verzeichnis – Stadt, PLZ, Bezirk.
+   *  Ist er gesetzt, zielt das Ad Set darauf und nicht auf addressString. */
+  place?: GeoPlace;
   formId: string;
   instagramUserId?: string;
   bodies: string[];
@@ -562,6 +614,7 @@ export async function launch(
             targeting: buildTargeting({
               addressString: set.addressString,
               radiusKm: set.radiusKm,
+              place: set.place,
             }),
             ...(set.dailyBudgetCents ? { daily_budget: set.dailyBudgetCents } : {}),
           },

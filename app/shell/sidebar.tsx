@@ -1,16 +1,27 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import { Badge } from "@heroui/react";
+import logo from "@/assets/logo.png";
+import { Icon, type IconName } from "./icons";
 
-const nav = [
-  { href: "/", label: "Today" },
-  { href: "/inbox", label: "Inbox" },
-  { href: "/campaigns", label: "Campaigns" },
-  { href: "/customers", label: "Customers" },
+const nav: { href: string; label: string; icon: IconName }[] = [
+  { href: "/", label: "Heute", icon: "home" },
+  { href: "/inbox", label: "Inbox", icon: "inbox" },
+  { href: "/campaigns", label: "Kampagnen", icon: "megaphone" },
+  { href: "/customers", label: "Kunden", icon: "users" },
 ];
 
-export function Sidebar({ inboxCount }: { inboxCount?: number }) {
+export function Sidebar({
+  inboxCount,
+  footer,
+}: {
+  inboxCount?: number;
+  /** Vom Server gerendert (Token-Status) und hier nur einsortiert. */
+  footer?: React.ReactNode;
+}) {
   const pathname = usePathname();
   const params = useSearchParams();
   // Der Kunden-Scope überlebt jeden Seitenwechsel – sonst wäre er kein Scope.
@@ -18,7 +29,11 @@ export function Sidebar({ inboxCount }: { inboxCount?: number }) {
   const suffix = customer ? `?customer=${customer}` : "";
 
   return (
-    <nav className="border-line flex w-52 shrink-0 flex-col gap-1 border-r p-3 text-sm">
+    <nav className="border-line flex w-60 shrink-0 flex-col gap-1 border-r p-3 text-sm">
+      <Link href={`/${suffix}`} className="mb-3 rounded-xl p-2" aria-label="MedArbeiter One – Startseite">
+        <Image src={logo} alt="MedArbeiter One" className="h-auto w-full" priority />
+      </Link>
+
       {nav.map((n) => {
         const active = n.href === "/" ? pathname === "/" : pathname.startsWith(n.href);
         return (
@@ -26,19 +41,24 @@ export function Sidebar({ inboxCount }: { inboxCount?: number }) {
             key={n.href}
             href={`${n.href}${suffix}`}
             aria-current={active ? "page" : undefined}
-            className={`flex items-center justify-between rounded-md px-3 py-2 ${
-              active ? "bg-gold-100 text-ink-900 font-medium" : "text-ink-700 hover:bg-canvas"
+            className={`flex items-center gap-3 rounded-xl px-3 py-2 ${
+              active
+                ? "bg-surface text-ink-900 shadow-surface font-medium"
+                : "text-ink-700 hover:bg-surface/60"
             }`}
           >
-            {n.label}
+            <Icon name={n.icon} className={active ? "text-gold-700 size-4" : "text-ink-300 size-4"} />
+            <span className="flex-1">{n.label}</span>
             {n.href === "/inbox" && inboxCount ? (
-              <span className="bg-gold-500 text-ink-900 rounded-full px-1.5 text-xs tabular-nums">
-                {inboxCount}
-              </span>
+              <Badge size="sm" variant="primary" color="accent" className="tabular-nums">
+                <Badge.Label>{inboxCount}</Badge.Label>
+              </Badge>
             ) : null}
           </Link>
         );
       })}
+
+      {footer && <div className="mt-auto pt-3">{footer}</div>}
     </nav>
   );
 }

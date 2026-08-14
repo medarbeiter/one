@@ -11,13 +11,46 @@ export type LeadForm = {
   locale?: string;
 };
 
-export async function listLeadForms(pageId: string): Promise<LeadForm[]> {
+const FIELDS = "id,name,status,locale";
+
+/**
+ * `fresh` umgeht den Datei-Cache: mit revalidate: 60 lieferte auch der
+ * Aktualisieren-Knopf bis zu eine Minute lang genau die Liste zurück, wegen der
+ * er geklickt wurde – ein gerade in Meta gebautes Formular fehlte darin.
+ */
+export async function listLeadForms(pageId: string, fresh = false): Promise<LeadForm[]> {
   const { data } = await graph<{ data: LeadForm[] }>(`${pageId}/leadgen_forms`, {
-    params: { fields: "id,name,status,locale", limit: 100 },
-    revalidate: 60,
-    tags: ["forms", `forms:${pageId}`],
+    params: { fields: FIELDS, limit: 100 },
+    asPage: pageId,
+    ...(fresh ? {} : { revalidate: 60, tags: ["forms", `forms:${pageId}`] }),
   });
   return (data ?? []).filter((f) => f.status !== "ARCHIVED");
+}
+
+/**
+ * Ein einzelnes Formular über seine ID. Gefragt wird mit dem Seiten-Token –
+ * damit prüft Graph die Zugehörigkeit gleich mit: die ID einer fremden Seite
+ * beantwortet es gar nicht erst, statt sie in eine Anzeige wandern zu lassen,
+ * die Meta erst beim Anlegen ablehnt.
+ */
+export async function getLeadForm(pageId: string, formId: string): Promise<LeadForm> {
+  return graph<LeadForm>(formId, { params: { fields: FIELDS }, asPage: pageId });
+}
+
+/**
+ * Was aus Meta kopiert wird, ist mal die nackte ID, mal die halbe Adresszeile
+ * des Baukastens. Bei mehreren Zahlenketten ohne Namen wird nicht geraten:
+ * die falsche ID fällt sonst erst beim Anlegen auf.
+ */
+export function parseFormId(input: string): string | undefined {
+  const text = input.trim();
+  if (/^\d+$/.test(text)) return text;
+  // In der URL des Baukastens ist asset_id die Seite – nur der benannte
+  // Formular-Parameter zählt.
+  const named = text.match(/[?&](?:form_id|formID|id)=(\d+)/)?.[1];
+  if (named) return named;
+  const runs = text.match(/\d{6,}/g);
+  return runs?.length === 1 ? runs[0] : undefined;
 }
 
 export function instantFormsUrl(pageId: string): string {

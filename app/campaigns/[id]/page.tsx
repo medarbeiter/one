@@ -1,4 +1,4 @@
-import { Card, Chip, Disclosure, DisclosureGroup } from "@heroui/react";
+import { Card, Chip, Disclosure, DisclosureGroup, EmptyState, Typography } from "@/app/shell/ui";
 import { costPerResult, getCampaign, results, type Insights, type Period } from "@/lib/campaigns";
 
 const money = (n?: number) =>
@@ -8,11 +8,11 @@ const money = (n?: number) =>
 
 function Metrics({ insights }: { insights?: Insights }) {
   const cells: [string, string][] = [
-    ["Spend", money(Number(insights?.spend))],
-    ["Impressions", insights?.impressions ?? "—"],
+    ["Ausgaben", money(Number(insights?.spend))],
+    ["Impressionen", insights?.impressions ?? "—"],
     ["CPM", money(Number(insights?.cpm))],
-    ["Results", String(results(insights) ?? "—")],
-    ["Cost/result", money(costPerResult(insights))],
+    ["Ergebnisse", String(results(insights) ?? "—")],
+    ["Kosten/Ergebnis", money(costPerResult(insights))],
   ];
   return (
     <dl className="flex flex-wrap gap-6 text-sm">
@@ -36,8 +36,10 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <h1 className="font-display text-ink-900 text-2xl">{c.name}</h1>
-        <Chip size="sm" color={c.status === "ACTIVE" ? "success" : "default"}>
+        <Typography.Heading level={1} className="font-display text-xl">
+          {c.name}
+        </Typography.Heading>
+        <Chip size="sm" color={c.status === "ACTIVE" ? "success" : "default"} variant="soft">
           {c.status}
         </Chip>
         <span className="text-ink-500 text-xs">{c.objective}</span>
@@ -56,7 +58,7 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
               <Disclosure.Trigger className="flex w-full items-center gap-3 py-3 text-left">
                 <Disclosure.Indicator />
                 <span className="flex-1">{s.name}</span>
-                <Chip size="sm" color={s.status === "ACTIVE" ? "success" : "default"}>
+                <Chip size="sm" color={s.status === "ACTIVE" ? "success" : "default"} variant="soft">
                   {s.status}
                 </Chip>
               </Disclosure.Trigger>
@@ -65,28 +67,38 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
               <Disclosure.Body className="space-y-4 pb-4">
                 <Metrics insights={s.insights?.data?.[0]} />
                 <div className="text-ink-500 text-xs">
-                  {s.optimization_goal} · {s.billing_event} · daily{" "}
+                  {s.optimization_goal} · {s.billing_event} · täglich{" "}
                   {money(Number(s.daily_budget) / 100)}
                 </div>
-                <ul className="space-y-2">
-                  {(s.ads?.data ?? []).map((ad: any) => (
-                    <li key={ad.id} className="border-line flex items-start gap-3 rounded-md border p-3">
-                      {ad.creative?.thumbnail_url && (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={ad.creative.thumbnail_url} alt="" className="size-16 rounded object-cover" />
-                      )}
-                      <div className="min-w-0 flex-1 space-y-2">
-                        <div className="flex items-center gap-2">
-                          <span className="truncate text-sm">{ad.name}</span>
-                          <Chip size="sm" color={ad.status === "ACTIVE" ? "success" : "default"}>
-                            {ad.status}
-                          </Chip>
-                        </div>
-                        <Metrics insights={ad.insights?.data?.[0]} />
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+                {s.ads?.data?.length ? (
+                  <ul className="space-y-2">
+                    {s.ads.data.map((ad: any) => (
+                      <li key={ad.id}>
+                        {/* Jede Anzeige ist eine Karte – dieselbe Fläche, die auch
+                            die Kennzahlen darüber trägt. */}
+                        <Card variant="secondary">
+                          <Card.Content className="flex items-start gap-3">
+                            {ad.creative?.thumbnail_url && (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={ad.creative.thumbnail_url} alt="" className="size-16 rounded-lg object-cover" />
+                            )}
+                            <div className="min-w-0 flex-1 space-y-2">
+                              <div className="flex items-center gap-2">
+                                <span className="truncate text-sm">{ad.name}</span>
+                                <Chip size="sm" color={ad.status === "ACTIVE" ? "success" : "default"} variant="soft">
+                                  {ad.status}
+                                </Chip>
+                              </div>
+                              <Metrics insights={ad.insights?.data?.[0]} />
+                            </div>
+                          </Card.Content>
+                        </Card>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <EmptyState>Diese Anzeigengruppe hat noch keine Anzeigen.</EmptyState>
+                )}
               </Disclosure.Body>
             </Disclosure.Content>
           </Disclosure>

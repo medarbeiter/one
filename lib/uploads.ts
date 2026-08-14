@@ -17,18 +17,100 @@ export async function uploadImage(
   return Object.values(r.images)[0].hash;
 }
 
+/**
+ * Die Adresse zu einem Bild-Hash. Meta gibt sie beim Upload zwar mit zurück,
+ * aber sie läuft nach Stunden ab – ein wiederhergestellter Entwurf hätte dann
+ * lauter kaputte Vorschauen. Frisch geholt gilt sie wieder.
+ */
+export async function imageUrl(hash: string, acct = meta.adAccount): Promise<string | undefined> {
+  const { data } = await graph<{ data: { hash: string; url: string }[] }>(`${acct}/adimages`, {
+    params: { hashes: [hash], fields: "hash,url" },
+    revalidate: 300,
+    tags: ["adimages", `adimage:${hash}`],
+  });
+  return data?.find((i) => i.hash === hash)?.url ?? data?.[0]?.url;
+}
+
+/**
+ * Ab hier geht das Video in Stücken hoch. Ein einzelner POST mit 187 MB endete
+ * bei Graph in "413" oder in einer Verbindung, die mittendrin abriss – und
+ * gedrehtes Material ist schnell so groß, auch schon heruntergerechnet.
+ */
+export const CHUNKED_ABOVE = 50 * 1024 * 1024;
+
 export async function uploadVideo(
   file: File,
   acct = meta.adAccount,
 ): Promise<string> {
+  const id = file.size > CHUNKED_ABOVE ? await inChunks(file, acct) : await inOnePiece(file, acct);
+  await waitForVideo(id);
+  return id;
+}
+
+async function inOnePiece(file: File, acct: string): Promise<string> {
   const fd = new FormData();
   fd.append("source", file);
   const { id } = await graph<{ id: string }>(`${acct}/advideos`, {
     method: "POST",
     body: fd,
   });
-  await waitForVideo(id);
   return id;
+}
+
+type Session = {
+  video_id: string;
+  upload_session_id: string;
+  start_offset: string;
+  end_offset: string;
+};
+
+/**
+ * Metas Stückweise-Protokoll: start nennt die Sitzung, jede Antwort sagt, welches
+ * Stück als Nächstes drankommt, finish schließt ab. Die Stückgröße gibt Meta vor
+ * – wir rechnen sie nicht aus, wir folgen den Offsets.
+ */
+async function inChunks(file: File, acct: string): Promise<string> {
+  const session = await phase<Session>(acct, {
+    upload_phase: "start",
+    file_size: String(file.size),
+  });
+
+  let { start_offset: from, end_offset: to } = session;
+  while (from !== to) {
+    const next = await phase<{ start_offset: string; end_offset: string }>(
+      acct,
+      {
+        upload_phase: "transfer",
+        upload_session_id: session.upload_session_id,
+        start_offset: from,
+      },
+      file.slice(Number(from), Number(to)),
+      file.name,
+    );
+    // Ohne diese Prüfung liefe ein Offset, der stehen bleibt, endlos – und der
+    // Upload sähe von außen nur aus, als hinge er.
+    if (next.start_offset === from)
+      throw new Error(`Upload kam nicht voran (Offset ${from} von ${file.size})`);
+    ({ start_offset: from, end_offset: to } = next);
+  }
+
+  await phase(acct, {
+    upload_phase: "finish",
+    upload_session_id: session.upload_session_id,
+  });
+  return session.video_id;
+}
+
+function phase<T = unknown>(
+  acct: string,
+  fields: Record<string, string>,
+  chunk?: Blob,
+  name?: string,
+): Promise<T> {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(fields)) fd.append(k, v);
+  if (chunk) fd.append("video_file_chunk", chunk, name);
+  return graph<T>(`${acct}/advideos`, { method: "POST", body: fd });
 }
 
 // ponytail: 5s-Polling, Decke bei ~5 Min. Erst auf Job-Queue umbauen, wenn Videos

@@ -37,6 +37,21 @@ test("Fehlercodes werden auf Handlungsoptionen abgebildet", () => {
   expect(mapGraphError(undefined, 400).retryable).toBe(false);
 });
 
+test("Nicht angenommene Lead-Bedingungen sind nie wiederholbar", () => {
+  // Der code ist 100 ("Invalid parameter") und trägt nichts bei – die Aussage
+  // steht im Subcode. Der Status ist hier absichtlich 500: ohne die eigene
+  // Prüfung fiele der Fehler in den unknown-Zweig und käme als retryable
+  // zurück, und ein zweiter Anlauf legte dieselben Anzeigen noch einmal an,
+  // ohne dass er anders ausgehen könnte.
+  for (const error_subcode of [1815089, 1892181, 1892291]) {
+    expect(mapGraphError({ code: 100, message: "Invalid parameter", error_subcode }, 500)).toEqual({
+      kind: "permission",
+      message: "Invalid parameter",
+      retryable: false,
+    });
+  }
+});
+
 function stub(handler: (url: URL) => { status?: number; body: unknown }) {
   const calls: URL[] = [];
   globalThis.fetch = (async (input: any) => {

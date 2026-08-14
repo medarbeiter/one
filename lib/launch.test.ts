@@ -26,6 +26,12 @@ const splitAd: AdInput = {
   square: { kind: "image", hash: "hash_s", fileName: "Creative 4.jpg" },
 };
 
+const singleAd: AdInput = {
+  name: "Creative 1",
+  type: "single",
+  asset: { kind: "image", hash: "hash_one", fileName: "Team.jpg" },
+};
+
 const input = {
   pageId: "1189746767562744",
   instagramUserId: "17841436659257779",
@@ -88,10 +94,41 @@ test("a single body and a single headline is rejected before Meta rejects it", (
   expect(() => buildCreative({ ...input, bodies: ["b1", "b2"], titles: ["t"] })).not.toThrow();
 });
 
+// ------------------------------------------------------------- Einzelnes Bild
+
+/**
+ * Nicht jedes Motiv gibt es in zwei Formaten. Vorher war ein einzelnes Bild ein
+ * offener Zustand, der den ganzen Standort blockierte – jetzt ist es eine
+ * Anzeige wie die anderen.
+ */
+test("ein einzelnes Bild hängt als link_data an der Story-Spec", () => {
+  const c = buildCreative({ ...input, ad: singleAd }) as any;
+  expect(c.object_story_spec.link_data.image_hash).toBe("hash_one");
+  expect(c.object_story_spec.link_data.call_to_action).toEqual({
+    type: "APPLY_NOW",
+    value: { lead_gen_form_id: "2095967427699237", link: "http://fb.me/" },
+  });
+  // Wie bei UGC: das Format steht in der Story-Spec, der Feed trägt nur Text.
+  expect(c.asset_feed_spec.optimization_type).toBe("DEGREES_OF_FREEDOM");
+  expect("ad_formats" in c.asset_feed_spec).toBe(false);
+  expect("images" in c.asset_feed_spec).toBe(false);
+  expect("asset_customization_rules" in c.asset_feed_spec).toBe(false);
+});
+
+test("auch das Einzelbild braucht zwei Texte in einem Feld", () => {
+  // Dieselbe Regel wie bei UGC – sie hängt an DEGREES_OF_FREEDOM, nicht am Medium.
+  expect(() =>
+    buildCreative({ ...input, ad: singleAd, bodies: ["b"], titles: ["t"] }),
+  ).toThrow(/mindestens zwei/i);
+  expect(() =>
+    buildCreative({ ...input, ad: singleAd, bodies: ["b1", "b2"], titles: ["t"] }),
+  ).not.toThrow();
+});
+
 test("the deprecated standard_enhancements field is never sent", () => {
   // Meta lehnt jede Anzeigengestaltung mit diesem Feld ab; die Einzelfeatures
   // tragen dieselbe Absicht.
-  for (const ad of [ugcAd, splitAd]) {
+  for (const ad of [ugcAd, singleAd, splitAd]) {
     const c = buildCreative({ ...input, ad }) as any;
     const features = c.degrees_of_freedom_spec.creative_features_spec;
     expect("standard_enhancements" in features).toBe(false);

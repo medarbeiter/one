@@ -1,7 +1,7 @@
 "use client";
 
 import { Alert, Button, Link } from "@heroui/react";
-import { label } from "@/lib/labels";
+import { label, plural } from "@/lib/labels";
 import type { Receipt } from "@/lib/launch";
 import type { LaunchState, WizardSubmission } from "../actions";
 
@@ -126,10 +126,10 @@ export function ReceiptPanel({
               </Alert.Title>
               <Alert.Description>
                 {receipt.adSets
-                  .map((s) => `${s.name}: ${s.adIds.length} Anzeige(n)`)
+                  .map((s) => `${s.name}: ${plural(s.adIds.length, "Anzeige", "Anzeigen")}`)
                   .join(", ")}
                 {receipt.failed.length > 0 &&
-                  ` — ${receipt.failed.length} Anzeige(n) fehlgeschlagen`}
+                  ` — ${plural(receipt.failed.length, "Anzeige", "Anzeigen")} fehlgeschlagen`}
               </Alert.Description>
             </Alert.Content>
           </Alert>
@@ -152,7 +152,7 @@ export function ReceiptPanel({
             <ul className="list-disc space-y-1 pl-5">
               {receipt.adSets.map((s, i) => (
                 <li key={`${s.name}-${i}`}>
-                  {s.name}: {s.id ?? "—"} — {s.adIds.length} Anzeige(n)
+                  {s.name}: {s.id ?? "—"} — {plural(s.adIds.length, "Anzeige", "Anzeigen")}
                   {s.error ? ` — ${label(s.error)}` : ""}
                 </li>
               ))}
@@ -164,7 +164,7 @@ export function ReceiptPanel({
       {checks && (
         <ul className="space-y-1 text-sm">
           {checks.map((c) => (
-            <li key={c.label} className={c.ok ? "text-success" : "text-danger"}>
+            <li key={c.label} className={c.ok ? "text-success-700" : "text-danger-700"}>
               {c.ok ? "✓" : "✗"} {c.label}
               {!c.ok && c.detail ? ` — ${label(c.detail)}` : ""}
             </li>
@@ -174,7 +174,7 @@ export function ReceiptPanel({
 
       {receipt && receipt.failed.length > 0 && (
         <div className="space-y-2">
-          <ul className="list-disc space-y-1 pl-5 text-sm text-danger">
+          <ul className="list-disc space-y-1 pl-5 text-sm text-danger-700">
             {receipt.failed.map((f, i) => (
               <li key={`${f.adSetName}-${f.adName}-${i}`}>
                 {f.adSetName} / {f.adName}: {label(f.error)}

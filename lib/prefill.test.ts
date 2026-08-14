@@ -1,12 +1,24 @@
 import { expect, test } from "bun:test";
 import { defaultsFromAdSet, newestAdSet } from "./prefill";
 
-test("address, radius and texts come from the previous ad set", () => {
+test("address and radius come from the previous ad set", () => {
   const p = defaultsFromAdSet({
     targeting: {
       geo_locations: {
         custom_locations: [{ address_string: "Hauptstr. 1, Dresden", radius: 25 }],
       },
+    },
+  } as any);
+
+  expect(p.addressString).toBe("Hauptstr. 1, Dresden");
+  expect(p.radiusKm).toBe(25);
+});
+
+test("texts are never prefilled — they are rewritten every campaign", () => {
+  // Ein leeres Feld sieht man; einen stehengebliebenen Text von letztem Mal nicht.
+  const p = defaultsFromAdSet({
+    targeting: {
+      geo_locations: { custom_locations: [{ address_string: "Hauptstr. 1", radius: 25 }] },
     },
     ads: {
       data: [
@@ -21,13 +33,25 @@ test("address, radius and texts come from the previous ad set", () => {
         },
       ],
     },
+  } as any) as Record<string, unknown>;
+
+  expect(p.bodies).toBeUndefined();
+  expect(p.titles).toBeUndefined();
+  expect(p.description).toBeUndefined();
+});
+
+test("zielte die letzte Kampagne auf eine Stadt, kommt die Stadt zurück", () => {
+  // Sonst bekäme der Kunde ein leeres Standortfeld, obwohl sein Ort bei Meta
+  // steht – nur eben in einem anderen Topf als custom_locations.
+  const p = defaultsFromAdSet({
+    targeting: {
+      geo_locations: { cities: [{ key: 560419, name: "Hamburg", radius: 20 }] },
+    },
   } as any);
 
-  expect(p.addressString).toBe("Hauptstr. 1, Dresden");
-  expect(p.radiusKm).toBe(25);
-  expect(p.bodies).toEqual(["b1", "b2"]);
-  expect(p.titles).toEqual(["t1"]);
-  expect(p.description).toBe("d1");
+  expect(p.place).toEqual({ type: "city", key: "560419", name: "Hamburg" });
+  expect(p.radiusKm).toBe(20);
+  expect(p.addressString).toBeUndefined();
 });
 
 test("an ad set without a custom location yields no address", () => {

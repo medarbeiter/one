@@ -1,190 +1,158 @@
 "use client";
 
-import { useActionState, useState } from "react";
-import {
-  Button,
-  Card,
-  Checkbox,
-  Input,
-  Label,
-  Slider,
-  Tabs,
-  TextArea,
-  TextField,
-} from "@heroui/react";
-import { launchAction, type LaunchResult } from "../actions";
+/**
+ * Die Schrittleiste des Assistenten.
+ *
+ * Vorher standen hier HeroUI-Tabs. Zwei Gründe, warum sie weg sind:
+ *
+ * 1. Falsche Bedeutung. Tabs sind vier gleichrangige Sichten auf dasselbe;
+ *    ein Assistent hat eine Reihenfolge, einen Fortschritt und Schritte, die
+ *    noch nicht dran sind. „Schritt 2 von 4" ist keine Registerkarte.
+ * 2. Ein echter Fehler. Die Pille hinter dem gewählten Reiter (`Tabs.Indicator`)
+ *    liegt als `absolute size-full` in ihrem Reiter und wandert per Transform;
+ *    weil jeder Reiter `z-index: 1` hat, malte die Pille des späteren Reiters
+ *    über die Beschriftung des früheren. Daher „1. Ku" statt „1. Kunde".
+ *
+ * Der Zustand steht jetzt im Zeichen selbst statt allein in der Schriftfarbe:
+ * Haken = erledigt, Zahl = offen, Schloss = noch gesperrt. Farbe ist die
+ * Zugabe, nicht die Information.
+ */
 
-type Customer = { id: string; name: string; adAccounts: { id: string; name: string }[] };
+import { CheckIcon, LockSimpleIcon } from "@phosphor-icons/react";
 
-const field = "border-line bg-surface h-10 w-full rounded-md border px-3 text-sm";
+export type StepperStep = {
+  label: string;
+  /** Offene Punkte an diesem Schritt. 0 heißt: nichts hält hier auf. */
+  issues: number;
+};
 
-const STEPS = ["Customer & objective", "Audience", "Creatives", "Review"];
+type StepState = "done" | "current" | "todo" | "locked";
 
-function Choice({ name, label, options, ...rest }: {
-  name: string; label: string; options: string[];
-} & React.ComponentProps<"select">) {
+function stateOf(index: number, current: number, locked: boolean, issues: number): StepState {
+  if (locked) return "locked";
+  if (index === current) return "current";
+  // Erledigt ist nur, was hinter einem liegt *und* nichts offen hat – sonst
+  // stünde ein Haken an einem Schritt, der die Kampagne blockiert.
+  if (index < current && issues === 0) return "done";
+  return "todo";
+}
+
+/** Die runde Marke links: Zahl, Haken oder Schloss. */
+function Badge({ state, number }: { state: StepState; number: number }) {
+  const base =
+    "flex size-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold tabular-nums transition-colors";
+  if (state === "done")
+    return (
+      <span aria-hidden className={`${base} border-gold-500 bg-gold-500 text-ink-900`}>
+        <CheckIcon size={13} weight="bold" />
+      </span>
+    );
+  if (state === "current")
+    return (
+      <span aria-hidden className={`${base} border-gold-500 bg-gold-500 text-ink-900`}>
+        {number}
+      </span>
+    );
+  if (state === "locked")
+    return (
+      <span aria-hidden className={`${base} border-line text-ink-300`}>
+        <LockSimpleIcon size={12} weight="bold" />
+      </span>
+    );
   return (
-    <div className="space-y-1">
-      <Label>{label}</Label>
-      <select name={name} className={field} defaultValue={options[0]} {...rest}>
-        {options.map((o) => (
-          <option key={o} value={o}>{o}</option>
-        ))}
-      </select>
-    </div>
+    <span aria-hidden className={`${base} border-ink-300 bg-surface text-ink-500`}>
+      {number}
+    </span>
   );
 }
 
-// defaultValue gehört an TextField – auf dem Input hält RAC ihn für "controlled".
-function Text({ name, label, defaultValue, ...rest }: {
-  name: string; label: string; defaultValue?: string;
-} & React.ComponentProps<typeof Input>) {
-  return (
-    <TextField name={name} defaultValue={defaultValue} isRequired className="space-y-1">
-      <Label>{label}</Label>
-      <Input {...rest} />
-    </TextField>
-  );
-}
-
-export function Stepper({ customers, defaultCustomer }: {
-  customers: Customer[];
-  defaultCustomer?: string;
+export function Stepper({
+  steps,
+  current,
+  onSelect,
+  /** Ab hier ist noch nichts auszufüllen – ohne Kunde trägt kein Schritt etwas. */
+  lockedFrom = steps.length,
+}: {
+  steps: StepperStep[];
+  current: number;
+  onSelect: (index: number) => void;
+  lockedFrom?: number;
 }) {
-  const [state, action, pending] = useActionState<LaunchResult, FormData>(launchAction, {});
-  const [step, setStep] = useState("0");
-  // Beschäftigung/Wohnen/Kredit verbieten Alters-Targeting. Deshalb steht die
-  // Kategorie in Schritt 1 – sie entscheidet, was Schritt 2 überhaupt anbietet.
-  const [employment, setEmployment] = useState(true);
-  const [headline, setHeadline] = useState("Apply now");
-  const [message, setMessage] = useState("We are hiring carers — flexible hours, fair pay.");
-  const [age, setAge] = useState<[number, number]>([18, 65]);
-
   return (
-    <form action={action} className="grid gap-6 lg:grid-cols-[1fr_20rem]">
-      <Card>
-        <Card.Header>
-          <Card.Title>New campaign</Card.Title>
-          <Card.Description>
-            Creates campaign, ad set and one ad per file — all paused.
-          </Card.Description>
-        </Card.Header>
-
-        <Tabs selectedKey={step} onSelectionChange={(k) => setStep(String(k))}>
-          <Tabs.List>
-            {STEPS.map((s, i) => (
-              <Tabs.Tab key={i} id={String(i)}>
-                {i + 1}. {s}
-              </Tabs.Tab>
-            ))}
-          </Tabs.List>
-
-          <Tabs.Panel id="0" className="grid gap-4 p-4 sm:grid-cols-2">
-            <div className="space-y-1 sm:col-span-2">
-              <Label>Customer</Label>
-              <select name="customer" className={field} defaultValue={defaultCustomer} required>
-                {customers.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-            </div>
-            <Text name="name" label="Campaign name" defaultValue="Carers Saxony" />
-            <Choice name="objective" label="Objective" options={[
-              "OUTCOME_LEADS", "OUTCOME_TRAFFIC", "OUTCOME_ENGAGEMENT",
-              "OUTCOME_AWARENESS", "OUTCOME_SALES",
-            ]} />
-            <Checkbox
-              name="specialAdCategories"
-              value="EMPLOYMENT"
-              isSelected={employment}
-              onChange={setEmployment}
-              className="sm:col-span-2"
-            >
-              <Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>
-              <Checkbox.Content>
-                Special category “Employment” — required for job ads. Disables age and gender
-                targeting in the next step.
-              </Checkbox.Content>
-            </Checkbox>
-          </Tabs.Panel>
-
-          <Tabs.Panel id="1" className="grid gap-4 p-4 sm:grid-cols-2">
-            <Text name="countries" label="Countries (ISO, comma separated)" defaultValue="DE" />
-            <Choice name="optimizationGoal" label="Optimisation" options={[
-              "LEAD_GENERATION", "LINK_CLICKS", "LANDING_PAGE_VIEWS",
-              "OFFSITE_CONVERSIONS", "REACH",
-            ]} />
-            <Text name="dailyBudget" label="Daily budget (€)" type="number" step="0.01" defaultValue="20" />
-            {employment ? (
-              <p className="text-ink-500 self-end text-xs sm:col-span-2">
-                Age targeting is unavailable for employment ads — Meta enforces 18–65 for all.
-              </p>
-            ) : (
-              <div className="space-y-1 sm:col-span-2">
-                <Label>Age range</Label>
-                {/* value/onChange statt defaultValue: sonst folgen die hidden
-                    inputs unten nie dem Drag – der Regler wäre nur Deko. */}
-                <Slider
-                  value={age}
-                  onChange={(v) => setAge(v as [number, number])}
-                  minValue={13}
-                  maxValue={65}
-                  step={1}
+    <nav aria-label="Schritte" className="border-line border-b px-2 sm:px-4">
+      <ol className="flex items-stretch">
+        {steps.map((step, i) => {
+          const locked = i >= lockedFrom;
+          const state = stateOf(i, current, locked, step.issues);
+          const showsIssues = step.issues > 0 && !locked;
+          return (
+            <li key={step.label} className="relative min-w-0 flex-1">
+              <button
+                type="button"
+                disabled={locked}
+                aria-current={state === "current" ? "step" : undefined}
+                aria-label={
+                  `Schritt ${i + 1} von ${steps.length}: ${step.label}` +
+                  (locked
+                    ? ", noch gesperrt"
+                    : showsIssues
+                      ? step.issues === 1
+                        ? ", 1 offener Punkt"
+                        : `, ${step.issues} offene Punkte`
+                      : i < current
+                        ? ", erledigt"
+                        : "")
+                }
+                onClick={() => onSelect(i)}
+                className={[
+                  // 2px Fokusring statt des HeroUI-Standards am Reiter: der Knopf
+                  // hat keinen eigenen Rand, an dem Fokus sonst sichtbar würde.
+                  "flex w-full items-center justify-center gap-2 rounded-t-lg px-2 py-3 outline-none",
+                  "focus-visible:ring-focus focus-visible:ring-2 focus-visible:ring-inset",
+                  locked ? "cursor-not-allowed" : "hover:bg-surface-secondary cursor-pointer",
+                ].join(" ")}
+              >
+                <Badge state={state} number={i + 1} />
+                <span
+                  aria-hidden
+                  className={[
+                    "hidden truncate text-[0.8125rem] sm:block",
+                    state === "current"
+                      ? "text-ink-900 font-semibold"
+                      : state === "locked"
+                        ? "text-ink-300 font-medium"
+                        : "text-ink-500 font-medium",
+                  ].join(" ")}
                 >
-                  <Slider.Track><Slider.Fill /><Slider.Thumb index={0} /><Slider.Thumb index={1} /></Slider.Track>
-                </Slider>
-                <input type="hidden" name="ageMin" value={age[0]} />
-                <input type="hidden" name="ageMax" value={age[1]} />
-              </div>
-            )}
-          </Tabs.Panel>
-
-          <Tabs.Panel id="2" className="grid gap-4 p-4 sm:grid-cols-2">
-            <Text name="link" label="Destination URL" type="url" defaultValue="https://med-arbeiter.de" />
-            <Choice name="callToAction" label="Button" options={[
-              "APPLY_NOW", "LEARN_MORE", "SIGN_UP", "CONTACT_US", "SEND_MESSAGE",
-            ]} />
-            <TextField name="headline" value={headline} onChange={setHeadline} isRequired className="space-y-1">
-              <Label>Headline</Label>
-              <Input />
-            </TextField>
-            <TextField name="message" value={message} onChange={setMessage} isRequired className="space-y-1 sm:col-span-2">
-              <Label>Primary text</Label>
-              <TextArea rows={3} />
-            </TextField>
-            <div className="space-y-1 sm:col-span-2">
-              <Label>Images / videos</Label>
-              <input type="file" name="files" multiple accept="image/*,video/*" className={`${field} py-2`} />
-              <p className="text-ink-500 text-xs">One ad is created per file.</p>
-            </div>
-          </Tabs.Panel>
-
-          <Tabs.Panel id="3" className="space-y-3 p-4 text-sm">
-            <p className="text-ink-500">
-              Everything is created paused. Nothing spends money until you switch it on in the
-              campaigns table.
-            </p>
-            <Button type="submit" isPending={pending}>
-              {pending ? "Uploading…" : "Create (paused)"}
-            </Button>
-            {state.ok && <p className="text-success">{state.ok}</p>}
-            {state.error && <p className="text-danger">{state.error}</p>}
-          </Tabs.Panel>
-        </Tabs>
-      </Card>
-
-      {/* Vorschau steht neben dem Formular, nicht dahinter – der Text wird
-          für sie geschrieben, nicht für die Felder. */}
-      <Card className="h-fit">
-        <Card.Header><Card.Title>Preview</Card.Title></Card.Header>
-        <Card.Content className="space-y-2 text-sm">
-          <div className="bg-canvas border-line grid h-40 place-items-center rounded-md border text-xs text-ink-300">
-            Your image or video
-          </div>
-          <p className="whitespace-pre-wrap">{message}</p>
-          <p className="text-ink-900 font-medium">{headline}</p>
-        </Card.Content>
-      </Card>
-    </form>
+                  {step.label}
+                </span>
+                {showsIssues && (
+                  <span
+                    aria-hidden
+                    className="bg-attention text-danger-700 flex size-5 shrink-0 items-center justify-center rounded-full text-[0.6875rem] font-semibold tabular-nums"
+                  >
+                    {step.issues}
+                  </span>
+                )}
+              </button>
+              {/* Der Balken sitzt am Schritt und nicht als wandernde Pille über
+                  allen – er kann damit nichts überdecken. */}
+              <span
+                aria-hidden
+                className={[
+                  "absolute inset-x-0 -bottom-px h-0.5 rounded-full transition-colors",
+                  state === "current" ? "bg-gold-500" : "bg-transparent",
+                ].join(" ")}
+              />
+            </li>
+          );
+        })}
+      </ol>
+      {/* Schmal bleibt von der Leiste nur die Zahlenreihe – der Name des
+          aktuellen Schritts steht dann darunter statt gar nicht. */}
+      <p className="text-ink-700 px-2 pb-2 text-[0.8125rem] font-semibold sm:hidden">
+        Schritt {current + 1} von {steps.length}: {steps[current]?.label}
+      </p>
+    </nav>
   );
 }

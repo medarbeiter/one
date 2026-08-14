@@ -12,7 +12,7 @@ export function StatusSwitch({ id, name, status }: { id: string; name: string; s
   const apply = (next: "ACTIVE" | "PAUSED") =>
     start(async () => {
       const r = await setStatusAction(id, next);
-      if (r.error) toast.danger(`Could not change status: ${r.error}`);
+      if (r.error) toast.danger(`Status konnte nicht geändert werden: ${r.error}`);
     });
 
   return (
@@ -27,7 +27,7 @@ export function StatusSwitch({ id, name, status }: { id: string; name: string; s
         <Switch.Control>
           <Switch.Thumb />
         </Switch.Control>
-        <Switch.Content>{live ? "Active" : "Paused"}</Switch.Content>
+        <Switch.Content>{live ? "Aktiv" : "Pausiert"}</Switch.Content>
       </Switch>
 
       {/* Kein "Content"-Teil bei AlertDialog: der Aufbau ist Backdrop > Container > Dialog. */}
@@ -36,14 +36,14 @@ export function StatusSwitch({ id, name, status }: { id: string; name: string; s
           <AlertDialog.Container>
             <AlertDialog.Dialog>
               <AlertDialog.Header>
-                <AlertDialog.Heading>Go live?</AlertDialog.Heading>
+                <AlertDialog.Heading>Live schalten?</AlertDialog.Heading>
               </AlertDialog.Header>
               <AlertDialog.Body>
-                &ldquo;{name}&rdquo; starts spending its daily budget immediately.
+                &bdquo;{name}&ldquo; gibt ab sofort sein Tagesbudget aus.
               </AlertDialog.Body>
               <AlertDialog.Footer>
                 <Button variant="outline" onPress={() => setConfirming(false)}>
-                  Cancel
+                  Abbrechen
                 </Button>
                 <Button
                   onPress={() => {
@@ -51,7 +51,7 @@ export function StatusSwitch({ id, name, status }: { id: string; name: string; s
                     apply("ACTIVE");
                   }}
                 >
-                  Go live
+                  Live schalten
                 </Button>
               </AlertDialog.Footer>
             </AlertDialog.Dialog>
@@ -73,12 +73,19 @@ export function BudgetField({ id, cents }: { id: string; cents?: number }) {
 
   return (
     <NumberField
-      aria-label="Daily budget"
+      aria-label="Tagesbudget"
       value={value}
       onChange={setValue}
       minValue={1}
-      step={1}
-      formatOptions={{ style: "currency", currency: "EUR" }}
+      // Cent-genau wie im Assistenten: step={1} rastete beim Verlassen auf
+      // ganze Euro ein und verwarf die Eingabe stillschweigend.
+      step={0.01}
+      formatOptions={{
+        style: "currency",
+        currency: "EUR",
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }}
       isDisabled={pending}
       // Erst beim Verlassen des Feldes schreiben – nicht bei jedem Tastendruck.
       // value kommt bereits geparst von NumberField, kein Parsen des
@@ -87,7 +94,7 @@ export function BudgetField({ id, cents }: { id: string; cents?: number }) {
         if (!Number.isFinite(value) || Math.round(value * 100) === cents) return;
         start(async () => {
           const r = await setBudgetAction(id, value);
-          if (r.error) toast.danger(`Could not save budget: ${r.error}`);
+          if (r.error) toast.danger(`Budget konnte nicht gespeichert werden: ${r.error}`);
         });
       }}
       className="w-32"

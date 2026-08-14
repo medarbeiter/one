@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+  cleanStem,
   nextCreativeName,
   stripExtension,
   uniqueName,
@@ -145,6 +146,44 @@ test("the ad name is the file name without its extension", () => {
   expect(stripExtension("Laura 1")).toBe("Laura 1");
   // Eine Datei, die nur aus einer Endung besteht, darf nicht namenlos werden.
   expect(stripExtension(".mp4")).toBe(".mp4");
+});
+
+test("Spuren des Kopierens stehen nicht in Metas Anzeigenliste", () => {
+  // Was aus Drive, Finder und Explorer im Sammelordner landet.
+  expect(cleanStem("Kopie von Lea 1.mp4")).toBe("Lea 1");
+  expect(cleanStem("Copy of Lea 1.mp4")).toBe("Lea 1");
+  expect(cleanStem("Lea 1 (1).mp4")).toBe("Lea 1");
+  expect(cleanStem("Lea 1 - Kopie.mp4")).toBe("Lea 1");
+  expect(cleanStem("Lea 1 copy.mp4")).toBe("Lea 1");
+  // Beides zusammen, in beiden Reihenfolgen.
+  expect(cleanStem("Lea 1 - Kopie (2).mp4")).toBe("Lea 1");
+  expect(cleanStem("Lea 1 copy 2.mp4")).toBe("Lea 1");
+});
+
+test("die Nummer am Ende überlebt, sie trägt die Paarung", () => {
+  // "Creative 3" und "Creative 4" sind die beiden Hälften einer Anzeige – eine
+  // Reinigung, die die 3 mitnimmt, zerstört genau das.
+  expect(cleanStem("Creative 3.jpg")).toBe("Creative 3");
+  // Vierstellige Klammern sind keine Kopienzähler.
+  expect(cleanStem("Sommer (2024).jpg")).toBe("Sommer (2024)");
+  // Ein Name, der nur aus Kopierspuren besteht, bleibt lieber stehen.
+  expect(cleanStem("Kopie.jpg")).toBe("Kopie");
+});
+
+test("ein kopiertes Paar findet trotzdem zusammen", () => {
+  // Vorher scheiterte das an der Klammer: "Creative 3 (1)" endet nicht auf einer
+  // Ziffer und wurde nie als Nummer gelesen.
+  const { pairs, unpaired } = pairByName([
+    img("Creative 3 (1).jpg", "portrait"),
+    img("Creative 4.jpg", "square"),
+  ]);
+  expect(unpaired).toHaveLength(0);
+  expect(pairs).toHaveLength(1);
+});
+
+test("der Anzeigenname trägt die Kopierspur nicht weiter", () => {
+  expect(normalizeAdName("Kopie von lea1.mov")).toBe("Lea 1");
+  expect(normalizeAdName("lea1 (1).mov")).toBe("Lea 1");
 });
 
 test("two files that collide after stripping keep distinct ad names", () => {

@@ -25,18 +25,18 @@ export function ScopeSwitcher({ customers }: { customers: Item[] }) {
     router.push(qs ? `${pathname}?${qs}` : pathname);
   }
 
-  const items: Item[] = [{ id: ALL, name: "All customers" }, ...customers];
+  const items: Item[] = [{ id: ALL, name: "Alle Kunden" }, ...customers];
 
   return (
     <ComboBox
-      aria-label="Customer scope"
+      aria-label="Kunden-Scope"
       selectedKey={params.get("customer") ?? ALL}
       onSelectionChange={select}
       className="w-64"
     >
       <ComboBox.InputGroup>
         {/* Das eigentliche Eingabefeld – ComboBox.Value zeigt nur an, tippt aber nicht mit. */}
-        <Input placeholder="All customers" />
+        <Input placeholder="Alle Kunden" />
         <ComboBox.Trigger />
       </ComboBox.InputGroup>
       <ComboBox.Popover>

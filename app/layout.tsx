@@ -1,24 +1,18 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { cookies } from "next/headers";
 import { after } from "next/server";
 import "./globals.css";
-import { Poppins } from "next/font/google";
-import { Toast } from "@heroui/react";
 import brandIcon from "@/assets/logo-square.png";
 import { ensureAssigned } from "@/lib/assign";
 import { listCustomers } from "@/lib/customers";
+import { openSession, SESSION_COOKIE, sessionSecret } from "@/lib/session";
 import { NewCampaign } from "./shell/new-campaign";
 import { ScopeSwitcher } from "./shell/scope-switcher";
 import { Sidebar } from "./shell/sidebar";
 import { TokenHealth } from "./shell/token-health";
-
-// Nur für Überschriften und Kennzahlen – Fließtext bleibt System-UI.
-const poppins = Poppins({
-  subsets: ["latin"],
-  weight: ["600"],
-  variable: "--font-poppins",
-  display: "swap",
-});
+import { Toasts } from "./shell/ui";
+import { UserBadge } from "./shell/user-badge";
 
 export const metadata: Metadata = {
   title: "MedArbeiter One",
@@ -30,6 +24,13 @@ export const metadata: Metadata = {
 };
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {
+  // Wer arbeitet hier? Der Proxy lässt ohne gültige Sitzung niemanden bis
+  // hierher – null gibt es trotzdem, etwa wenn die Sitzung zwischen Proxy und
+  // Rendern abläuft; dann fehlt nur das Namensschild, die Seite lebt weiter.
+  const person = await openSession(
+    (await cookies()).get(SESSION_COOKIE)?.value,
+    sessionSecret(),
+  );
   // Einmal laden, für Scope-Switcher und Token-Status gemeinsam nutzen.
   const { customers, errors, issues: overrideIssues } = await listCustomers();
   const issues = [...customers.flatMap((c) => c.issues), ...overrideIssues];
@@ -44,14 +45,17 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       : "ok";
 
   return (
-    <html lang="de" className={`${poppins.variable} h-full antialiased`}>
+    <html lang="de" className="h-full antialiased">
       {/* Die Leiste steht, gescrollt wird nur der Inhalt – bei 200 Kunden ist
           der Kunden-Scope nie weggescrollt. */}
       <body className="bg-canvas text-ink-700 flex h-full overflow-hidden">
         <Suspense fallback={<div className="border-line w-60 shrink-0 border-r" />}>
           <Sidebar
             footer={
-              <TokenHealth state={state} detail={[...errors.map((e) => e.message), ...issues]} />
+              <div className="space-y-2">
+                {person && <UserBadge person={person} />}
+                <TokenHealth state={state} detail={[...errors.map((e) => e.message), ...issues]} />
+              </div>
             }
           />
         </Suspense>
@@ -69,7 +73,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
           <main className="min-h-0 flex-1 overflow-y-auto p-6">{children}</main>
         </div>
         {/* Region für imperative Toasts (toast.success/.danger) – einmal pro App. */}
-        <Toast.Provider />
+        <Toasts />
       </body>
     </html>
   );
