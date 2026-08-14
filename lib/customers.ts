@@ -4,6 +4,7 @@
  */
 import { actId, graph, GraphError, meta } from "./graph";
 import { customers as config, type CustomerConfig } from "./customers.config";
+import { normalise } from "./derive";
 
 export type Access = "own" | "client";
 
@@ -15,24 +16,67 @@ export type AdAccount = {
   access: Access;
 };
 
+export type InstagramAccount = {
+  id: string;
+  username?: string;
+};
+
 export type Page = {
   id: string;
   name: string;
   link?: string;
   fan_count?: number;
+  instagram_business_account?: InstagramAccount;
+  /**
+   * Metas Nutzungsbedingungen für Lead-Anzeigen. Ohne sie lehnt Meta jede
+   * Anzeige dieser Seite ab.
+   *
+   * Drei Zustände, nicht zwei: `undefined` heißt „nicht lesbar“ – die Seite ist
+   * dem System User nicht zugewiesen, Graph antwortet mit (#10) und lässt das
+   * Feld weg. Das ist nicht dasselbe wie `false`, und nur `false` darf blocken;
+   * beim Prüfen des Bestands waren rund fünfzig Seiten nicht lesbar, deren
+   * Bedingungen längst stehen.
+   */
+  leadgen_tos_accepted?: boolean;
   access: Access;
 };
+
+/**
+ * Wo ein Administrator der Seite die Lead-Gen-Nutzungsbedingungen annimmt.
+ * Dass hier eine URL steht und kein Graph-Aufruf, ist die ganze Aussage: Meta
+ * lässt diese Zustimmung nur in der eigenen Oberfläche geben, nur von einem
+ * Administrator der Seite selbst – Zugriff auf das zahlende Werbekonto genügt
+ * nicht – und stellt dafür keinen Schreibweg über die API bereit. Lesen lässt
+ * sich der Status (leadgen_tos_accepted), setzen nicht.
+ *
+ * page_id wählt die Seite in Metas Auswahlfeld vor. Ohne den Parameter nimmt
+ * jemand mit mehreren Seiten die Bedingungen für die falsche an und der Fehler
+ * bleibt genau derselbe.
+ */
+export const leadgenTosUrl = (pageId: string) =>
+  `https://www.facebook.com/ads/leadgen/tos?page_id=${pageId}`;
+
+/** Nur explizit `false` – siehe Page.leadgen_tos_accepted. */
+export const needsLeadgenTos = (page?: Pick<Page, "leadgen_tos_accepted">) =>
+  page?.leadgen_tos_accepted === false;
 
 export type Customer = {
   id: string;
   name: string;
   page?: Page;
-  igId?: string;
+  instagram?: InstagramAccount;
   adAccounts: AdAccount[];
   access: Access;
   /** Leer heißt: alles zugewiesen. Sonst steht hier, was fehlt. */
   issues: string[];
 };
+
+export const instagramAccountLabel = (account?: InstagramAccount) =>
+  account
+    ? account.username
+      ? `@${account.username}`
+      : `Instagram-ID ${account.id}`
+    : undefined;
 
 export function joinCustomers(
   config: CustomerConfig[],
@@ -56,7 +100,8 @@ export function joinCustomers(
       id: c.id,
       name: c.name,
       page,
-      igId: c.igId,
+      instagram:
+        page?.instagram_business_account ?? (c.igId ? { id: c.igId } : undefined),
       adAccounts,
       access: page?.access ?? adAccounts[0]?.access ?? "client",
       issues,
@@ -78,7 +123,12 @@ export async function listAssets() {
     EDGES.map(([edge, kind]) =>
       graph<{ data: any[] }>(`${meta.business}/${edge}`, {
         params: {
-          fields: kind === "accounts" ? "name,account_status,currency" : "name,link,fan_count",
+          // leadgen_tos_accepted kommt über diese Edge mit und kostet damit
+          // keinen eigenen Aufruf – die Alternative wären 200+ Seiten-Reads.
+          fields:
+            kind === "accounts"
+              ? "name,account_status,currency"
+              : "name,link,fan_count,leadgen_tos_accepted,instagram_business_account{id,username}",
           limit: 500,
         },
         revalidate: 300,
@@ -114,3 +164,46 @@ export async function listCustomers() {
 
 export const findCustomer = (all: Customer[], id?: string) =>
   id ? all.find((c) => c.id === id) : undefined;
+
+/**
+ * Werbekonto und Seite sind zwei Achsen: bezahlt wird fast immer über
+ * MedArbeiter, veröffentlicht wird über die Seite des beworbenen Kunden.
+ * Wer zahlt, braucht daher keine Seite – und wer beworben wird, kein Konto.
+ */
+export const payers = (all: Customer[]) =>
+  all
+    .filter((c) => c.adAccounts.length)
+    .sort((a, b) => Number(b.id === "medarbeiter") - Number(a.id === "medarbeiter"));
+export const clients = (all: Customer[]) => all.filter((c) => c.page);
+
+/**
+ * Kleine, lokale Fuzzy-Suche: Teilbegriffe treffen direkt, Auslassungen wie
+ * „hrzhlt“ als geordnete Buchstabenfolge. Das reicht für Kundennamen und hält
+ * eine weitere Such-Abhängigkeit aus dem Client-Bundle.
+ */
+export function fuzzyCustomerMatch(name: string, query: string): boolean {
+  const haystack = normalise(name);
+  const tokens = normalise(query).split(/\s+/).filter(Boolean);
+  return tokens.every((token) => {
+    if (haystack.includes(token)) return true;
+    let at = 0;
+    for (const char of haystack) if (char === token[at]) at += 1;
+    return at === token.length;
+  });
+}
+
+/**
+ * Der beworbene Kunde wird über seinen Namen gewählt – über genau das Feld, das
+ * es für den Kampagnennamen ohnehin schon gibt. Mehrdeutige Namen bleiben
+ * bewusst unaufgelöst: eine falsche Seite fällt erst auf, wenn die Anzeige unter
+ * fremdem Namen läuft, ein leeres Feld sofort.
+ */
+export function resolveClientByName<T extends { name: string }>(
+  all: T[],
+  name: string,
+): T | undefined {
+  const wanted = normalise(name);
+  if (!wanted) return undefined;
+  const hits = all.filter((c) => normalise(c.name) === wanted);
+  return hits.length === 1 ? hits[0] : undefined;
+}
