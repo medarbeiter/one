@@ -4,6 +4,8 @@
  * Der Ist-Zustand kommt gebündelt über zwei Edges des System-Nutzers. Ein Blick
  * pro Asset wäre dieselbe Auskunft für knapp 200 Aufrufe.
  */
+import { listAssets } from "./customers";
+import { graph } from "./graph";
 
 /** MANAGE = Vollzugriff, deckt Anzeigen, Inhalte und Nachrichten ab. */
 export const TASK = "MANAGE";
@@ -103,4 +105,59 @@ export function createAssigner(deps: AssignDeps, ttl = TTL) {
       return started;
     },
   };
+}
+
+/**
+ * Zuweisungen wirken pro System-Nutzer, und META_ACCESS_TOKEN gehört genau
+ * einem davon. Deshalb /me: der Token sagt selbst, wer er ist. Träfe es den
+ * falschen Nutzer, liefe der Abgleich grün durch, während die App weiter
+ * „(#10) User has insufficient privileges on the page“ bekäme.
+ */
+let user: Promise<string> | undefined;
+
+export function systemUser(): Promise<string> {
+  const fromEnv = process.env.META_SYSTEM_USER_ID;
+  if (fromEnv) return Promise.resolve(fromEnv);
+  return (user ??= graph<{ id: string }>("me", { params: { fields: "id" } })
+    .then((m) => m.id)
+    .catch((e) => {
+      user = undefined; // sonst brennt ein einmaliger Fehlschlag ein
+      throw e;
+    }));
+}
+
+export const realDeps: AssignDeps = {
+  listAssets: async () => {
+    const { accounts, pages } = await listAssets();
+    return { accounts, pages };
+  },
+  listAssigned: async (edge) => {
+    const { data } = await graph<{ data: AssignedAsset[] }>(`${await systemUser()}/${edge}`, {
+      params: { fields: "id,tasks", limit: 500 },
+    });
+    return data;
+  },
+  assign: async (id) => {
+    await graph(`${id}/assigned_users`, {
+      method: "POST",
+      params: { user: await systemUser(), tasks: [TASK] },
+    });
+  },
+};
+
+export const assigner = createAssigner(realDeps);
+
+/**
+ * Auslöser für das Layout. Wirft nie: der Abgleich läuft in after(), die Antwort
+ * ist längst raus, und ein Graph-Aussetzer darf keine Seite zerlegen.
+ */
+export async function ensureAssigned(): Promise<void> {
+  try {
+    const { assigned, failed } = await assigner.run();
+    for (const a of assigned) console.log(`[assign] zugewiesen: ${a.name} (${a.id})`);
+    for (const f of failed)
+      console.error(`[assign] fehlgeschlagen: ${f.asset.name} (${f.asset.id}): ${f.message}`);
+  } catch (e) {
+    console.error(`[assign] Abgleich nicht möglich: ${(e as Error).message}`);
+  }
 }
