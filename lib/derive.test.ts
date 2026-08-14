@@ -3,7 +3,14 @@
  * Rechtsformen weg, customerId benennt den Kunden und behält seinen Namen.
  */
 import { expect, test } from "bun:test";
-import { customerId, dedupeIds, matchAdAccounts, matchKey, normalise } from "./derive";
+import {
+  customerId,
+  dedupeIds,
+  deriveCustomers,
+  matchAdAccounts,
+  matchKey,
+  normalise,
+} from "./derive";
 
 const acc = (name: string) => ({
   id: `act_${name}`,
@@ -61,4 +68,37 @@ test("festgesetzte Ids bleiben, die anderen weichen aus", () => {
   const out = dedupeIds([c("p1", "caritas"), c("p2", "caritas")], new Set(["p2"]));
   expect(out.find((x) => x.source === "p2")!.id).toBe("caritas");
   expect(out.find((x) => x.source === "p1")!.id).toBe("caritas-2");
+});
+
+const page = (id: string, name: string) => ({ id, name, access: "client" as const });
+
+test("jede Seite wird ein Kunde, mit ihren Werbekonten", () => {
+  const [c] = deriveCustomers([acc("Schäkel Werbekonto")], [page("p1", "Pflegedienst Schäkel")]);
+  expect(c.id).toBe("pflegedienstschakel");
+  expect(c.name).toBe("Pflegedienst Schäkel");
+  expect(c.source).toBe("p1");
+  expect(c.adAccounts.map((a) => a.name)).toEqual(["Schäkel Werbekonto"]);
+});
+
+test("Instagram kommt von der Seite, nicht aus einem eigenen Aufruf", () => {
+  const p = { ...page("p1", "Janines"), instagram_business_account: { id: "ig1", username: "j" } };
+  expect(deriveCustomers([], [p])[0].instagram).toEqual({ id: "ig1", username: "j" });
+});
+
+test("ein Werbekonto ohne Seite wird ein eigener Kunde", () => {
+  // 12 der 26 Konten haben keine lebende Seite – darunter das eigene Zahlkonto.
+  // Ohne diesen Zweig fiele es aus payers() und aus dem Kampagnen-Assistenten.
+  const customers = deriveCustomers([acc("MedArbeiter")], []);
+  expect(customers).toHaveLength(1);
+  expect(customers[0].source).toBe("act_MedArbeiter");
+  expect(customers[0].page).toBeUndefined();
+  expect(customers[0].adAccounts).toHaveLength(1);
+});
+
+test("ein Konto, das eine Seite trifft, wird kein zweiter Kunde", () => {
+  const customers = deriveCustomers(
+    [acc("Schäkel Werbekonto")],
+    [page("p1", "Pflegedienst Schäkel")],
+  );
+  expect(customers).toHaveLength(1);
 });

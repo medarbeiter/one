@@ -10,6 +10,7 @@ import { resolveLaunch, type WizardSubmission } from "./launch-request";
 // Testdatei hinaus und hätte lib/customers.test.ts seine echten Exporte
 // gestohlen (genau das ist einmal passiert und wieder verworfen worden).
 const fakeCustomer: Customer = {
+  source: "p1",
   id: "c1",
   name: "Kunde 1",
   page: { id: "p1", name: "Seite", access: "client" },
@@ -18,7 +19,11 @@ const fakeCustomer: Customer = {
   issues: [],
 };
 
-const deps = { listCustomers: async () => ({ customers: [fakeCustomer], errors: [] }) };
+// estimateReach() aus demselben Grund: die Standortprüfung fragt sonst Meta.
+const deps = {
+  listCustomers: async () => ({ customers: [fakeCustomer], errors: [] }),
+  estimateReach: async () => ({ ready: true as const, lower: 100_000, upper: 200_000 }),
+};
 
 const ugcAd: AdInput = {
   name: "a.mp4",
@@ -53,6 +58,77 @@ const base: WizardSubmission = {
 };
 
 test("eine gültige Anzeigengruppe kommt durch", async () => {
+  expect(await resolveLaunch(base, deps)).toEqual({ adAccount: "act_1", pageId: "p1" });
+});
+
+test("ein Radius, den Meta nicht annimmt, hält vor der ersten Anfrage auf", async () => {
+  // buildTargeting() wirft dieselbe Prüfung erst beim Anlegen der
+  // Anzeigengruppe – dann steht die Kampagne schon bei Meta und der zu kleine
+  // Radius kostet einen Retry statt einer Meldung.
+  const zuKlein = {
+    ...base,
+    adSets: [
+      {
+        ...base.adSets[0],
+        radiusKm: 5,
+        place: { type: "city" as const, key: "560419", name: "Hamburg" },
+      },
+    ],
+  };
+  expect(await resolveLaunch(zuKlein, deps)).toEqual({
+    error: "„Ads“: Radius muss zwischen 16 und 80 km liegen.",
+  });
+
+  // Derselbe Radius um eine Adresse ist dagegen in Ordnung.
+  expect(
+    await resolveLaunch({ ...base, adSets: [{ ...base.adSets[0], radiusKm: 5 }] }, deps),
+  ).toEqual({ adAccount: "act_1", pageId: "p1" });
+});
+
+test("eine Anzeigengruppe ohne Adresse braucht einen Ort", async () => {
+  const leer = { ...base, adSets: [{ ...base.adSets[0], addressString: "  " }] };
+  expect(await resolveLaunch(leer, deps)).toHaveProperty("error");
+  // Ein gewählter Ort ersetzt die Adresse vollständig.
+  const mitOrt = {
+    ...base,
+    adSets: [
+      {
+        ...base.adSets[0],
+        addressString: "",
+        radiusKm: 20,
+        place: { type: "city" as const, key: "560419", name: "Hamburg" },
+      },
+    ],
+  };
+  expect(await resolveLaunch(mitOrt, deps)).toEqual({ adAccount: "act_1", pageId: "p1" });
+});
+
+test("eine Seite ohne angenommene Lead-Bedingungen wird vor Meta abgefangen", async () => {
+  // Ohne diese Prüfung entstünden Kampagne und Anzeigengruppe bei Meta, und
+  // erst jedes Creative danach fiele durch – ein Zustand, den kein Retry heilt.
+  const ohneTos = {
+    listCustomers: async () => ({
+      customers: [
+        { ...fakeCustomer, page: { ...fakeCustomer.page!, leadgen_tos_accepted: false } },
+      ],
+      errors: [],
+    }),
+  };
+  const result = await resolveLaunch(base, ohneTos);
+  expect(result).toHaveProperty("error");
+  // Der Link ist der eigentliche Inhalt der Meldung: annehmen kann diese
+  // Bedingungen nur ein Mensch in Metas Oberfläche, nicht diese Anwendung.
+  expect((result as { error: string }).error).toContain(
+    "https://www.facebook.com/ads/leadgen/tos?page_id=p1",
+  );
+});
+
+test("eine Seite mit unlesbarem Bedingungs-Status wird nicht blockiert", async () => {
+  // leadgen_tos_accepted fehlt, wenn die Seite dem System User nicht zugewiesen
+  // ist – Graph lässt das Feld dann einfach weg. Das ist nicht dasselbe wie
+  // "nicht angenommen": im echten Bestand betrifft es rund fünfzig Seiten,
+  // deren Bedingungen längst stehen, und die dürfen weiter Kampagnen bekommen.
+  expect(fakeCustomer.page?.leadgen_tos_accepted).toBeUndefined();
   expect(await resolveLaunch(base, deps)).toEqual({ adAccount: "act_1", pageId: "p1" });
 });
 
@@ -109,4 +185,49 @@ test("mehr als fünf Primärtexte oder Überschriften wird vor Meta abgefangen",
   expect(await resolveLaunch(tooManyTitles, deps)).toEqual({
     error: "„Ads“ hat mehr als fünf Primärtexte oder Überschriften — Meta erlaubt höchstens fünf.",
   });
+});
+
+test("eine Adresse, zu der Meta nichts findet, hält vor dem Anlegen auf", async () => {
+  // Der teure stille Fall: Meta legt die Anzeigengruppe an, geocodiert die
+  // Adresse aber nie und liefert an niemanden aus. Im Ads Manager sieht sie
+  // dabei normal aus – auffallen würde es erst nach einem Tag ohne Leads.
+  const result = await resolveLaunch(
+    { ...base, adSets: [{ ...base.adSets[0], addressString: "Hauptsraße 1a, Drezden" }] },
+    { ...deps, estimateReach: async () => ({ ready: false as const }) },
+  );
+  expect(result).toHaveProperty("error");
+  expect((result as { error: string }).error).toContain("Drezden");
+});
+
+test("derselbe Standort wird einmal gefragt, nicht je Anzeigengruppe", async () => {
+  let calls = 0;
+  const zwei: WizardSubmission = {
+    ...base,
+    adSets: [
+      base.adSets[0],
+      { ...base.adSets[0], name: "Ads 2" },
+      { ...base.adSets[0], name: "Ads 3", addressString: "Anderswo 2, Leipzig" },
+    ],
+  };
+  await resolveLaunch(zwei, {
+    ...deps,
+    estimateReach: async () => {
+      calls++;
+      return { ready: true as const, lower: 100_000, upper: 200_000 };
+    },
+  });
+  expect(calls).toBe(2);
+});
+
+test("scheitert die Prüfung selbst, hält sie nichts auf", async () => {
+  // Dass wir gerade nicht nachsehen können, ist kein Befund über die Adresse –
+  // ein Timeout gegen Meta darf keinen Start blockieren.
+  expect(
+    await resolveLaunch(base, {
+      ...deps,
+      estimateReach: async () => {
+        throw new Error("(#80004) rate limit");
+      },
+    }),
+  ).toEqual({ adAccount: "act_1", pageId: "p1" });
 });

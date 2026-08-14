@@ -61,6 +61,8 @@ export const needsLeadgenTos = (page?: Pick<Page, "leadgen_tos_accepted">) =>
   page?.leadgen_tos_accepted === false;
 
 export type Customer = {
+  /** Asset, aus dem der Kunde stammt: Seiten-Id, sonst act_-Id. Schlüssel für Overrides. */
+  source: string;
   id: string;
   name: string;
   page?: Page;
@@ -97,6 +99,7 @@ export function joinCustomers(
       if (!acc.has(id)) issues.push(`Ad account ${id} is not in the portfolio`);
 
     return {
+      source: c.pageId,
       id: c.id,
       name: c.name,
       page,

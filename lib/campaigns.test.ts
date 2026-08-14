@@ -10,7 +10,8 @@ process.env.META_ACCESS_TOKEN = "TEST";
 process.env.META_AD_ACCOUNT_ID = "act_1";
 process.env.META_PAGE_ID = "page_1";
 
-const { results, costPerResult, launch } = await import("./campaigns");
+const { results, costPerResult, launch, listCampaigns } = await import("./campaigns");
+type Customer = Parameters<typeof listCampaigns>[0][number];
 
 const a = (action_type: string, value: string) => ({ action_type, value });
 
@@ -43,6 +44,65 @@ test("Kosten pro Ergebnis, ohne Division durch null", () => {
   expect(costPerResult({ spend: "30.00", actions: [a("lead", "0")] })).toBeUndefined();
   expect(costPerResult({ spend: "30.00" })).toBeUndefined();
   expect(costPerResult({ actions: [a("lead", "3")] })).toBeUndefined();
+});
+
+// Ein Werbekonto kann mehreren Kunden gehören: MedArbeiter zahlt über dasselbe
+// Konto auch für die Seite "Jobs - MedArbeiter". Wird je Kunde statt je Konto
+// abgefragt, steht jede Kampagne dieses Kontos doppelt in der Tabelle.
+test("Geteiltes Konto: jede Kampagne genau einmal, ein Sub-Request", async () => {
+  const calls = stub((url) => {
+    const reqs = JSON.parse(url.searchParams.get("batch")!) as { relative_url: string }[];
+    return reqs.map((r) => ({
+      code: 200,
+      body: JSON.stringify({
+        data: [{ id: `camp_${r.relative_url.split("/")[0]}`, name: "K", status: "ACTIVE" }],
+      }),
+    }));
+  });
+
+  const shared = { id: "act_shared", name: "Shared", account_status: 1, currency: "EUR", access: "own" } as const;
+  const customer = (id: string, name: string): Customer => ({
+    source: id,
+    id,
+    name,
+    adAccounts: [shared],
+    access: "own",
+    issues: [],
+  });
+
+  const { campaigns } = await listCampaigns(
+    [customer("medarbeiter", "MedArbeiter"), customer("jobsmedarbeiter", "Jobs - MedArbeiter")],
+    "last_7d",
+  );
+
+  expect(campaigns.map((c) => c.id)).toEqual(["camp_act_shared"]);
+  expect(JSON.parse(calls[0].searchParams.get("batch")!)).toHaveLength(1);
+  // Beide Kunden zahlen dafür – einen davon zu verschweigen wäre erfunden.
+  expect(campaigns[0].customerName).toBe("MedArbeiter, Jobs - MedArbeiter");
+});
+
+test("Getrennte Konten bleiben getrennt zugeordnet", async () => {
+  stub((url) => {
+    const reqs = JSON.parse(url.searchParams.get("batch")!) as { relative_url: string }[];
+    return reqs.map((r) => ({
+      code: 200,
+      body: JSON.stringify({ data: [{ id: `camp_${r.relative_url.split("/")[0]}` }] }),
+    }));
+  });
+
+  const acct = (id: string) => ({ id, name: id, account_status: 1, currency: "EUR", access: "own" as const });
+  const { campaigns } = await listCampaigns(
+    [
+      { source: "a", id: "a", name: "Kunde A", adAccounts: [acct("act_a")], access: "own", issues: [] },
+      { source: "b", id: "b", name: "Kunde B", adAccounts: [acct("act_b")], access: "own", issues: [] },
+    ],
+    "last_7d",
+  );
+
+  expect(campaigns.map((c) => [c.id, c.customerName])).toEqual([
+    ["camp_act_a", "Kunde A"],
+    ["camp_act_b", "Kunde B"],
+  ]);
 });
 
 test("EMPLOYMENT: kein Alters-Targeting, Land wird mitgeschickt", async () => {

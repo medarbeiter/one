@@ -3,7 +3,7 @@
  * eine erzeugte Datei, die ihn festhielt, alterte – 48 ihrer 215 Einträge zeigten
  * zuletzt auf Seiten, die es nicht mehr gab (siehe Spec).
  */
-import type { AdAccount } from "./customers";
+import type { AdAccount, Customer, Page } from "./customers";
 
 /**
  * Der beworbene Kunde wird über seinen Namen gewählt. Kleinschreibung, NFKD,
@@ -75,4 +75,42 @@ export function dedupeIds<T extends { id: string; source: string }>(
   }
 
   return customers.map((c) => (fixed.has(c.source) ? { ...c, id: fixed.get(c.source)! } : c));
+}
+
+export function deriveCustomers(accounts: AdAccount[], pages: Page[]): Customer[] {
+  const taken = new Set<string>();
+
+  const fromPages = pages.map((page): Customer => {
+    const adAccounts = matchAdAccounts(page.name, accounts);
+    for (const a of adAccounts) taken.add(a.id);
+    return {
+      source: page.id,
+      // Ein Name ohne einen einzigen Buchstaben oder eine Ziffer ergäbe eine
+      // leere Id; dann trägt die Asset-Id.
+      id: customerId(page.name) || page.id,
+      name: page.name,
+      page,
+      instagram: page.instagram_business_account,
+      adAccounts,
+      access: page.access,
+      issues: [],
+    };
+  });
+
+  const fromAccounts = accounts
+    .filter((a) => !taken.has(a.id))
+    .map(
+      (account): Customer => ({
+        source: account.id,
+        id: customerId(account.name) || account.id,
+        name: account.name,
+        page: undefined,
+        instagram: undefined,
+        adAccounts: [account],
+        access: account.access,
+        issues: [],
+      }),
+    );
+
+  return dedupeIds([...fromPages, ...fromAccounts], new Set());
 }
