@@ -95,6 +95,14 @@ test("ein Werbekonto ohne Seite wird ein eigener Kunde", () => {
   expect(customers[0].adAccounts).toHaveLength(1);
 });
 
+test("die Zugriffsart kommt von der Seite, beim kontenlosen Kunden vom Konto", () => {
+  const own = deriveCustomers([], [{ ...page("p1", "A"), access: "own" as const }]);
+  expect(own[0].access).toBe("own");
+
+  const fallback = deriveCustomers([{ ...acc("B"), access: "own" as const }], []);
+  expect(fallback[0].access).toBe("own");
+});
+
 test("ein Konto, das eine Seite trifft, wird kein zweiter Kunde", () => {
   const customers = deriveCustomers(
     [acc("Schäkel Werbekonto")],

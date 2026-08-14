@@ -1,10 +1,11 @@
 /**
  * Der Kunde ist die Einheit, in der die Agentur denkt – Meta kennt ihn nicht.
- * Hier wird er aus Konfiguration (customers.config.ts) und Portfolio gebaut.
+ * Hier wird er aus dem Portfolio abgeleitet (lib/derive.ts); customers.config.ts
+ * trägt nur noch, was ein Mensch daran festgesetzt hat.
  */
 import { actId, graph, GraphError, meta } from "./graph";
 import { customers as config, type CustomerConfig } from "./customers.config";
-import { normalise } from "./derive";
+import { dedupeIds, normalise } from "./derive";
 
 export type Access = "own" | "client";
 
@@ -80,36 +81,66 @@ export const instagramAccountLabel = (account?: InstagramAccount) =>
       : `Instagram-ID ${account.id}`
     : undefined;
 
-export function joinCustomers(
-  config: CustomerConfig[],
+/**
+ * Was ein Mensch entschieden hat – und nur das. Alles andere kommt aus dem
+ * Portfolio, damit es nicht altert.
+ */
+export type CustomerOverride = {
+  /** Feste Id statt der abgeleiteten – für alles, was in URLs auftaucht. */
+  id?: string;
+  name?: string;
+  /** Ersetzt den Namensabgleich vollständig. */
+  adAccountIds?: string[];
+  igId?: string;
+  /** Nicht als Kunde führen. */
+  hidden?: true;
+};
+
+export function applyOverrides(
+  customers: Customer[],
+  overrides: Record<string, CustomerOverride>,
   accounts: AdAccount[],
-  pages: Page[],
-): Customer[] {
-  const acc = new Map(accounts.map((a) => [a.id, a]));
-  const pg = new Map(pages.map((p) => [p.id, p]));
+): { customers: Customer[]; issues: string[] } {
+  const known = new Set(customers.map((c) => c.source));
+  const byId = new Map(accounts.map((a) => [a.id, a]));
+  const issues = Object.keys(overrides)
+    .filter((source) => !known.has(source))
+    .map((source) => `Override ${source} gehört zu keinem Asset im Portfolio`);
 
-  return config.map((c) => {
-    const page = pg.get(c.pageId);
-    const wanted = c.adAccountIds.map(actId);
-    const adAccounts = wanted.map((id) => acc.get(id)).filter((a): a is AdAccount => !!a);
+  const patched = customers.flatMap((c) => {
+    const o = overrides[c.source];
+    if (!o) return [c];
+    if (o.hidden) return [];
 
-    const issues: string[] = [];
-    if (!page) issues.push(`Page ${c.pageId} is not in the portfolio`);
-    for (const id of wanted)
-      if (!acc.has(id)) issues.push(`Ad account ${id} is not in the portfolio`);
+    let adAccounts = c.adAccounts;
+    if (o.adAccountIds) {
+      adAccounts = [];
+      for (const id of o.adAccountIds.map(actId)) {
+        const account = byId.get(id);
+        if (account) adAccounts.push(account);
+        else issues.push(`Werbekonto ${id} (Override ${c.source}) ist nicht im Portfolio`);
+      }
+    }
 
-    return {
-      source: c.pageId,
-      id: c.id,
-      name: c.name,
-      page,
-      instagram:
-        page?.instagram_business_account ?? (c.igId ? { id: c.igId } : undefined),
-      adAccounts,
-      access: page?.access ?? adAccounts[0]?.access ?? "client",
-      issues,
-    };
+    return [
+      {
+        ...c,
+        id: o.id ?? c.id,
+        name: o.name ?? c.name,
+        instagram: o.igId ? { id: o.igId } : c.instagram,
+        adAccounts,
+      },
+    ];
   });
+
+  // Nach dem Überschreiben noch einmal: eine festgesetzte Id kann auf eine
+  // abgeleitete treffen. Festgesetzte gewinnen, abgeleitete weichen aus.
+  const pinned = new Set(
+    Object.entries(overrides)
+      .filter(([, o]) => o.id)
+      .map(([source]) => source),
+  );
+  return { customers: dedupeIds(patched, pinned), issues };
 }
 
 // Kundenkonten liegen unter client_*, eigene unter owned_* – die Agentur braucht beides.
