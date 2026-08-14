@@ -3,7 +3,14 @@
  * zugewiesen" heißt: die App kann die Seite nicht benutzen und merkt es nie.
  */
 import { expect, test } from "bun:test";
-import { createAssigner, missingAssets, readyIds, type AssignDeps } from "./assign";
+
+import {
+  createAssigner,
+  ensureAssigned,
+  missingAssets,
+  readyIds,
+  type AssignDeps,
+} from "./assign";
 
 const asset = (id: string) => ({ id, name: id });
 
@@ -106,4 +113,26 @@ test("ohne lesbaren Ist-Zustand wird nichts geschrieben", async () => {
   await expect(createAssigner(deps).run()).rejects.toThrow("(#10)");
   // Lieber gar nicht zuweisen als blind alles.
   expect(calls.writes).toEqual([]);
+});
+
+test("beim Prerender im Build wird nicht abgeglichen und nichts protokolliert", async () => {
+  // `next build` rendert / vor. Der Abgleich täte dort nichts Sinnvolles, machte
+  // die Seite dynamisch – und die Fehlermeldung von next trüge den access_token
+  // ins Build-Log.
+  const vorher = process.env.NEXT_PHASE;
+  const geschrieben: string[] = [];
+  const log = console.log;
+  const err = console.error;
+  console.log = (m) => geschrieben.push(String(m));
+  console.error = (m) => geschrieben.push(String(m));
+  process.env.NEXT_PHASE = "phase-production-build";
+  try {
+    await ensureAssigned();
+  } finally {
+    console.log = log;
+    console.error = err;
+    if (vorher === undefined) delete process.env.NEXT_PHASE;
+    else process.env.NEXT_PHASE = vorher;
+  }
+  expect(geschrieben).toEqual([]);
 });

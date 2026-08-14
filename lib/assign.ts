@@ -148,16 +148,26 @@ export const realDeps: AssignDeps = {
 export const assigner = createAssigner(realDeps);
 
 /**
+ * Fehlermeldungen kommen nicht nur von Meta: wirft next selbst (etwa beim
+ * Prerender), steht die ganze Fetch-URL darin – mit access_token. Ein Build-Log
+ * ist kein Ort für den Token.
+ */
+const redact = (s: string) => s.replace(/access_token=[^&\s]+/g, "access_token=…");
+
+/**
  * Auslöser für das Layout. Wirft nie: der Abgleich läuft in after(), die Antwort
  * ist längst raus, und ein Graph-Aussetzer darf keine Seite zerlegen.
  */
 export async function ensureAssigned(): Promise<void> {
+  // `next build` rendert / und /_not-found vor. Dort gibt es keinen Nutzer, dem
+  // etwas fehlen könnte, und jeder Aufruf macht die Seite dynamisch.
+  if (process.env.NEXT_PHASE === "phase-production-build") return;
   try {
     const { assigned, failed } = await assigner.run();
     for (const a of assigned) console.log(`[assign] zugewiesen: ${a.name} (${a.id})`);
     for (const f of failed)
-      console.error(`[assign] fehlgeschlagen: ${f.asset.name} (${f.asset.id}): ${f.message}`);
+      console.error(`[assign] fehlgeschlagen: ${f.asset.name} (${f.asset.id}): ${redact(f.message)}`);
   } catch (e) {
-    console.error(`[assign] Abgleich nicht möglich: ${(e as Error).message}`);
+    console.error(`[assign] Abgleich nicht möglich: ${redact((e as Error).message)}`);
   }
 }
