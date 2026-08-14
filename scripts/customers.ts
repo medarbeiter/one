@@ -1,57 +1,50 @@
 /**
- * Erzeugt eine Startfassung von lib/customers.config.ts durch Namensabgleich
- * zwischen Seiten und Werbekonten. Der Abgleich ist bewusst grob – nicht
- * zugeordnete Konten stehen als Kommentar am Ende:
- *   bun run customers > lib/customers.config.ts
+ * Erzeugt nichts mehr, sondern sieht nach: wo die Ableitung raten muss und wo
+ * ein Override ins Leere zeigt.
+ *   bun run customers
  */
-import { batch } from "../lib/graph";
-import { listAssets } from "../lib/customers";
+import { applyOverrides, listAssets } from "../lib/customers";
+import { overrides } from "../lib/customers.config";
+import { deriveCustomers, matchAdAccounts } from "../lib/derive";
 
-// Rechtsformen und Branchenwörter tragen keine Unterscheidungskraft.
-const NOISE = /\b(gmbh|ug|kg|ohg|e\.?\s?v\.?|pflegedienst|pflegeteam|ambulante[rn]?|seniorenheim|residenz)\b/g;
-const norm = (s: string) => s.toLowerCase().replace(NOISE, "").replace(/[^a-z0-9]/g, "");
+// Einmal lesen und selbst ableiten statt listCustomers() zu rufen: das täte
+// dasselbe noch einmal, und außerhalb von Next greift der Fetch-Cache nicht.
+const { accounts, pages } = await listAssets();
+const { customers, issues } = applyOverrides(deriveCustomers(accounts, pages), overrides, accounts);
 
-const { accounts, pages, errors } = await listAssets();
-for (const e of errors) console.error(`// ! ${e.message}`);
+console.log(`${pages.length} Seiten, ${accounts.length} Werbekonten, ${customers.length} Kunden\n`);
 
-// Instagram hängt an der Seite, ist aber ein eigener Aufruf – deshalb gebündelt.
-const igs = await batch<{ instagram_business_account?: { id: string } }>(
-  pages.map((p) => ({ relative_url: `${p.id}?fields=instagram_business_account` })),
-);
+const mehrdeutig = pages
+  .map((p) => ({ p, hits: matchAdAccounts(p.name, accounts) }))
+  .filter(({ hits }) => hits.length > 1);
+if (mehrdeutig.length) {
+  console.log("Mehrdeutige Zuordnung – Namensabgleich trifft mehr als ein Konto:");
+  for (const { p, hits } of mehrdeutig)
+    console.log(`  ${p.name} → ${hits.map((h) => `${h.name} (${h.id})`).join(", ")}`);
+  console.log("  Eindeutig machen mit adAccountIds in lib/customers.config.ts\n");
+}
 
-const taken = new Set<string>();
-const entries = pages.map((p, i) => {
-  const key = norm(p.name);
-  const mine = accounts.filter((a) => {
-    const other = norm(a.name);
-    return key && other && (other.includes(key) || key.includes(other));
-  });
-  for (const a of mine) taken.add(a.id);
-  const ig = igs[i].status === "fulfilled" ? igs[i].value.instagram_business_account?.id : undefined;
-  return {
-    id: key.slice(0, 24) || p.id,
-    name: p.name,
-    pageId: p.id,
-    igId: ig,
-    adAccountIds: mine.map((a) => a.id),
-  };
-});
+const ohneKonto = customers.filter((c) => c.page && !c.adAccounts.length);
+console.log(`Seiten ohne Werbekonto: ${ohneKonto.length}`);
+console.log("  (normal – bezahlt wird meist über MedArbeiter)\n");
 
-// Die erzeugte Datei ersetzt customers.config.ts komplett – Typ inklusive.
-console.log(`/**
- * Erzeugt von \`bun run customers\`, danach von Hand korrigiert.
- * Meta kennt keinen Kundenbegriff; diese Zuordnung weiß nur die Agentur.
- */
-export type CustomerConfig = {
-  id: string;
-  name: string;
-  pageId: string;
-  igId?: string;
-  adAccountIds: string[];
-};
+const ohneSeite = customers.filter((c) => !c.page);
+if (ohneSeite.length) {
+  console.log("Werbekonten ohne Seite – als eigene Kunden geführt:");
+  for (const c of ohneSeite) console.log(`  ${c.name} (${c.source}) → Id ${c.id}`);
+  console.log("  Unerwünschte mit hidden: true ausblenden\n");
+}
 
-export const customers: CustomerConfig[] = ${JSON.stringify(entries, null, 2)};
-`);
+const suffixe = customers.filter((c) => /-\d+$/.test(c.id));
+if (suffixe.length) {
+  console.log("Ids mit Kollisionssuffix – ggf. sprechende Id festsetzen:");
+  for (const c of suffixe) console.log(`  ${c.name} → ${c.id} (${c.source})`);
+  console.log("");
+}
 
-for (const a of accounts.filter((a) => !taken.has(a.id)))
-  console.log(`// nicht zugeordnet: ${a.name} (${a.id})`);
+if (issues.length) {
+  console.log("Overrides, die nicht greifen:");
+  for (const i of issues) console.log(`  ! ${i}`);
+} else {
+  console.log("Alle Overrides greifen.");
+}

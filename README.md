@@ -55,6 +55,13 @@ Kein OAuth-Login – ein System-User-Token reicht und läuft nicht ab.
    ```bash
    bun run assign     # gleicht ab, ignoriert den Merker, berichtet laut
    ```
+   Die Kundenliste kommt aus demselben Portfolio und braucht keine Pflege. Was
+   die Ableitung nicht wissen kann – feste Ids, mehrdeutige Werbekonten,
+   Ausblendungen – steht in `lib/customers.config.ts`. Nachsehen, ob sie noch
+   greift:
+   ```bash
+   bun run customers  # Bericht: Mehrdeutigkeiten, Konten ohne Seite, tote Overrides
+   ```
 
 ## Was der Skeleton kann
 
