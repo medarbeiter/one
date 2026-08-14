@@ -31,8 +31,8 @@ export const metadata: Metadata = {
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {
   // Einmal laden, für Scope-Switcher und Token-Status gemeinsam nutzen.
-  const { customers, errors } = await listCustomers();
-  const issues = customers.flatMap((c) => c.issues);
+  const { customers, errors, issues: overrideIssues } = await listCustomers();
+  const issues = [...customers.flatMap((c) => c.issues), ...overrideIssues];
   // Neue Kunden weisen sich selbst zu. after() läuft nach der Antwort: der
   // Abgleich hält keine Seite auf, und sein Fehlschlag zerlegt kein Rendering.
   after(ensureAssigned);

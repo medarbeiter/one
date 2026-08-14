@@ -4,8 +4,8 @@
  * trägt nur noch, was ein Mensch daran festgesetzt hat.
  */
 import { actId, graph, GraphError, meta } from "./graph";
-import { customers as config, type CustomerConfig } from "./customers.config";
-import { dedupeIds, normalise } from "./derive";
+import { overrides } from "./customers.config";
+import { dedupeIds, deriveCustomers, normalise } from "./derive";
 
 export type Access = "own" | "client";
 
@@ -193,7 +193,8 @@ export async function listAssets() {
 
 export async function listCustomers() {
   const { accounts, pages, errors } = await listAssets();
-  return { customers: joinCustomers(config, accounts, pages), errors };
+  const { customers, issues } = applyOverrides(deriveCustomers(accounts, pages), overrides, accounts);
+  return { customers, errors, issues };
 }
 
 export const findCustomer = (all: Customer[], id?: string) =>

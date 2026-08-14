@@ -21,7 +21,7 @@ const fakeCustomer: Customer = {
 
 // estimateReach() aus demselben Grund: die Standortprüfung fragt sonst Meta.
 const deps = {
-  listCustomers: async () => ({ customers: [fakeCustomer], errors: [] }),
+  listCustomers: async () => ({ customers: [fakeCustomer], errors: [], issues: [] }),
   estimateReach: async () => ({ ready: true as const, lower: 100_000, upper: 200_000 }),
 };
 
@@ -112,6 +112,7 @@ test("eine Seite ohne angenommene Lead-Bedingungen wird vor Meta abgefangen", as
         { ...fakeCustomer, page: { ...fakeCustomer.page!, leadgen_tos_accepted: false } },
       ],
       errors: [],
+      issues: [],
     }),
   };
   const result = await resolveLaunch(base, ohneTos);
