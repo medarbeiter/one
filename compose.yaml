@@ -1,6 +1,9 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    init: true
     restart: unless-stopped
     expose:
       - "3000"
