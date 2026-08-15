@@ -1,4 +1,4 @@
-import { Chip, Popover, Typography } from "@/app/shell/ui";
+import { Chip, Popover, PopoverContent, PopoverDialog, PopoverHeading, PopoverTrigger, TypographyParagraph } from "@/app/shell/ui";
 import { buttonVariants } from "@heroui/styles";
 
 const COPY = {
@@ -27,22 +27,22 @@ export function TokenHealth({
     <Popover>
       {/* Der Auslöser trägt die Button-Optik des Designsystems statt eigener
           Rahmen- und Hover-Klassen. */}
-      <Popover.Trigger
+      <PopoverTrigger
         aria-label={`Verbindung: ${c.title}`}
         className={buttonVariants({ variant: "outline", size: "sm", fullWidth: true })}
       >
         <Chip size="sm" variant="soft" color={c.color}>
           {c.title}
         </Chip>
-      </Popover.Trigger>
-      <Popover.Content className="max-w-80">
+      </PopoverTrigger>
+      <PopoverContent className="max-w-80">
         {/* Popover.Dialog liefert role="dialog", die Titel-Verknüpfung (aria-labelledby) und
             Escape-to-close – ohne dieses Sub-Part fehlt die Aria-Semantik. */}
-        <Popover.Dialog className="space-y-2 text-sm">
-          <Popover.Heading>{c.title}</Popover.Heading>
-          <Typography.Paragraph color="muted" size="xs">
+        <PopoverDialog className="space-y-2 text-sm">
+          <PopoverHeading>{c.title}</PopoverHeading>
+          <TypographyParagraph color="muted" size="xs">
             {c.body}
-          </Typography.Paragraph>
+          </TypographyParagraph>
           {detail.length > 0 && (
             <ul className="text-ink-500 list-disc space-y-1 pl-4 text-xs">
               {detail.slice(0, 8).map((d, i) => (
@@ -50,8 +50,8 @@ export function TokenHealth({
               ))}
             </ul>
           )}
-        </Popover.Dialog>
-      </Popover.Content>
+        </PopoverDialog>
+      </PopoverContent>
     </Popover>
   );
 }

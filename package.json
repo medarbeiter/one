@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "node .next/standalone/server.js",
     "assign": "bun --env-file=.env.local scripts/assign-assets.ts",
     "customers": "bun --env-file=.env.local scripts/customers.ts"
   },

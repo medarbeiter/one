@@ -1,3 +1,4 @@
+import * as UI from "@/app/shell/ui";
 import { Card, Skeleton, Typography } from "@/app/shell/ui";
 
 /**
@@ -8,14 +9,14 @@ import { Card, Skeleton, Typography } from "@/app/shell/ui";
 export default function Loading() {
   return (
     <div className="space-y-4" aria-busy>
-      <Typography.Heading level={1} className="font-display text-xl">
+      <UI.TypographyHeading level={1} className="font-display text-xl">
         Neue Kampagne
-      </Typography.Heading>
+      </UI.TypographyHeading>
       <Card>
-        <Card.Content className="gap-4" aria-label="Kunden und Werbekonten werden geladen">
-          <Typography.Paragraph color="muted" size="sm">
+        <UI.CardContent className="gap-4" aria-label="Kunden und Werbekonten werden geladen">
+          <UI.TypographyParagraph color="muted" size="sm">
             Deine Werbekonten und Kunden werden geladen…
-          </Typography.Paragraph>
+          </UI.TypographyParagraph>
           <div className="flex max-w-xl items-end gap-2">
             <div className="min-w-0 flex-1 space-y-2">
               <Skeleton className="h-3 w-32 rounded-lg" />
@@ -27,7 +28,7 @@ export default function Loading() {
             <Skeleton className="h-3 w-80 max-w-full rounded-lg" />
             <Skeleton className="h-8 w-60 max-w-full rounded-lg" />
           </div>
-        </Card.Content>
+        </UI.CardContent>
       </Card>
     </div>
   );

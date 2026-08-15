@@ -1,4 +1,4 @@
-import { Avatar, Chip, Popover, Typography } from "@/app/shell/ui";
+import { Avatar, AvatarFallback, Chip, Popover, PopoverContent, PopoverDialog, PopoverHeading, PopoverTrigger, TypographyParagraph } from "@/app/shell/ui";
 import { buttonVariants } from "@heroui/styles";
 import type { Person } from "@/lib/session";
 
@@ -29,24 +29,24 @@ export function UserBadge({ person }: { person: Person }) {
     <Popover>
       {/* Gleiche Optik wie der Token-Status darunter: der Auslöser trägt die
           Button-Varianten des Designsystems. */}
-      <Popover.Trigger
+      <PopoverTrigger
         aria-label={`Angemeldet als ${person.name}`}
         className={`${buttonVariants({ variant: "ghost", size: "sm", fullWidth: true })} flex h-auto items-center justify-start gap-3 px-2 py-1.5`}
       >
         <Avatar size="sm" variant="soft" color="accent">
-          <Avatar.Fallback>{initials(person.name)}</Avatar.Fallback>
+          <AvatarFallback>{initials(person.name)}</AvatarFallback>
         </Avatar>
         <span className="min-w-0 text-left">
           <span className="text-ink-900 block truncate text-sm font-medium">{person.name}</span>
           <span className="text-ink-500 block truncate text-xs">{rolle}</span>
         </span>
-      </Popover.Trigger>
-      <Popover.Content className="max-w-80">
-        <Popover.Dialog className="space-y-2 text-sm">
-          <Popover.Heading>{person.name}</Popover.Heading>
-          <Typography.Paragraph color="muted" size="xs">
+      </PopoverTrigger>
+      <PopoverContent className="max-w-80">
+        <PopoverDialog className="space-y-2 text-sm">
+          <PopoverHeading>{person.name}</PopoverHeading>
+          <TypographyParagraph color="muted" size="xs">
             {person.email}
-          </Typography.Paragraph>
+          </TypographyParagraph>
           <div className="flex items-center gap-2">
             <Chip size="sm" variant="soft" color="accent">
               {rolle}
@@ -59,8 +59,8 @@ export function UserBadge({ person }: { person: Person }) {
               ))}
             </ul>
           )}
-        </Popover.Dialog>
-      </Popover.Content>
+        </PopoverDialog>
+      </PopoverContent>
     </Popover>
   );
 }

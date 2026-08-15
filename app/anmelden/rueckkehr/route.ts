@@ -55,7 +55,9 @@ export async function GET(request: NextRequest) {
   try {
     // Der Code lebt 60 Sekunden und genau eine Einlösung – kein zweiter Versuch.
     const person = await redeemCode(code);
-    const res = NextResponse.redirect(new URL(erwartet.weiter || "/", request.nextUrl));
+    const res = NextResponse.redirect(
+      new URL(erwartet.weiter || "/", process.env.MEDARBEITER_REDIRECT_URI),
+    );
     res.cookies.delete(STATE_COOKIE);
     res.cookies.set(SESSION_COOKIE, await sealSession(person, sessionSecret()), {
       httpOnly: true,

@@ -1,3 +1,4 @@
+import * as UI from "@/app/shell/ui";
 import { Alert, Avatar, Chip, Table, Typography } from "@/app/shell/ui";
 import { instagramAccountLabel, listCustomers, needsLeadgenTos } from "@/lib/customers";
 import { ActiveFilters, FacetSearch, Facets } from "@/app/shell/facets";
@@ -21,9 +22,9 @@ export default async function CustomersPage({ searchParams }: PageProps<"/custom
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <Typography.Heading level={1} className="font-display text-xl">
+        <UI.TypographyHeading level={1} className="font-display text-xl">
           Kunden
-        </Typography.Heading>
+        </UI.TypographyHeading>
         <Chip size="sm" variant="soft" className="tabular-nums">
           {rows.length}
         </Chip>
@@ -37,32 +38,32 @@ export default async function CustomersPage({ searchParams }: PageProps<"/custom
       {/* Ein Kunde ohne Freigabe darf die Übersicht nicht leeren – Fehler werden oben angezeigt. */}
       {errors.map((e, i) => (
         <Alert key={i} status="danger">
-          <Alert.Content>
-            <Alert.Title>Portfolio teilweise nicht verfügbar</Alert.Title>
-            <Alert.Description>{e.message}</Alert.Description>
-          </Alert.Content>
+          <UI.AlertContent>
+            <UI.AlertTitle>Portfolio teilweise nicht verfügbar</UI.AlertTitle>
+            <UI.AlertDescription>{e.message}</UI.AlertDescription>
+          </UI.AlertContent>
         </Alert>
       ))}
 
       {/* Table bringt die Karte selbst mit: graue Kopfzeile, weiße Zeilenfläche. */}
       <Table>
-        <Table.Content aria-label="Kunden">
-          <Table.Header>
-            <Table.Column isRowHeader>Kunde</Table.Column>
-            <Table.Column>Instagram</Table.Column>
-            <Table.Column>Werbekonten</Table.Column>
-            <Table.Column>Währung</Table.Column>
-            <Table.Column>Zugriff</Table.Column>
-            <Table.Column>Status</Table.Column>
-          </Table.Header>
+        <UI.TableContent aria-label="Kunden">
+          <UI.TableHeader>
+            <UI.TableColumn isRowHeader>Kunde</UI.TableColumn>
+            <UI.TableColumn>Instagram</UI.TableColumn>
+            <UI.TableColumn>Werbekonten</UI.TableColumn>
+            <UI.TableColumn>Währung</UI.TableColumn>
+            <UI.TableColumn>Zugriff</UI.TableColumn>
+            <UI.TableColumn>Status</UI.TableColumn>
+          </UI.TableHeader>
           <TableBody empty="Kein Kunde passt zu dieser Suche.">
             {rows.map((c) => (
-              <Table.Row key={c.id} id={c.id} href={`/customers/${c.id}`}>
+              <UI.TableRow key={c.id} id={c.id} href={`/customers/${c.id}`}>
                 {/* Zweizeilig wie in der Vorlage: die Seite steht unter dem Namen. */}
-                <Table.Cell>
+                <UI.TableCell>
                   <span className="flex items-center gap-3">
                     <Avatar size="sm" variant="soft" color="accent">
-                      <Avatar.Fallback>{initials(c.name)}</Avatar.Fallback>
+                      <UI.AvatarFallback>{initials(c.name)}</UI.AvatarFallback>
                     </Avatar>
                     <span className="min-w-0">
                       <span className="text-ink-900 block truncate font-medium">{c.name}</span>
@@ -75,12 +76,12 @@ export default async function CustomersPage({ searchParams }: PageProps<"/custom
                       )}
                     </span>
                   </span>
-                </Table.Cell>
-                <Table.Cell>{instagramAccountLabel(c.instagram) ?? "—"}</Table.Cell>
-                <Table.Cell className="tabular-nums">{c.adAccounts.length}</Table.Cell>
-                <Table.Cell>{c.adAccounts[0]?.currency ?? "—"}</Table.Cell>
-                <Table.Cell>{c.access === "own" ? "Eigen" : "Kunde"}</Table.Cell>
-                <Table.Cell>
+                </UI.TableCell>
+                <UI.TableCell>{instagramAccountLabel(c.instagram) ?? "—"}</UI.TableCell>
+                <UI.TableCell className="tabular-nums">{c.adAccounts.length}</UI.TableCell>
+                <UI.TableCell>{c.adAccounts[0]?.currency ?? "—"}</UI.TableCell>
+                <UI.TableCell>{c.access === "own" ? "Eigen" : "Kunde"}</UI.TableCell>
+                <UI.TableCell>
                   {/* Drei Zustände in einer Spalte, nach Dringlichkeit: fehlender
                       Zugriff zuerst (ohne ihn wissen wir über die Seite ohnehin
                       nichts), dann die Bedingungen. Beides ist "nicht bereit",
@@ -98,11 +99,11 @@ export default async function CustomersPage({ searchParams }: PageProps<"/custom
                       OK
                     </Chip>
                   )}
-                </Table.Cell>
-              </Table.Row>
+                </UI.TableCell>
+              </UI.TableRow>
             ))}
           </TableBody>
-        </Table.Content>
+        </UI.TableContent>
       </Table>
     </div>
   );

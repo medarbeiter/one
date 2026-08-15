@@ -1,3 +1,4 @@
+import * as UI from "@/app/shell/ui";
 import { Card, Skeleton, Typography } from "@/app/shell/ui";
 
 /**
@@ -7,18 +8,18 @@ import { Card, Skeleton, Typography } from "@/app/shell/ui";
 export default function Loading() {
   return (
     <div className="space-y-4" aria-busy>
-      <Typography.Heading level={1} className="font-display text-xl">
+      <UI.TypographyHeading level={1} className="font-display text-xl">
         Kampagnen
-      </Typography.Heading>
-      <Typography.Paragraph color="muted" size="sm">
+      </UI.TypographyHeading>
+      <UI.TypographyParagraph color="muted" size="sm">
         Kampagnen und ihre Ergebnisse werden von Meta geladen…
-      </Typography.Paragraph>
+      </UI.TypographyParagraph>
       <Card>
-        <Card.Content className="gap-3">
+        <UI.CardContent className="gap-3">
           {Array.from({ length: 8 }, (_, i) => (
             <Skeleton key={i} className="h-8 w-full rounded-lg" />
           ))}
-        </Card.Content>
+        </UI.CardContent>
       </Card>
     </div>
   );

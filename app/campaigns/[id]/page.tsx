@@ -1,3 +1,4 @@
+import * as UI from "@/app/shell/ui";
 import { Card, Chip, Disclosure, DisclosureGroup, EmptyState, Typography } from "@/app/shell/ui";
 import { costPerResult, getCampaign, results, type Insights, type Period } from "@/lib/campaigns";
 
@@ -36,9 +37,9 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <Typography.Heading level={1} className="font-display text-xl">
+        <UI.TypographyHeading level={1} className="font-display text-xl">
           {c.name}
-        </Typography.Heading>
+        </UI.TypographyHeading>
         <Chip size="sm" color={c.status === "ACTIVE" ? "success" : "default"} variant="soft">
           {c.status}
         </Chip>
@@ -46,25 +47,25 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
       </div>
 
       <Card>
-        <Card.Content>
+        <UI.CardContent>
           <Metrics insights={insights} />
-        </Card.Content>
+        </UI.CardContent>
       </Card>
 
       <DisclosureGroup allowsMultipleExpanded>
         {(c.adsets?.data ?? []).map((s: any) => (
           <Disclosure key={s.id} id={s.id}>
-            <Disclosure.Heading>
-              <Disclosure.Trigger className="flex w-full items-center gap-3 py-3 text-left">
-                <Disclosure.Indicator />
+            <UI.DisclosureHeading>
+              <UI.DisclosureTrigger className="flex w-full items-center gap-3 py-3 text-left">
+                <UI.DisclosureIndicator />
                 <span className="flex-1">{s.name}</span>
                 <Chip size="sm" color={s.status === "ACTIVE" ? "success" : "default"} variant="soft">
                   {s.status}
                 </Chip>
-              </Disclosure.Trigger>
-            </Disclosure.Heading>
-            <Disclosure.Content>
-              <Disclosure.Body className="space-y-4 pb-4">
+              </UI.DisclosureTrigger>
+            </UI.DisclosureHeading>
+            <UI.DisclosureContent>
+              <UI.DisclosureBody className="space-y-4 pb-4">
                 <Metrics insights={s.insights?.data?.[0]} />
                 <div className="text-ink-500 text-xs">
                   {s.optimization_goal} · {s.billing_event} · täglich{" "}
@@ -77,7 +78,7 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
                         {/* Jede Anzeige ist eine Karte – dieselbe Fläche, die auch
                             die Kennzahlen darüber trägt. */}
                         <Card variant="secondary">
-                          <Card.Content className="flex items-start gap-3">
+                          <UI.CardContent className="flex items-start gap-3">
                             {ad.creative?.thumbnail_url && (
                               // eslint-disable-next-line @next/next/no-img-element
                               <img src={ad.creative.thumbnail_url} alt="" className="size-16 rounded-lg object-cover" />
@@ -91,7 +92,7 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
                               </div>
                               <Metrics insights={ad.insights?.data?.[0]} />
                             </div>
-                          </Card.Content>
+                          </UI.CardContent>
                         </Card>
                       </li>
                     ))}
@@ -99,8 +100,8 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
                 ) : (
                   <EmptyState>Diese Anzeigengruppe hat noch keine Anzeigen.</EmptyState>
                 )}
-              </Disclosure.Body>
-            </Disclosure.Content>
+              </UI.DisclosureBody>
+            </UI.DisclosureContent>
           </Disclosure>
         ))}
       </DisclosureGroup>

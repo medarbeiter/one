@@ -1,3 +1,4 @@
+import * as UI from "@/app/shell/ui";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { buttonVariants } from "@heroui/styles";
@@ -33,21 +34,21 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <Typography.Heading level={1} className="font-display text-xl">
+        <UI.TypographyHeading level={1} className="font-display text-xl">
           {c.name}
-        </Typography.Heading>
+        </UI.TypographyHeading>
         <Chip size="sm">{c.access === "own" ? "Eigen" : "Kunde"}</Chip>
       </div>
 
       {c.issues.length > 0 && (
         <Alert status="danger">
-          <Alert.Content>
-            <Alert.Title>Fehlender Zugriff</Alert.Title>
-            <Alert.Description>
-              {c.issues.join(" · ")} — führe <Typography.Code>bun run assign</Typography.Code> aus,
+          <UI.AlertContent>
+            <UI.AlertTitle>Fehlender Zugriff</UI.AlertTitle>
+            <UI.AlertDescription>
+              {c.issues.join(" · ")} — führe <UI.TypographyCode>bun run assign</UI.TypographyCode> aus,
               nachdem du im Business Manager Zugriff gewährt hast.
-            </Alert.Description>
-          </Alert.Content>
+            </UI.AlertDescription>
+          </UI.AlertContent>
         </Alert>
       )}
 
@@ -56,13 +57,13 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
           der Liste oben. */}
       {needsLeadgenTos(c.page) && (
         <Alert status="warning">
-          <Alert.Content>
-            <Alert.Title>Lead-Bedingungen nicht angenommen</Alert.Title>
-            <Alert.Description>
+          <UI.AlertContent>
+            <UI.AlertTitle>Lead-Bedingungen nicht angenommen</UI.AlertTitle>
+            <UI.AlertDescription>
               Meta lehnt jede Lead-Anzeige über {c.page?.name} ab, bis ein Administrator dieser
               Seite die Nutzungsbedingungen annimmt. Über die API ist das nicht möglich.
-            </Alert.Description>
-          </Alert.Content>
+            </UI.AlertDescription>
+          </UI.AlertContent>
           <a
             href={leadgenTosUrl(c.page!.id)}
             target="_blank"
@@ -87,10 +88,10 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
       </div>
 
       <Card>
-        <Card.Header>
-          <Card.Title>Assets</Card.Title>
-        </Card.Header>
-        <Card.Content className="text-sm">
+        <UI.CardHeader>
+          <UI.CardTitle>Assets</UI.CardTitle>
+        </UI.CardHeader>
+        <UI.CardContent className="text-sm">
           {assets.map((a, i) => (
             <div key={`${a.label}-${a.id ?? i}`}>
               {/* Die Linie trennt, statt jede Zeile zu unterstreichen – vor dem
@@ -99,7 +100,7 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
               <Asset {...a} />
             </div>
           ))}
-        </Card.Content>
+        </UI.CardContent>
       </Card>
     </div>
   );
@@ -110,7 +111,7 @@ function Asset({ label, name, id }: { label: string; name?: string; id?: string 
     <div className="flex items-baseline gap-3 py-2">
       <span className="text-ink-500 w-28 shrink-0 text-xs">{label}</span>
       <span className="flex-1">{name ?? "—"}</span>
-      <Typography.Code>{id ?? "—"}</Typography.Code>
+      <UI.TypographyCode>{id ?? "—"}</UI.TypographyCode>
     </div>
   );
 }
