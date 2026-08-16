@@ -1,5 +1,5 @@
 import * as UI from "@/app/shell/ui";
-import { Card, Chip, Disclosure, DisclosureGroup, EmptyState, Typography } from "@/app/shell/ui";
+import { Badge, Card, Collapsible, CollapsibleGroup, EmptyState } from "@/app/shell/ui";
 import { costPerResult, getCampaign, results, type Insights, type Period } from "@/lib/campaigns";
 
 const money = (n?: number) =>
@@ -40,9 +40,7 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
         <UI.TypographyHeading level={1} className="font-display text-xl">
           {c.name}
         </UI.TypographyHeading>
-        <Chip size="sm" color={c.status === "ACTIVE" ? "success" : "default"} variant="soft">
-          {c.status}
-        </Chip>
+        <Badge variant={c.status === "ACTIVE" ? "success" : "neutral"} label={c.status} />
         <span className="text-ink-500 text-xs">{c.objective}</span>
       </div>
 
@@ -52,59 +50,61 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
         </UI.CardContent>
       </Card>
 
-      <DisclosureGroup allowsMultipleExpanded>
+      {/* Astryx' Collapsible ist ein Bauteil statt einer Familie: der Kopf ist
+          die `trigger`-Prop, der Körper sind die Kinder. Den Pfeil und die
+          Aria-Verknüpfung bringt es selbst mit. */}
+      <CollapsibleGroup type="multiple">
         {(c.adsets?.data ?? []).map((s: any) => (
-          <Disclosure key={s.id} id={s.id}>
-            <UI.DisclosureHeading>
-              <UI.DisclosureTrigger className="flex w-full items-center gap-3 py-3 text-left">
-                <UI.DisclosureIndicator />
+          <Collapsible
+            key={s.id}
+            value={s.id}
+            trigger={
+              <span className="flex w-full items-center gap-3 text-left">
                 <span className="flex-1">{s.name}</span>
-                <Chip size="sm" color={s.status === "ACTIVE" ? "success" : "default"} variant="soft">
-                  {s.status}
-                </Chip>
-              </UI.DisclosureTrigger>
-            </UI.DisclosureHeading>
-            <UI.DisclosureContent>
-              <UI.DisclosureBody className="space-y-4 pb-4">
-                <Metrics insights={s.insights?.data?.[0]} />
-                <div className="text-ink-500 text-xs">
-                  {s.optimization_goal} · {s.billing_event} · täglich{" "}
-                  {money(Number(s.daily_budget) / 100)}
-                </div>
-                {s.ads?.data?.length ? (
-                  <ul className="space-y-2">
-                    {s.ads.data.map((ad: any) => (
-                      <li key={ad.id}>
-                        {/* Jede Anzeige ist eine Karte – dieselbe Fläche, die auch
-                            die Kennzahlen darüber trägt. */}
-                        <Card variant="secondary">
-                          <UI.CardContent className="flex items-start gap-3">
-                            {ad.creative?.thumbnail_url && (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={ad.creative.thumbnail_url} alt="" className="size-16 rounded-lg object-cover" />
-                            )}
-                            <div className="min-w-0 flex-1 space-y-2">
-                              <div className="flex items-center gap-2">
-                                <span className="truncate text-sm">{ad.name}</span>
-                                <Chip size="sm" color={ad.status === "ACTIVE" ? "success" : "default"} variant="soft">
-                                  {ad.status}
-                                </Chip>
-                              </div>
-                              <Metrics insights={ad.insights?.data?.[0]} />
+                <Badge variant={s.status === "ACTIVE" ? "success" : "neutral"} label={s.status} />
+              </span>
+            }
+          >
+            <div className="space-y-4 pb-4">
+              <Metrics insights={s.insights?.data?.[0]} />
+              <div className="text-ink-500 text-xs">
+                {s.optimization_goal} · {s.billing_event} · täglich{" "}
+                {money(Number(s.daily_budget) / 100)}
+              </div>
+              {s.ads?.data?.length ? (
+                <ul className="space-y-2">
+                  {s.ads.data.map((ad: any) => (
+                    <li key={ad.id}>
+                      {/* Jede Anzeige ist eine Karte – dieselbe Fläche, die auch
+                          die Kennzahlen darüber trägt. */}
+                      <Card variant="muted">
+                        <UI.CardContent className="flex items-start gap-3">
+                          {ad.creative?.thumbnail_url && (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={ad.creative.thumbnail_url} alt="" className="size-16 rounded-lg object-cover" />
+                          )}
+                          <div className="min-w-0 flex-1 space-y-2">
+                            <div className="flex items-center gap-2">
+                              <span className="truncate text-sm">{ad.name}</span>
+                              <Badge
+                                variant={ad.status === "ACTIVE" ? "success" : "neutral"}
+                                label={ad.status}
+                              />
                             </div>
-                          </UI.CardContent>
-                        </Card>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <EmptyState>Diese Anzeigengruppe hat noch keine Anzeigen.</EmptyState>
-                )}
-              </UI.DisclosureBody>
-            </UI.DisclosureContent>
-          </Disclosure>
+                            <Metrics insights={ad.insights?.data?.[0]} />
+                          </div>
+                        </UI.CardContent>
+                      </Card>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <EmptyState title="Diese Anzeigengruppe hat noch keine Anzeigen." isCompact />
+              )}
+            </div>
+          </Collapsible>
         ))}
-      </DisclosureGroup>
+      </CollapsibleGroup>
     </div>
   );
 }
