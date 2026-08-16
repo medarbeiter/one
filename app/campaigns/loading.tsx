@@ -1,5 +1,5 @@
 import * as UI from "@/app/shell/ui";
-import { Card, Skeleton, Typography } from "@/app/shell/ui";
+import { Card, Skeleton } from "@/app/shell/ui";
 
 /**
  * Die Tabelle holt die Kennzahlen jedes Kunden einzeln bei Meta – das dauert,
@@ -11,7 +11,7 @@ export default function Loading() {
       <UI.TypographyHeading level={1} className="font-display text-xl">
         Kampagnen
       </UI.TypographyHeading>
-      <UI.TypographyParagraph color="muted" size="sm">
+      <UI.TypographyParagraph color="secondary" size="sm">
         Kampagnen und ihre Ergebnisse werden von Meta geladen…
       </UI.TypographyParagraph>
       <Card>
