@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRef, useState } from "react";
 import { Badge, Button, Selector, TextInput } from "@astryxdesign/core";
 import { Icon, type IconName } from "./icons";
+import { Sign } from "@/theme/icons";
 
 export type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -132,12 +133,25 @@ export function ActiveFilters({
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs">
       {/* Read-only Chips, kein Token-Editor: eine Facette zu entfernen heißt,
-          ihre URL zu verlassen – und die steht schon im Chip als Link. */}
+          ihre URL zu verlassen – und die steht schon im Chip als Link. Das
+          Kreuz macht die Entfernbarkeit auch sehend sichtbar, nicht nur für
+          Screenreader. */}
       <ul aria-label="Aktive Filter" className="flex flex-wrap items-center gap-2">
         {chips.map((c) => (
           <li key={c.id}>
-            <Link href={c.href} aria-label={`${c.label} entfernen`}>
-              <Badge label={c.label} />
+            <Link
+              href={c.href}
+              aria-label={`${c.label} entfernen`}
+              className="focus-visible:ring-focus rounded-full transition-opacity hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset"
+            >
+              <Badge
+                label={
+                  <span className="inline-flex items-center gap-1">
+                    {c.label}
+                    <Sign meaning="close" size={12} />
+                  </span>
+                }
+              />
             </Link>
           </li>
         ))}
