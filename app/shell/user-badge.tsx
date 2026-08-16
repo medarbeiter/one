@@ -50,8 +50,10 @@ export function UserBadge({ person }: { person: Person }) {
         aria-label={`Angemeldet als ${person.name}`}
         className={`${buttonVariants({ variant: "ghost", size: "sm", fullWidth: true })} flex h-auto items-center justify-start gap-3 px-2 py-1.5`}
       >
-        {/* Astryx' Avatar bildet die Initialen selbst aus `name`. */}
-        <Avatar size="sm" name={person.name} />
+        {/* Astryx' Avatar bildet die Initialen selbst aus `name`. tooltip={false},
+            weil Astryx sonst aus `name` einen Tooltip baut und dem Avatar dafür
+            tabIndex=0 gibt – ein zweiter Tabstopp mitten in diesem Knopf. */}
+        <Avatar size="sm" name={person.name} tooltip={false} />
         <span className="min-w-0 text-left">
           <span className="text-ink-900 block truncate text-sm font-medium">{person.name}</span>
           <span className="text-ink-500 block truncate text-xs">{rolle}</span>

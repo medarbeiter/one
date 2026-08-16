@@ -84,10 +84,10 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
       </div>
 
       <Card>
-        <UI.CardHeader>
+        <UI.CardHeader className="flex items-center justify-between">
           <UI.CardTitle>Assets</UI.CardTitle>
         </UI.CardHeader>
-        <UI.CardContent className="text-sm">
+        <UI.CardContent className="flex flex-col gap-4 text-sm">
           {assets.map((a, i) => (
             <div key={`${a.label}-${a.id ?? i}`}>
               {/* Die Linie trennt, statt jede Zeile zu unterstreichen – vor dem

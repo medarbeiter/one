@@ -15,7 +15,7 @@ export default function Loading() {
         Kampagnen und ihre Ergebnisse werden von Meta geladen…
       </UI.TypographyParagraph>
       <Card>
-        <UI.CardContent className="gap-3">
+        <UI.CardContent className="flex flex-col gap-3">
           {Array.from({ length: 8 }, (_, i) => (
             <Skeleton key={i} className="h-8 w-full rounded-lg" />
           ))}

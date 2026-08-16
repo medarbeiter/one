@@ -45,7 +45,7 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
       </div>
 
       <Card>
-        <UI.CardContent>
+        <UI.CardContent className="flex flex-col gap-4">
           <Metrics insights={insights} />
         </UI.CardContent>
       </Card>

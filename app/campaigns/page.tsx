@@ -1,6 +1,6 @@
 import * as UI from "@/app/shell/ui";
 import Link from "next/link";
-import { Badge, Banner, Table } from "@/app/shell/ui";
+import { Badge, Banner, Card, Table } from "@/app/shell/ui";
 import { costPerResult, listCampaigns, type Period } from "@/lib/campaigns";
 import { findCustomer, listCustomers } from "@/lib/customers";
 import { label } from "@/lib/labels";
@@ -88,60 +88,68 @@ export default async function CampaignsPage({ searchParams }: PageProps<"/campai
         />
       ))}
 
-      {/* Astryx' Table ist selbst das <table> – die Kopfzeile braucht darum
-          eine eigene Zeile, und die Karte darum entfällt. */}
-      <Table aria-label="Kampagnen">
-        <UI.TableHeader>
-          <UI.TableRow isHeaderRow>
-            <UI.TableColumn>Kampagne</UI.TableColumn>
-            <UI.TableColumn>Status</UI.TableColumn>
-            <UI.TableColumn>Ziel</UI.TableColumn>
-            <UI.TableColumn>Tagesbudget</UI.TableColumn>
-            <UI.TableColumn>Ausgaben</UI.TableColumn>
-            <UI.TableColumn>Impr.</UI.TableColumn>
-            <UI.TableColumn>CPM</UI.TableColumn>
-            <UI.TableColumn>Kosten/Ergebnis</UI.TableColumn>
-            <UI.TableColumn>Gestartet</UI.TableColumn>
-          </UI.TableRow>
-        </UI.TableHeader>
-        {/* Eine leere Tabelle ohne Text sieht aus wie eine kaputte – meist ist
-            nur der Zeitraum zu eng oder ein Filter zu scharf gesetzt. */}
-        <TableBody
-          columns={9}
-          empty="Keine Kampagnen in diesem Zeitraum. Wähle einen längeren Zeitraum oder entferne einen Filter."
-        >
-          {rows.map((c) => (
-            <UI.TableRow key={c.id} id={c.id}>
-              {/* Zweizeilig wie in der Vorlage: der Kunde steht unter dem Namen,
-                  statt eine eigene Spalte zu belegen. */}
-              <UI.TableCell>
-                <Link href={`/campaigns/${c.id}`} className="block hover:underline">
-                  <span className="text-ink-900 block font-medium">{c.name}</span>
-                  {!scope && <span className="text-ink-500 block text-xs">{c.customerName}</span>}
-                </Link>
-              </UI.TableCell>
-              <UI.TableCell>
-                <StatusSwitch id={c.id} name={c.name} status={c.status} />
-              </UI.TableCell>
-              <UI.TableCell className="text-ink-500 text-xs">{label(c.objective)}</UI.TableCell>
-              <UI.TableCell>
-                <BudgetField
-                  id={c.id}
-                  cents={c.daily_budget !== undefined ? Number(c.daily_budget) : undefined}
-                />
-              </UI.TableCell>
-              {/* Number(...) statt "|| undefined": ein echtes €0-Spend ist kein Datenausfall. */}
-              <UI.TableCell className="tabular-nums">{money(Number(c.insights?.spend))}</UI.TableCell>
-              <UI.TableCell className="tabular-nums">{c.insights?.impressions ?? "—"}</UI.TableCell>
-              <UI.TableCell className="tabular-nums">{money(Number(c.insights?.cpm))}</UI.TableCell>
-              <UI.TableCell className="tabular-nums">{money(costPerResult(c.insights))}</UI.TableCell>
-              <UI.TableCell className="text-ink-500 text-xs">
-                {c.start_time ? new Date(c.start_time).toLocaleDateString("en-GB") : "—"}
-              </UI.TableCell>
+      {/* Astryx' Table ist selbst das <table> und bringt keine Fläche mit – die
+          Karte, die HeroUIs Table noch selbst mitbrachte (graue Kopfzeile,
+          weiße Zeilenfläche), steht deshalb hier: ohne Innenabstand, damit die
+          Kopfzeile bündig mit dem Kartenrand abschließt. */}
+      <Card elevation="low" padding={0}>
+        <Table aria-label="Kampagnen">
+          <UI.TableHeader>
+            <UI.TableRow isHeaderRow>
+              <UI.TableColumn>Kampagne</UI.TableColumn>
+              <UI.TableColumn>Status</UI.TableColumn>
+              <UI.TableColumn>Ziel</UI.TableColumn>
+              <UI.TableColumn>Tagesbudget</UI.TableColumn>
+              <UI.TableColumn>Ausgaben</UI.TableColumn>
+              <UI.TableColumn>Impr.</UI.TableColumn>
+              <UI.TableColumn>CPM</UI.TableColumn>
+              <UI.TableColumn>Kosten/Ergebnis</UI.TableColumn>
+              <UI.TableColumn>Gestartet</UI.TableColumn>
             </UI.TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </UI.TableHeader>
+          {/* Eine leere Tabelle ohne Text sieht aus wie eine kaputte – meist ist
+              nur der Zeitraum zu eng oder ein Filter zu scharf gesetzt.
+              `columns` muss der Zahl der Kopfzellen oben entsprechen – der
+              Leertext spannt sich über sie, und niemand merkt eine Abweichung. */}
+          <TableBody
+            columns={9}
+            empty="Keine Kampagnen in diesem Zeitraum. Wähle einen längeren Zeitraum oder entferne einen Filter."
+          >
+            {rows.map((c) => (
+              <UI.TableRow key={c.id} id={c.id}>
+                {/* Zweizeilig wie in der Vorlage: der Kunde steht unter dem Namen,
+                    statt eine eigene Spalte zu belegen. scope="row" macht diese
+                    Zelle zum Zeilenkopf: ohne sie sagt ein Screenreader in den
+                    acht Zellen rechts nicht mehr, zu welcher Kampagne sie gehören. */}
+                <UI.TableCell scope="row">
+                  <Link href={`/campaigns/${c.id}`} className="block hover:underline">
+                    <span className="text-ink-900 block font-medium">{c.name}</span>
+                    {!scope && <span className="text-ink-500 block text-xs">{c.customerName}</span>}
+                  </Link>
+                </UI.TableCell>
+                <UI.TableCell>
+                  <StatusSwitch id={c.id} name={c.name} status={c.status} />
+                </UI.TableCell>
+                <UI.TableCell className="text-ink-500 text-xs">{label(c.objective)}</UI.TableCell>
+                <UI.TableCell>
+                  <BudgetField
+                    id={c.id}
+                    cents={c.daily_budget !== undefined ? Number(c.daily_budget) : undefined}
+                  />
+                </UI.TableCell>
+                {/* Number(...) statt "|| undefined": ein echtes €0-Spend ist kein Datenausfall. */}
+                <UI.TableCell className="tabular-nums">{money(Number(c.insights?.spend))}</UI.TableCell>
+                <UI.TableCell className="tabular-nums">{c.insights?.impressions ?? "—"}</UI.TableCell>
+                <UI.TableCell className="tabular-nums">{money(Number(c.insights?.cpm))}</UI.TableCell>
+                <UI.TableCell className="tabular-nums">{money(costPerResult(c.insights))}</UI.TableCell>
+                <UI.TableCell className="text-ink-500 text-xs">
+                  {c.start_time ? new Date(c.start_time).toLocaleDateString("en-GB") : "—"}
+                </UI.TableCell>
+              </UI.TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Card>
     </div>
   );
 }

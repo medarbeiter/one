@@ -63,21 +63,17 @@ export { TableHeaderCell as TableColumn };
 export { Heading as TypographyHeading };
 
 // Astryx has no CardHeader/CardContent/CardTitle — Card has no sub-parts at
-// all (just `padding`/`variant`/`elevation`). These stay as one-line wrappers
-// so the call sites keep their layout without hand-rolling classes.
-export function CardHeader({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return (
-    <div
-      className={["flex items-center justify-between", className].filter(Boolean).join(" ")}
-      {...props}
-    />
-  );
+// all (just `padding`/`variant`/`elevation`). These two stay only as the named
+// regions of a card; they carry NO classes of their own. A default class here
+// would silently fight the call site's own utilities — Tailwind resolves by
+// stylesheet order, not by who wrote the class last — so the layout belongs to
+// the call site and nowhere else.
+export function CardHeader(props: HTMLAttributes<HTMLDivElement>) {
+  return <div {...props} />;
 }
 
-export function CardContent({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return (
-    <div className={["flex flex-col gap-4", className].filter(Boolean).join(" ")} {...props} />
-  );
+export function CardContent(props: HTMLAttributes<HTMLDivElement>) {
+  return <div {...props} />;
 }
 
 export function CardTitle(props: Omit<HeadingProps, "level">) {

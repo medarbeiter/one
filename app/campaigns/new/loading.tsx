@@ -13,7 +13,10 @@ export default function Loading() {
         Neue Kampagne
       </UI.TypographyHeading>
       <Card>
-        <UI.CardContent className="gap-4" aria-label="Kunden und Werbekonten werden geladen">
+        <UI.CardContent
+          className="flex flex-col gap-4"
+          aria-label="Kunden und Werbekonten werden geladen"
+        >
           <UI.TypographyParagraph color="secondary" size="sm">
             Deine Werbekonten und Kunden werden geladen…
           </UI.TypographyParagraph>
