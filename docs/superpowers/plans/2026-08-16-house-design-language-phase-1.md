@@ -772,7 +772,7 @@ So write the barrel this way:
 3. **Thin wrappers** only where no Astryx counterpart exists — `AvatarFallback`, `CardHeader`, `CardContent`, `CardTitle`, `TypographyHeading`, `TypographyParagraph`, `TypographyCode`, `PopoverHeading`. Keep each to one line over `Text`/`Heading` or a fragment.
 4. **`Toasts()`** returns Astryx's `<ToastViewport />`.
 
-**The `Alert*` family is the second place the consumer changes instead of the barrel.** Astryx takes content as PROPS where HeroUI took compound children:
+**The `Alert*` family is the first of two places the consumer changes instead of the barrel.** Astryx takes content as PROPS where HeroUI took compound children:
 
 ```
 Banner:     status: 'info'|'warning'|'error'|'success'  (required)
@@ -789,7 +789,7 @@ Delete `AlertTitle`, `AlertDescription` and `AlertContent` from the barrel and c
 
 **The rule for this whole task:** the barrel re-exports and renames. It does not fake shapes Astryx does not have. Where Astryx's shape genuinely differs, the call site changes — a difference hidden inside a wrapper is a difference nobody will ever see again.
 
-**The `Disclosure*` family is the one place the consumer changes instead of the barrel.** Only `app/campaigns/[id]/page.tsx` uses it, at a single site. Restructure that site to Astryx's shape:
+**The `Disclosure*` family is the second.** Only `app/campaigns/[id]/page.tsx` uses it, at a single site. Restructure that site to Astryx's shape:
 
 ```tsx
 <Collapsible trigger={<Heading type="h3">{title}</Heading>}>
