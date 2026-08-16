@@ -769,8 +769,25 @@ So write the barrel this way:
 
 1. **Direct re-exports** where Astryx already has the name the consumers use: `TableRow`, `TableCell`, `Badge`, `Avatar`, `EmptyState`, `Skeleton`, `Card`, `Banner`, `Divider`, `Text`, `Heading`, `Popover`, `Collapsible`.
 2. **Renaming re-exports** for the names that changed: `Alert`→`Banner`, `Chip`→`Badge`, `Separator`→`Divider`, `Typography`→`Text`, `TableColumn`→`TableHeaderCell`, `TableContent`→`TableBody`.
-3. **Thin wrappers** only where no Astryx counterpart exists — `AlertTitle`, `AlertDescription`, `AlertContent`, `AvatarFallback`, `CardHeader`, `CardContent`, `CardTitle`, `TypographyHeading`, `TypographyParagraph`, `TypographyCode`, `PopoverHeading`. Keep each to one line over `Text`/`Heading` or a fragment.
+3. **Thin wrappers** only where no Astryx counterpart exists — `AvatarFallback`, `CardHeader`, `CardContent`, `CardTitle`, `TypographyHeading`, `TypographyParagraph`, `TypographyCode`, `PopoverHeading`. Keep each to one line over `Text`/`Heading` or a fragment.
 4. **`Toasts()`** returns Astryx's `<ToastViewport />`.
+
+**The `Alert*` family is the second place the consumer changes instead of the barrel.** Astryx takes content as PROPS where HeroUI took compound children:
+
+```
+Banner:     status: 'info'|'warning'|'error'|'success'  (required)
+            title: string                               (required)
+            description?, icon?, isDismissable?, onDismiss?,
+            endContent?, container?: 'card'|'section', elevation?
+Badge:      label: string (required, NOT children), variant?
+EmptyState: title (required), description?, icon?, actions?
+```
+
+So `<Alert><AlertContent><AlertTitle>x</AlertTitle><AlertDescription>y</AlertDescription></AlertContent></Alert>` becomes `<Banner status="warning" title="x" description="y" />`. Wrapping `title` in a `<Text>` component would NOT reproduce Banner's semantics — it would put a paragraph where Banner expects a string, and lose the status colouring and icon entirely.
+
+Delete `AlertTitle`, `AlertDescription` and `AlertContent` from the barrel and convert the 8 call sites to props. Likewise `Chip`'s children become `Badge`'s `label`.
+
+**The rule for this whole task:** the barrel re-exports and renames. It does not fake shapes Astryx does not have. Where Astryx's shape genuinely differs, the call site changes — a difference hidden inside a wrapper is a difference nobody will ever see again.
 
 **The `Disclosure*` family is the one place the consumer changes instead of the barrel.** Only `app/campaigns/[id]/page.tsx` uses it, at a single site. Restructure that site to Astryx's shape:
 
