@@ -1,12 +1,31 @@
-"use client";
-
-import type { ReactNode } from "react";
-import { EmptyState, Table } from "@heroui/react";
+import { Children, type ReactNode } from "react";
+import { EmptyState, TableBody as AstryxTableBody, TableCell, TableRow } from "@astryxdesign/core";
 
 /**
- * Table.Body mit Leertext. renderEmptyState ist eine Funktion und lässt sich
- * darum nicht aus einer Server Component durchreichen – der Text schon.
+ * Astryx' TableBody mit Leertext. Astryx kennt kein renderEmptyState – der
+ * Leerfall ist hier eine gewöhnliche Zeile über alle Spalten, deren Anzahl die
+ * Tabelle mitgeben muss (colSpan lässt sich nicht erraten).
  */
-export function TableBody({ empty, children }: { empty: string; children: ReactNode }) {
-  return <Table.Body renderEmptyState={() => <EmptyState>{empty}</EmptyState>}>{children}</Table.Body>;
+export function TableBody({
+  empty,
+  columns,
+  children,
+}: {
+  empty: string;
+  columns: number;
+  children: ReactNode;
+}) {
+  return (
+    <AstryxTableBody>
+      {Children.count(children) === 0 ? (
+        <TableRow>
+          <TableCell colSpan={columns}>
+            <EmptyState title={empty} isCompact />
+          </TableCell>
+        </TableRow>
+      ) : (
+        children
+      )}
+    </AstryxTableBody>
+  );
 }

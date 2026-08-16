@@ -106,7 +106,10 @@ export default async function CampaignsPage({ searchParams }: PageProps<"/campai
         </UI.TableHeader>
         {/* Eine leere Tabelle ohne Text sieht aus wie eine kaputte – meist ist
             nur der Zeitraum zu eng oder ein Filter zu scharf gesetzt. */}
-        <TableBody empty="Keine Kampagnen in diesem Zeitraum. Wähle einen längeren Zeitraum oder entferne einen Filter.">
+        <TableBody
+          columns={9}
+          empty="Keine Kampagnen in diesem Zeitraum. Wähle einen längeren Zeitraum oder entferne einen Filter."
+        >
           {rows.map((c) => (
             <UI.TableRow key={c.id} id={c.id}>
               {/* Zweizeilig wie in der Vorlage: der Kunde steht unter dem Namen,

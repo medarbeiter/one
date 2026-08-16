@@ -1,4 +1,4 @@
-import { Avatar, AvatarFallback, Chip, Popover, PopoverContent, PopoverDialog, PopoverHeading, PopoverTrigger, TypographyParagraph } from "@/app/shell/ui";
+import { Avatar, Badge, Heading, Popover, TypographyParagraph } from "@/app/shell/ui";
 import { buttonVariants } from "@heroui/styles";
 import type { Person } from "@/lib/session";
 
@@ -11,13 +11,6 @@ const ROLLEN: Record<string, string> = {
   geschaeftsfuehrung: "Geschäftsführung",
 };
 
-const initials = (name: string) =>
-  name
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? "")
-    .join("");
-
 /**
  * Wer hier arbeitet – die Identität aus der Anmeldung über den Hub.
  * Alles, was /api/oauth/userinfo liefert, ist hier sichtbar: Name und Rolle
@@ -26,31 +19,19 @@ const initials = (name: string) =>
 export function UserBadge({ person }: { person: Person }) {
   const rolle = ROLLEN[person.role] ?? person.role;
   return (
-    <Popover>
-      {/* Gleiche Optik wie der Token-Status darunter: der Auslöser trägt die
-          Button-Varianten des Designsystems. */}
-      <PopoverTrigger
-        aria-label={`Angemeldet als ${person.name}`}
-        className={`${buttonVariants({ variant: "ghost", size: "sm", fullWidth: true })} flex h-auto items-center justify-start gap-3 px-2 py-1.5`}
-      >
-        <Avatar size="sm" variant="soft" color="accent">
-          <AvatarFallback>{initials(person.name)}</AvatarFallback>
-        </Avatar>
-        <span className="min-w-0 text-left">
-          <span className="text-ink-900 block truncate text-sm font-medium">{person.name}</span>
-          <span className="text-ink-500 block truncate text-xs">{rolle}</span>
-        </span>
-      </PopoverTrigger>
-      <PopoverContent className="max-w-80">
-        <PopoverDialog className="space-y-2 text-sm">
-          <PopoverHeading>{person.name}</PopoverHeading>
-          <TypographyParagraph color="muted" size="xs">
+    // Astryx' Popover hat keine Trigger/Content/Dialog/Heading-Teile: der
+    // Auslöser sind die Kinder, die Fläche ist die `content`-Prop.
+    <Popover
+      label={person.name}
+      width={320}
+      content={
+        <div className="space-y-2 text-sm">
+          <Heading level={3}>{person.name}</Heading>
+          <TypographyParagraph color="secondary" size="xsm">
             {person.email}
           </TypographyParagraph>
           <div className="flex items-center gap-2">
-            <Chip size="sm" variant="soft" color="accent">
-              {rolle}
-            </Chip>
+            <Badge variant="neutral" label={rolle} />
           </div>
           {person.rechte.length > 0 && (
             <ul className="text-ink-500 list-disc space-y-1 pl-4 text-xs">
@@ -59,8 +40,23 @@ export function UserBadge({ person }: { person: Person }) {
               ))}
             </ul>
           )}
-        </PopoverDialog>
-      </PopoverContent>
+        </div>
+      }
+    >
+      {/* Gleiche Optik wie der Token-Status darunter: der Auslöser trägt die
+          Button-Varianten des Designsystems. */}
+      <button
+        type="button"
+        aria-label={`Angemeldet als ${person.name}`}
+        className={`${buttonVariants({ variant: "ghost", size: "sm", fullWidth: true })} flex h-auto items-center justify-start gap-3 px-2 py-1.5`}
+      >
+        {/* Astryx' Avatar bildet die Initialen selbst aus `name`. */}
+        <Avatar size="sm" name={person.name} />
+        <span className="min-w-0 text-left">
+          <span className="text-ink-900 block truncate text-sm font-medium">{person.name}</span>
+          <span className="text-ink-500 block truncate text-xs">{rolle}</span>
+        </span>
+      </button>
     </Popover>
   );
 }

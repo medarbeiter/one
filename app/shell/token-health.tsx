@@ -1,15 +1,15 @@
-import { Chip, Popover, PopoverContent, PopoverDialog, PopoverHeading, PopoverTrigger, TypographyParagraph } from "@/app/shell/ui";
+import { Badge, Heading, Popover, TypographyParagraph } from "@/app/shell/ui";
 import { buttonVariants } from "@heroui/styles";
 
 const COPY = {
-  ok: { color: "success", title: "Verbunden", body: "Der System-User-Token funktioniert." },
+  ok: { variant: "success", title: "Verbunden", body: "Der System-User-Token funktioniert." },
   degraded: {
-    color: "danger",
+    variant: "error",
     title: "Teilweise verbunden",
     body: "Einige Assets sind dem System User nicht zugewiesen. Gib im Business Manager Zugriff frei und führe dann `bun run assign` aus.",
   },
   dead: {
-    color: "danger",
+    variant: "error",
     title: "Nicht verbunden",
     body: "Erstelle im Business Manager einen System-User-Token und trage ihn in .env.local als META_ACCESS_TOKEN ein. Die Schritte stehen in der README.",
   },
@@ -24,23 +24,16 @@ export function TokenHealth({
 }) {
   const c = COPY[state];
   return (
-    <Popover>
-      {/* Der Auslöser trägt die Button-Optik des Designsystems statt eigener
-          Rahmen- und Hover-Klassen. */}
-      <PopoverTrigger
-        aria-label={`Verbindung: ${c.title}`}
-        className={buttonVariants({ variant: "outline", size: "sm", fullWidth: true })}
-      >
-        <Chip size="sm" variant="soft" color={c.color}>
-          {c.title}
-        </Chip>
-      </PopoverTrigger>
-      <PopoverContent className="max-w-80">
-        {/* Popover.Dialog liefert role="dialog", die Titel-Verknüpfung (aria-labelledby) und
-            Escape-to-close – ohne dieses Sub-Part fehlt die Aria-Semantik. */}
-        <PopoverDialog className="space-y-2 text-sm">
-          <PopoverHeading>{c.title}</PopoverHeading>
-          <TypographyParagraph color="muted" size="xs">
+    // Astryx' Popover hat keine Trigger/Content/Dialog/Heading-Teile: der
+    // Auslöser sind die Kinder, die Fläche ist die `content`-Prop. role="dialog",
+    // die Beschriftung (`label`) und Escape-to-close bringt es selbst mit.
+    <Popover
+      label={c.title}
+      width={320}
+      content={
+        <div className="space-y-2 text-sm">
+          <Heading level={3}>{c.title}</Heading>
+          <TypographyParagraph color="secondary" size="xsm">
             {c.body}
           </TypographyParagraph>
           {detail.length > 0 && (
@@ -50,8 +43,18 @@ export function TokenHealth({
               ))}
             </ul>
           )}
-        </PopoverDialog>
-      </PopoverContent>
+        </div>
+      }
+    >
+      {/* Der Auslöser trägt die Button-Optik des Designsystems statt eigener
+          Rahmen- und Hover-Klassen. */}
+      <button
+        type="button"
+        aria-label={`Verbindung: ${c.title}`}
+        className={buttonVariants({ variant: "outline", size: "sm", fullWidth: true })}
+      >
+        <Badge variant={c.variant} label={c.title} />
+      </button>
     </Popover>
   );
 }

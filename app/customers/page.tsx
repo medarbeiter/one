@@ -49,7 +49,7 @@ export default async function CustomersPage({ searchParams }: PageProps<"/custom
             <UI.TableColumn>Status</UI.TableColumn>
           </UI.TableRow>
         </UI.TableHeader>
-        <TableBody empty="Kein Kunde passt zu dieser Suche.">
+        <TableBody columns={6} empty="Kein Kunde passt zu dieser Suche.">
           {rows.map((c) => (
             <UI.TableRow key={c.id} id={c.id}>
               {/* Zweizeilig wie in der Vorlage: die Seite steht unter dem Namen.
