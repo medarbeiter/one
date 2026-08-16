@@ -1,0 +1,57 @@
+/* theme/motion.css
+ *
+ * The one motion system. Five beats and four curves, and no motion in this
+ * application may be built from anything else.
+ *
+ * The rule that holds them together: THE EXIT IS FASTER THAN THE ENTRANCE.
+ * What leaves should clear the attention; what arrives should be given time
+ * to be read.
+ *
+ * None of the curves is linear. Constant velocity has no counterpart in the
+ * physical world and reads as machinery.
+ */
+:root {
+  /* Immediate feedback: a press, a hover. */
+  --beat-tap: 120ms;
+  /* One state changes in place. */
+  --beat-step: 220ms;
+  /* Something builds up or overlays. */
+  --beat-draw: 300ms;
+  /* The one written-out entrance, used sparingly. */
+  --beat-arc: 700ms;
+  /* Every exit, without exception. */
+  --beat-exit: 150ms;
+
+  /* Arriving: exponential settle — most of the distance in the first third,
+     then a long give. This is the "buttery" one. */
+  --ease-in: cubic-bezier(0.16, 1, 0.3, 1);
+  /* Leaving: accelerates out. Never the same curve as arriving. */
+  --ease-out: cubic-bezier(0.55, 0, 1, 0.45);
+  /* Moving without arriving or leaving — anything changing its place.
+     Soft at both ends. */
+  --ease-move: cubic-bezier(0.32, 0.72, 0, 1);
+  /* A single damped overshoot for the rare, ceremonial change. */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Press is direct manipulation: the feedback arrives on the way down, not on
+   release. */
+button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+button {
+  transition: transform var(--beat-tap) var(--ease-in);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  button:active:not(:disabled) {
+    transform: none;
+  }
+}
