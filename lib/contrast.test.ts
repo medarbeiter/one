@@ -72,7 +72,7 @@ describe('status colours', () => {
     expect(contrast(C.warningFill, C.white)).toBeGreaterThanOrEqual(OBJECT_FLOOR);
   });
   test('dark ink on warning fill clears the text floor', () => {
-    expect(contrast('#171717', C.warningFill)).toBeGreaterThanOrEqual(TEXT_FLOOR);
+    expect(contrast(C.warningInk, C.warningFill)).toBeGreaterThanOrEqual(TEXT_FLOOR);
   });
   test('warning text clears the text floor on white', () => {
     expect(contrast(C.warningText, C.white)).toBeGreaterThanOrEqual(TEXT_FLOOR);

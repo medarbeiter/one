@@ -31,6 +31,11 @@ export const PALETTE = {
   // Status. Never gold — a status that wore gold would impersonate the brand.
   warningFill: '#dd7200',
   warningText: '#6e3500',
+  // The ink that sits on the warning fill. It is neither the primary ink nor
+  // the on-gold ink — warning orange is light enough that the near-black reads
+  // best on it, and it clears 4.5:1 there (5.53:1). The sister app MedArbeiter
+  // Hub ships the same value for the same purpose.
+  warningInk: '#171717',
   errorFill: '#e33f4a',
   errorText: '#a50c25',
   successFill: '#198100',
