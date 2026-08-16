@@ -1,8 +1,7 @@
 import * as UI from "@/app/shell/ui";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { buttonVariants } from "@heroui/styles";
-import { Alert, Card, Chip, Separator, Typography } from "@/app/shell/ui";
+import { Badge, Banner, Button, Card, Separator } from "@/app/shell/ui";
 import {
   findCustomer,
   instagramAccountLabel,
@@ -37,54 +36,51 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
         <UI.TypographyHeading level={1} className="font-display text-xl">
           {c.name}
         </UI.TypographyHeading>
-        <Chip size="sm">{c.access === "own" ? "Eigen" : "Kunde"}</Chip>
+        <Badge variant="neutral" label={c.access === "own" ? "Eigen" : "Kunde"} />
       </div>
 
       {c.issues.length > 0 && (
-        <Alert status="danger">
-          <UI.AlertContent>
-            <UI.AlertTitle>Fehlender Zugriff</UI.AlertTitle>
-            <UI.AlertDescription>
+        <Banner
+          status="error"
+          title="Fehlender Zugriff"
+          description={
+            <>
               {c.issues.join(" · ")} — führe <UI.TypographyCode>bun run assign</UI.TypographyCode> aus,
               nachdem du im Business Manager Zugriff gewährt hast.
-            </UI.AlertDescription>
-          </UI.AlertContent>
-        </Alert>
+            </>
+          }
+        />
       )}
 
       {/* Kein Zugriffsproblem, sondern eines, das nur der Kunde selbst löst –
           deshalb eine eigene Meldung mit dem Weg dorthin statt einer Zeile in
           der Liste oben. */}
       {needsLeadgenTos(c.page) && (
-        <Alert status="warning">
-          <UI.AlertContent>
-            <UI.AlertTitle>Lead-Bedingungen nicht angenommen</UI.AlertTitle>
-            <UI.AlertDescription>
-              Meta lehnt jede Lead-Anzeige über {c.page?.name} ab, bis ein Administrator dieser
-              Seite die Nutzungsbedingungen annimmt. Über die API ist das nicht möglich.
-            </UI.AlertDescription>
-          </UI.AlertContent>
-          <a
-            href={leadgenTosUrl(c.page!.id)}
-            target="_blank"
-            rel="noreferrer"
-            className={buttonVariants({ variant: "outline", size: "sm" })}
-          >
-            Bei Meta annehmen
-          </a>
-        </Alert>
+        <Banner
+          status="warning"
+          title="Lead-Bedingungen nicht angenommen"
+          description={`Meta lehnt jede Lead-Anzeige über ${c.page?.name} ab, bis ein Administrator dieser Seite die Nutzungsbedingungen annimmt. Über die API ist das nicht möglich.`}
+          endContent={
+            <Button
+              href={leadgenTosUrl(c.page!.id)}
+              target="_blank"
+              rel="noreferrer"
+              variant="secondary"
+              size="sm"
+              label="Bei Meta annehmen"
+            />
+          }
+        />
       )}
 
       <div className="flex gap-2">
-        <Link href={`/inbox?customer=${c.id}`} className={buttonVariants()}>
-          Inbox öffnen
-        </Link>
-        <Link
+        <Button as={Link} href={`/inbox?customer=${c.id}`} label="Inbox öffnen" />
+        <Button
+          as={Link}
           href={`/campaigns?customer=${c.id}`}
-          className={buttonVariants({ variant: "outline" })}
-        >
-          Kampagnen
-        </Link>
+          variant="secondary"
+          label="Kampagnen"
+        />
       </div>
 
       <Card>
