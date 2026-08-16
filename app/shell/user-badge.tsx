@@ -1,5 +1,4 @@
-import { Avatar, Badge, Heading, Popover, TypographyParagraph } from "@/app/shell/ui";
-import { buttonVariants } from "@heroui/styles";
+import { Avatar, Badge, Button, Heading, Popover, TypographyParagraph } from "@/app/shell/ui";
 import type { Person } from "@/lib/session";
 
 // Die Rollennamen des Hubs sind technische Schlüssel; angezeigt wird Deutsch.
@@ -44,11 +43,14 @@ export function UserBadge({ person }: { person: Person }) {
       }
     >
       {/* Gleiche Optik wie der Token-Status darunter: der Auslöser trägt die
-          Button-Varianten des Designsystems. */}
-      <button
-        type="button"
-        aria-label={`Angemeldet als ${person.name}`}
-        className={`${buttonVariants({ variant: "ghost", size: "sm", fullWidth: true })} flex h-auto items-center justify-start gap-3 px-2 py-1.5`}
+          Button-Varianten des Designsystems. label bleibt der Accessible
+          Name, children überschreiben nur den sichtbaren Inhalt. */}
+      <Button
+        variant="ghost"
+        size="sm"
+        width="100%"
+        label={`Angemeldet als ${person.name}`}
+        className="flex h-auto items-center justify-start gap-3 px-2 py-1.5"
       >
         {/* Astryx' Avatar bildet die Initialen selbst aus `name`. tooltip={false},
             weil Astryx sonst aus `name` einen Tooltip baut und dem Avatar dafür
@@ -58,7 +60,7 @@ export function UserBadge({ person }: { person: Person }) {
           <span className="text-ink-900 block truncate text-sm font-medium">{person.name}</span>
           <span className="text-ink-500 block truncate text-xs">{rolle}</span>
         </span>
-      </button>
+      </Button>
     </Popover>
   );
 }
