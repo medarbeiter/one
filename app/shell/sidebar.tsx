@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Badge } from "@heroui/react";
+import { Badge } from "@astryxdesign/core";
 import logo from "@/assets/logo.png";
 import { Icon, type IconName } from "./icons";
 
@@ -50,9 +50,9 @@ export function Sidebar({
             <Icon name={n.icon} className={active ? "text-gold-700 size-4" : "text-ink-300 size-4"} />
             <span className="flex-1">{n.label}</span>
             {n.href === "/inbox" && inboxCount ? (
-              <Badge size="sm" variant="primary" color="accent" className="tabular-nums">
-                <Badge.Label>{inboxCount}</Badge.Label>
-              </Badge>
+              // Diese Theme-Variante kennt kein goldenes Badge (siehe
+              // theme/house.ts) – neutral ist die vorgesehene Ausweichfarbe.
+              <Badge variant="neutral" label={inboxCount} className="tabular-nums" />
             ) : null}
           </Link>
         );
