@@ -190,8 +190,17 @@ describe('status colours', () => {
   test('error text clears the text floor on white', () => {
     expect(contrast(C.errorText, C.white)).toBeGreaterThanOrEqual(TEXT_FLOOR);
   });
-  test('white on error fill clears the text floor', () => {
-    expect(contrast(C.white, C.errorFill)).toBeGreaterThanOrEqual(TEXT_FLOOR);
+
+  // Error red is a GRAPHICAL fill — a dot, a badge, a border — and is held to
+  // the 3:1 object floor, not the 4.5:1 text floor. White on it reaches only
+  // 4.14:1, which is exactly why destructive actions in this house wear the
+  // pastel treatment instead (error wash #facecb with dark error text
+  // #a50c25) rather than white on filled red. Hub holds the same token to the
+  // same floor; the palette is shared verbatim and must not drift.
+  test('error fill clears the object floor on every ground', () => {
+    for (const ground of [C.white, C.paper, C.parchment]) {
+      expect(contrast(C.errorFill, ground)).toBeGreaterThanOrEqual(OBJECT_FLOOR);
+    }
   });
   test('white on success fill clears the text floor', () => {
     expect(contrast(C.white, C.successFill)).toBeGreaterThanOrEqual(TEXT_FLOOR);
