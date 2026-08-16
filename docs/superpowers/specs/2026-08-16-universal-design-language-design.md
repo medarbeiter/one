@@ -204,12 +204,15 @@ The mapping is settled:
 | `Tag`, `TagGroup` | `Tokenizer` (multi-select typeahead with tokens) |
 | `SearchField` | `TextInput` with search affordance |
 
-One mapping is a simplification rather than a substitution. `app/shell/facets.tsx`
-hand-builds a faceted filter bar out of six HeroUI imports (`Form`, `ListBox`,
-`SearchField`, `Select`, `Tag`, `TagGroup`). Astryx ships `PowerSearch` — a
-structured filter bar with token-based filter management — which is that whole
-composition as one component. It converts as a rewrite, not a swap, and should
-be scheduled accordingly.
+**`PowerSearch` is deliberately not adopted.** `app/shell/facets.tsx` builds
+its faceted filter bar out of six HeroUI imports, and an earlier draft of this
+spec proposed replacing the whole composition with Astryx's `PowerSearch`.
+That was wrong. The file is a **GET form**: the browser serialises the fields
+into the query string, Server Components read them directly, and every
+filtered view is therefore a shareable link with working Back-button history.
+`PowerSearch` is a controlled component holding client state; adopting it
+would convert every filtered view from a URL into ephemeral state. The facet
+bar swaps its leaf components only and keeps its mechanism.
 
 Button, Card, Table, Slider, Switch, Tooltip, Popover, Toast, Toolbar,
 Skeleton, Spinner, Avatar, Badge, Kbd, Link, EmptyState, ProgressBar and
