@@ -742,120 +742,47 @@ git commit -m "feat(design): SVG progress ring replacing HeroUI ProgressCircle"
 
 The compound API changes. Astryx has no `Card.Header`/`Table.Cell` namespacing; it exposes flat components. Because consumers use `UI.TableCell` and `UI.CardContent` heavily (30 and 10 call sites), the barrel keeps those names as thin wrappers rather than forcing 8 files to rename.
 
-- [ ] **Step 1: Rewrite the barrel**
+- [ ] **Step 1: Rewrite the barrel against Astryx's REAL exports**
+
+The Astryx API was verified against the installed package before this plan was finalised. **Astryx uses flat exports, not compound namespacing** — there is no `Table.Cell`, no `Card.Header`, no `Popover.Trigger`. Verified export lists:
+
+```
+Table:       Table, TableRow, TableCell, TableHeaderCell, TableHeader,
+             TableBody, TableFooter, useTableSortable, pixel, proportional
+Collapsible: Collapsible, CollapsibleGroup, useCollapsible
+Popover:     Popover, usePopover
+Card:        Card                    (no sub-parts at all)
+Text:        Text, Heading
+Dialog:      Dialog, DialogHeader
+AlertDialog: AlertDialog
+Toast:       Toast, ToastViewport, useToast
+Layer:       LayerProvider, Tooltip, HoverCard
+Others:      Banner, Badge, Avatar, Divider, EmptyState, Skeleton
+```
+
+Two component shapes differ from HeroUI in ways an alias cannot paper over:
+
+- **`Collapsible`** takes `trigger: ReactNode` plus `children` — one component, not a Trigger/Heading/Content/Body/Indicator family. The five `Disclosure*` aliases cannot survive as components.
+- **`Card`** takes `padding`, `variant` and `elevation` props and has no header/content/title parts.
+
+So write the barrel this way:
+
+1. **Direct re-exports** where Astryx already has the name the consumers use: `TableRow`, `TableCell`, `Badge`, `Avatar`, `EmptyState`, `Skeleton`, `Card`, `Banner`, `Divider`, `Text`, `Heading`, `Popover`, `Collapsible`.
+2. **Renaming re-exports** for the names that changed: `Alert`→`Banner`, `Chip`→`Badge`, `Separator`→`Divider`, `Typography`→`Text`, `TableColumn`→`TableHeaderCell`, `TableContent`→`TableBody`.
+3. **Thin wrappers** only where no Astryx counterpart exists — `AlertTitle`, `AlertDescription`, `AlertContent`, `AvatarFallback`, `CardHeader`, `CardContent`, `CardTitle`, `TypographyHeading`, `TypographyParagraph`, `TypographyCode`, `PopoverHeading`. Keep each to one line over `Text`/`Heading` or a fragment.
+4. **`Toasts()`** returns Astryx's `<ToastViewport />`.
+
+**The `Disclosure*` family is the one place the consumer changes instead of the barrel.** Only `app/campaigns/[id]/page.tsx` uses it, at a single site. Restructure that site to Astryx's shape:
 
 ```tsx
-// app/shell/ui.tsx
-'use client';
-
-/**
- * The one place Astryx is renamed for this application.
- *
- * Consumers were written against HeroUI's compound API (Card.Header,
- * Table.Cell). Astryx exposes flat components instead, so the compound names
- * survive here as thin aliases — 8 files and roughly 100 call sites keep
- * working, and the difference is stated once rather than everywhere.
- */
-export {
-  Avatar,
-  Badge,
-  Banner,
-  Card,
-  Collapsible,
-  Divider,
-  EmptyState,
-  Popover,
-  Skeleton,
-  Table,
-  Text,
-} from '@astryxdesign/core';
-
-import {
-  Banner,
-  Card,
-  Collapsible,
-  Divider,
-  Popover,
-  Table,
-  Text,
-  LayerProvider,
-} from '@astryxdesign/core';
-import type { ReactNode } from 'react';
-
-// --- Aliases for the names the consumers already use -----------------------
-
-/** HeroUI's Alert. Astryx calls the same thing a Banner. */
-export const Alert = Banner;
-/** HeroUI's Chip. Astryx's Badge fills the same slot. */
-export { Badge as Chip } from '@astryxdesign/core';
-/** HeroUI's Separator. */
-export { Divider as Separator } from '@astryxdesign/core';
-/** HeroUI's Typography. */
-export { Text as Typography } from '@astryxdesign/core';
-/** HeroUI's Disclosure. */
-export { Collapsible as Disclosure, Collapsible as DisclosureGroup } from '@astryxdesign/core';
-
-export const AlertContent = ({ children }: { children: ReactNode }) => <>{children}</>;
-export const AlertTitle = ({ children }: { children: ReactNode }) => (
-  <Text weight="semibold">{children}</Text>
-);
-export const AlertDescription = ({ children }: { children: ReactNode }) => (
-  <Text color="secondary">{children}</Text>
-);
-
-export const AvatarFallback = ({ children }: { children: ReactNode }) => <>{children}</>;
-
-export const CardHeader = ({ children }: { children: ReactNode }) => <>{children}</>;
-export const CardContent = ({ children }: { children: ReactNode }) => <>{children}</>;
-export const CardTitle = ({ children }: { children: ReactNode }) => (
-  <Text type="h2">{children}</Text>
-);
-
-export const DisclosureBody = Collapsible.Content;
-export const DisclosureContent = Collapsible.Content;
-export const DisclosureHeading = Collapsible.Trigger;
-export const DisclosureTrigger = Collapsible.Trigger;
-export const DisclosureIndicator = () => null;
-
-export const PopoverContent = Popover.Content;
-export const PopoverDialog = Popover.Content;
-export const PopoverHeading = ({ children }: { children: ReactNode }) => (
-  <Text weight="semibold">{children}</Text>
-);
-export const PopoverTrigger = Popover.Trigger;
-
-export const TableCell = Table.Cell;
-export const TableColumn = Table.HeaderCell;
-export const TableContent = Table.Body;
-export const TableHeader = Table.Header;
-export const TableRow = Table.Row;
-
-export const TypographyCode = ({ children }: { children: ReactNode }) => (
-  <Text type="code">{children}</Text>
-);
-export const TypographyHeading = ({ children }: { children: ReactNode }) => (
-  <Text type="h2">{children}</Text>
-);
-export const TypographyParagraph = ({ children }: { children: ReactNode }) => (
-  <Text>{children}</Text>
-);
-
-/** Region for imperative toasts — once per application. */
-export function Toasts() {
-  return <LayerProvider />;
-}
+<Collapsible trigger={<Heading type="h3">{title}</Heading>}>
+  {body}
+</Collapsible>
 ```
 
-**Important:** the exact Astryx sub-component names (`Table.HeaderCell`, `Collapsible.Content`, `Popover.Trigger`, `Card.Header`) must be verified against the installed package before writing, not assumed:
+Do not export fake `DisclosureTrigger`/`DisclosureContent`/`DisclosureBody`/`DisclosureIndicator` components to preserve a shape Astryx does not have — that would hide the difference in a file nobody reads again. Delete those five exports and fix the one call site.
 
-```bash
-grep -rE "^export|declare (const|function)" node_modules/@astryxdesign/core/dist/Table/index.d.ts \
-  node_modules/@astryxdesign/core/dist/Collapsible/index.d.ts \
-  node_modules/@astryxdesign/core/dist/Popover/index.d.ts \
-  node_modules/@astryxdesign/core/dist/Card/index.d.ts
-```
-
-Adjust the aliases to whatever that reports. If a sub-component genuinely does not exist, write the thin wrapper instead of inventing the name.
+Write English comments explaining the renames, in the style of the file you are replacing.
 
 - [ ] **Step 2: Typecheck and fix the consumer files**
 
