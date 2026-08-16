@@ -1,5 +1,4 @@
-import { Badge, Heading, Popover, TypographyParagraph } from "@/app/shell/ui";
-import { buttonVariants } from "@heroui/styles";
+import { Badge, Button, Heading, Popover, TypographyParagraph } from "@/app/shell/ui";
 
 const COPY = {
   ok: { variant: "success", title: "Verbunden", body: "Der System-User-Token funktioniert." },
@@ -47,14 +46,11 @@ export function TokenHealth({
       }
     >
       {/* Der Auslöser trägt die Button-Optik des Designsystems statt eigener
-          Rahmen- und Hover-Klassen. */}
-      <button
-        type="button"
-        aria-label={`Verbindung: ${c.title}`}
-        className={buttonVariants({ variant: "outline", size: "sm", fullWidth: true })}
-      >
+          Rahmen- und Hover-Klassen. Astryx kennt kein "outline" – secondary
+          ist die umrandete, ungefüllte Variante des Designsystems. */}
+      <Button variant="secondary" size="sm" width="100%" label={`Verbindung: ${c.title}`}>
         <Badge variant={c.variant} label={c.title} />
-      </button>
+      </Button>
     </Popover>
   );
 }
