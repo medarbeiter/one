@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Figtree, Poppins } from "next/font/google";
 import { Suspense } from "react";
 import { cookies } from "next/headers";
 import { after } from "next/server";
@@ -23,6 +24,17 @@ export const metadata: Metadata = {
   },
 };
 
+// Self-hosted through next/font: no runtime request to Google, no CDN failure
+// mode, and no client IP leaving the house. The theme's font-family tokens
+// resolve to these variables.
+const poppins = Poppins({
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
+  variable: "--font-poppins",
+  display: "swap",
+});
+const figtree = Figtree({ subsets: ["latin"], variable: "--font-figtree", display: "swap" });
+
 export default async function RootLayout({ children }: LayoutProps<"/">) {
   // Wer arbeitet hier? Der Proxy lässt ohne gültige Sitzung niemanden bis
   // hierher – null gibt es trotzdem, etwa wenn die Sitzung zwischen Proxy und
@@ -45,7 +57,11 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       : "ok";
 
   return (
-    <html lang="de" className="h-full antialiased">
+    <html
+      lang="de"
+      data-astryx-theme="house"
+      className={`${poppins.variable} ${figtree.variable} h-full antialiased`}
+    >
       {/* Die Leiste steht, gescrollt wird nur der Inhalt – bei 200 Kunden ist
           der Kunden-Scope nie weggescrollt. */}
       <body className="bg-canvas text-ink-700 flex h-full overflow-hidden">
