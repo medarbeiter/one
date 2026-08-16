@@ -1,5 +1,5 @@
 import * as UI from "@/app/shell/ui";
-import { Card, Skeleton, Typography } from "@/app/shell/ui";
+import { Card, Skeleton } from "@/app/shell/ui";
 
 /**
  * Der Assistent kann erst gebaut werden, wenn die Kunden- und Kontenliste da
@@ -14,7 +14,7 @@ export default function Loading() {
       </UI.TypographyHeading>
       <Card>
         <UI.CardContent className="gap-4" aria-label="Kunden und Werbekonten werden geladen">
-          <UI.TypographyParagraph color="muted" size="sm">
+          <UI.TypographyParagraph color="secondary" size="sm">
             Deine Werbekonten und Kunden werden geladen…
           </UI.TypographyParagraph>
           <div className="flex max-w-xl items-end gap-2">

@@ -1,5 +1,4 @@
 import * as UI from "@/app/shell/ui";
-import { Typography } from "@/app/shell/ui";
 import {
   clients,
   listCustomers,
@@ -64,7 +63,7 @@ export default async function NewCampaignPage({ searchParams }: PageProps<"/camp
       <UI.TypographyHeading level={1} className="font-display text-xl">
         Neue Kampagne
       </UI.TypographyHeading>
-      <UI.TypographyParagraph color="muted" size="sm">
+      <UI.TypographyParagraph color="secondary" size="sm">
         Erstellt Kampagne, Anzeigengruppe und eine Anzeige pro Datei — alles pausiert.
       </UI.TypographyParagraph>
       <Wizard
