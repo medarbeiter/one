@@ -52,12 +52,6 @@ export {
 };
 
 // Pure renames — same element, same shape, different spelling.
-// HeroUI Chip → Astryx Badge. (The children are the one difference: Badge
-// takes a required `label` prop, so the call sites pass it there.)
-export { Badge as Chip };
-// HeroUI Alert → Astryx Banner. (Title and description are props on Banner,
-// not Alert.Title / Alert.Description children — again a call-site change.)
-export { Banner as Alert };
 // HeroUI Separator → Astryx Divider.
 export { Divider as Separator };
 // HeroUI Table.Column → Astryx TableHeaderCell. Both render a <th>.
@@ -103,8 +97,10 @@ export function TypographyCode(props: Omit<TextProps, "type">) {
 // Deliberately NOT exported, because Astryx has no matching shape and a
 // wrapper would hide that difference forever:
 //
-// - Alert.Content / Alert.Title / Alert.Description → <Banner status title
-//   description /> takes them as props.
+// - Alert (and Alert.Content / .Title / .Description) → <Banner status title
+//   description /> takes them as props, so the call sites say Banner.
+// - Chip → <Badge label="…" /> takes a required `label` prop instead of
+//   children, so the call sites say Badge.
 // - Avatar.Fallback → <Avatar name="…" /> derives the initials itself.
 // - Disclosure / Disclosure.Heading / .Trigger / .Indicator / .Content /
 //   .Body → <Collapsible trigger={…}>{…}</Collapsible> is one component.

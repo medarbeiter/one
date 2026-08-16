@@ -1,6 +1,6 @@
 import * as UI from "@/app/shell/ui";
 import Link from "next/link";
-import { Alert, Chip, Table, Typography } from "@/app/shell/ui";
+import { Badge, Banner, Table } from "@/app/shell/ui";
 import { costPerResult, listCampaigns, type Period } from "@/lib/campaigns";
 import { findCustomer, listCustomers } from "@/lib/customers";
 import { label } from "@/lib/labels";
@@ -49,9 +49,7 @@ export default async function CampaignsPage({ searchParams }: PageProps<"/campai
         <UI.TypographyHeading level={1} className="font-display text-xl">
           Kampagnen
         </UI.TypographyHeading>
-        <Chip size="sm" variant="soft" className="tabular-nums">
-          {rows.length}
-        </Chip>
+        <Badge variant="neutral" className="tabular-nums" label={rows.length} />
       </div>
 
       <Facets customer={str("customer")}>
@@ -82,19 +80,20 @@ export default async function CampaignsPage({ searchParams }: PageProps<"/campai
 
       {/* Ein Konto ohne Freigabe darf die Übersicht nicht leeren – Fehler werden oben angezeigt. */}
       {errors.map((e, i) => (
-        <Alert key={i} status="danger">
-          <UI.AlertContent>
-            <UI.AlertTitle>Kampagnen teilweise nicht verfügbar</UI.AlertTitle>
-            <UI.AlertDescription>{e.message}</UI.AlertDescription>
-          </UI.AlertContent>
-        </Alert>
+        <Banner
+          key={i}
+          status="error"
+          title="Kampagnen teilweise nicht verfügbar"
+          description={e.message}
+        />
       ))}
 
-      {/* Table bringt die Karte selbst mit: graue Kopfzeile, weiße Zeilenfläche. */}
-      <Table>
-        <UI.TableContent aria-label="Kampagnen">
-          <UI.TableHeader>
-            <UI.TableColumn isRowHeader>Kampagne</UI.TableColumn>
+      {/* Astryx' Table ist selbst das <table> – die Kopfzeile braucht darum
+          eine eigene Zeile, und die Karte darum entfällt. */}
+      <Table aria-label="Kampagnen">
+        <UI.TableHeader>
+          <UI.TableRow isHeaderRow>
+            <UI.TableColumn>Kampagne</UI.TableColumn>
             <UI.TableColumn>Status</UI.TableColumn>
             <UI.TableColumn>Ziel</UI.TableColumn>
             <UI.TableColumn>Tagesbudget</UI.TableColumn>
@@ -103,42 +102,42 @@ export default async function CampaignsPage({ searchParams }: PageProps<"/campai
             <UI.TableColumn>CPM</UI.TableColumn>
             <UI.TableColumn>Kosten/Ergebnis</UI.TableColumn>
             <UI.TableColumn>Gestartet</UI.TableColumn>
-          </UI.TableHeader>
-          {/* Eine leere Tabelle ohne Text sieht aus wie eine kaputte – meist ist
-              nur der Zeitraum zu eng oder ein Filter zu scharf gesetzt. */}
-          <TableBody empty="Keine Kampagnen in diesem Zeitraum. Wähle einen längeren Zeitraum oder entferne einen Filter.">
-            {rows.map((c) => (
-              <UI.TableRow key={c.id} id={c.id}>
-                {/* Zweizeilig wie in der Vorlage: der Kunde steht unter dem Namen,
-                    statt eine eigene Spalte zu belegen. */}
-                <UI.TableCell>
-                  <Link href={`/campaigns/${c.id}`} className="block hover:underline">
-                    <span className="text-ink-900 block font-medium">{c.name}</span>
-                    {!scope && <span className="text-ink-500 block text-xs">{c.customerName}</span>}
-                  </Link>
-                </UI.TableCell>
-                <UI.TableCell>
-                  <StatusSwitch id={c.id} name={c.name} status={c.status} />
-                </UI.TableCell>
-                <UI.TableCell className="text-ink-500 text-xs">{label(c.objective)}</UI.TableCell>
-                <UI.TableCell>
-                  <BudgetField
-                    id={c.id}
-                    cents={c.daily_budget !== undefined ? Number(c.daily_budget) : undefined}
-                  />
-                </UI.TableCell>
-                {/* Number(...) statt "|| undefined": ein echtes €0-Spend ist kein Datenausfall. */}
-                <UI.TableCell className="tabular-nums">{money(Number(c.insights?.spend))}</UI.TableCell>
-                <UI.TableCell className="tabular-nums">{c.insights?.impressions ?? "—"}</UI.TableCell>
-                <UI.TableCell className="tabular-nums">{money(Number(c.insights?.cpm))}</UI.TableCell>
-                <UI.TableCell className="tabular-nums">{money(costPerResult(c.insights))}</UI.TableCell>
-                <UI.TableCell className="text-ink-500 text-xs">
-                  {c.start_time ? new Date(c.start_time).toLocaleDateString("en-GB") : "—"}
-                </UI.TableCell>
-              </UI.TableRow>
-            ))}
-          </TableBody>
-        </UI.TableContent>
+          </UI.TableRow>
+        </UI.TableHeader>
+        {/* Eine leere Tabelle ohne Text sieht aus wie eine kaputte – meist ist
+            nur der Zeitraum zu eng oder ein Filter zu scharf gesetzt. */}
+        <TableBody empty="Keine Kampagnen in diesem Zeitraum. Wähle einen längeren Zeitraum oder entferne einen Filter.">
+          {rows.map((c) => (
+            <UI.TableRow key={c.id} id={c.id}>
+              {/* Zweizeilig wie in der Vorlage: der Kunde steht unter dem Namen,
+                  statt eine eigene Spalte zu belegen. */}
+              <UI.TableCell>
+                <Link href={`/campaigns/${c.id}`} className="block hover:underline">
+                  <span className="text-ink-900 block font-medium">{c.name}</span>
+                  {!scope && <span className="text-ink-500 block text-xs">{c.customerName}</span>}
+                </Link>
+              </UI.TableCell>
+              <UI.TableCell>
+                <StatusSwitch id={c.id} name={c.name} status={c.status} />
+              </UI.TableCell>
+              <UI.TableCell className="text-ink-500 text-xs">{label(c.objective)}</UI.TableCell>
+              <UI.TableCell>
+                <BudgetField
+                  id={c.id}
+                  cents={c.daily_budget !== undefined ? Number(c.daily_budget) : undefined}
+                />
+              </UI.TableCell>
+              {/* Number(...) statt "|| undefined": ein echtes €0-Spend ist kein Datenausfall. */}
+              <UI.TableCell className="tabular-nums">{money(Number(c.insights?.spend))}</UI.TableCell>
+              <UI.TableCell className="tabular-nums">{c.insights?.impressions ?? "—"}</UI.TableCell>
+              <UI.TableCell className="tabular-nums">{money(Number(c.insights?.cpm))}</UI.TableCell>
+              <UI.TableCell className="tabular-nums">{money(costPerResult(c.insights))}</UI.TableCell>
+              <UI.TableCell className="text-ink-500 text-xs">
+                {c.start_time ? new Date(c.start_time).toLocaleDateString("en-GB") : "—"}
+              </UI.TableCell>
+            </UI.TableRow>
+          ))}
+        </TableBody>
       </Table>
     </div>
   );
