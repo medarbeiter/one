@@ -491,8 +491,10 @@ function BatchToast({ batchId }: { batchId: string }) {
   return (
     <div className="flex items-center gap-2">
       {/* batch.total ist nie 0 (start() bricht bei leerer Auswahl vorher ab),
-          der Anteil bleibt also immer eine gültige Zahl zwischen 0 und 1. */}
-      <ProgressRing value={batch.done / batch.total} label={label} />
+          der Anteil bleibt also immer eine gültige Zahl zwischen 0 und 1.
+          Kein label hier: der Text daneben sagt bereits genau dasselbe, der
+          Ring bleibt also dekorativ (aria-hidden). */}
+      <ProgressRing value={batch.done / batch.total} />
       <span>
         {label}
         {converting > 0 && ` · ${converting} in Umwandlung`}

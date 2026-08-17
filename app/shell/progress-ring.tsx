@@ -15,7 +15,14 @@ export function ProgressRing({
   size = 18,
 }: {
   value: number;
-  label: string;
+  /**
+   * Accessible name for the ring. Pass it when the ring is the only thing
+   * stating this progress. Omit it wherever visible text right next to the
+   * ring already says the same thing (e.g. "3 von 5 hochgeladen") — a label
+   * here would then just repeat that text, and a screen reader would
+   * announce it twice. Omitting it renders the ring aria-hidden instead.
+   */
+  label?: string;
   size?: number;
 }) {
   // A NaN or otherwise non-finite value (e.g. a progress fraction derived
@@ -31,8 +38,9 @@ export function ProgressRing({
       width={size}
       height={size}
       viewBox={`0 0 ${size} ${size}`}
-      role="img"
+      role={label ? 'img' : undefined}
       aria-label={label}
+      aria-hidden={label ? undefined : true}
       style={{ flexShrink: 0 }}
     >
       <circle
