@@ -2,15 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  Autocomplete,
-  Description,
-  EmptyState,
-  Kbd,
-  Label,
-  ListBox,
-  SearchField,
-} from "@heroui/react";
-import {
   Badge,
   Banner,
   Button,
@@ -22,12 +13,16 @@ import {
   DateInput,
   Divider,
   Heading,
+  Kbd,
   NumberInput,
   ProgressBar,
   Selector,
   Text,
   TextInput,
+  Typeahead,
   type ISODateString,
+  type SearchSource,
+  type SearchableItem,
 } from "@astryxdesign/core";
 import { UserPlusIcon } from "@phosphor-icons/react";
 import { getLocalTimeZone, parseDate, today } from "@internationalized/date";
@@ -263,17 +258,21 @@ function WizardSteps({
     initialState(defaultAccount, defaultBusiness),
   );
   const [step, setStep] = useState("0");
-  const customerTriggerRef = useRef<HTMLDivElement>(null);
+  const customerFieldRef = useRef<HTMLDivElement>(null);
   // ⇧K öffnet die Kundensuche von überall, außer jemand tippt gerade in ein
   // Feld. Der Shortcut steht direkt am Feld, damit er nicht entdeckt werden
-  // muss. Das native .click() hält Fokus- und Öffnungslogik bei React Aria.
+  // muss. Geklickt wird der Rahmen des Typeahead (.astryx-typeahead ist dessen
+  // stabiler Theming-Anker): daran hängt Astryx die Logik, die je nach Zustand
+  // ins leere Feld fokussiert oder den schon gewählten Kunden zum Ändern
+  // aufmacht. Das Eingabefeld selbst zu fokussieren träfe nur den ersten Fall –
+  // bei gewähltem Kunden ist es auf Breite 0 zusammengeschoben.
   useEffect(() => {
     const openCustomerSearch = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const isTyping = target?.matches("input, textarea, select") || target?.isContentEditable;
       if (isTyping || !event.shiftKey || event.key.toLocaleLowerCase("de") !== "k") return;
       event.preventDefault();
-      customerTriggerRef.current?.click();
+      customerFieldRef.current?.querySelector<HTMLElement>(".astryx-typeahead")?.click();
     };
     window.addEventListener("keydown", openCustomerSearch);
     return () => window.removeEventListener("keydown", openCustomerSearch);
@@ -324,11 +323,31 @@ function WizardSteps({
   const [submission, setSubmission] = useState<WizardSubmission | null>(null);
 
   const account = accounts.find((a) => a.id === state.adAccount);
+
+  // Beide Suchfelder laufen über dieselbe unscharfe Suche wie vorher – Astryx
+  // nimmt sie als SearchSource entgegen statt als filter-Prop. Werbekonten
+  // werden zusätzlich über den Kundennamen gefunden, so wie ihn HeroUIs
+  // textValue mitgeführt hat.
+  const clientItems = useMemo<ClientItem[]>(
+    () => clients.map((c) => ({ id: c.id, label: c.name, auxiliaryData: c })),
+    [clients],
+  );
+  const clientSource = useMemo(() => fuzzySource(clientItems), [clientItems]);
+  const accountItems = useMemo<AccountItem[]>(
+    () => accounts.map((a) => ({ id: a.id, label: a.name, auxiliaryData: a })),
+    [accounts],
+  );
+  const accountSource = useMemo(
+    () => fuzzySource(accountItems, (item) => `${item.auxiliaryData.customerName} ${item.label}`),
+    [accountItems],
+  );
+  const accountItem = accountItems.find((item) => item.id === state.adAccount) ?? null;
   // Ein Feld, zwei Aufgaben: der getippte Kundenname baut den Kampagnennamen
   // und wählt zugleich die Seite, unter der Anzeigen und Formulare laufen.
   // Wer den Namen aus der Vorschlagsliste übernimmt, hat die Seite damit schon
   // gewählt – ohne einen zweiten Klick dafür.
   const client = resolveClientByName(clients, state.business);
+  const clientItem = clientItems.find((item) => item.id === client?.id) ?? null;
 
   // Das Instagram-Konto hängt an der Seite des beworbenen Kunden, nicht am
   // zahlenden Konto. Es kommt mit der Kundenoption vom Server und ist deshalb
@@ -546,55 +565,34 @@ function WizardSteps({
                 lokal und sofort; beim Laden der Meta-Liste deckt loading.tsx
                 genau diese Fläche mit HeroUI-Skeletons ab. */}
             <div className="flex max-w-xl items-end gap-2">
-              <Autocomplete
-                fullWidth
-                selectionMode="single"
-                value={client?.id ?? null}
-                onChange={(key) =>
-                  setState((s) => ({
-                    ...s,
-                    business: clients.find((c) => c.id === String(key))?.name ?? "",
-                  }))
-                }
-                placeholder="Kunde suchen…"
+              {/* Astryx' Typeahead ist selbst das Suchfeld – der Umweg über
+                  Auslöser, Popover und ein zweites SearchField darin entfällt,
+                  und mit hasEntriesOnFocus öffnet sich beim Hineinspringen die
+                  volle Kundenliste, genau wie vorher beim Aufklappen. */}
+              <Typeahead
+                label="Beworbener Kunde"
                 isRequired
-              >
-                <Label>Beworbener Kunde</Label>
-                <Autocomplete.Trigger ref={customerTriggerRef}>
-                  <Autocomplete.Value />
-                  {/* Das Kürzel steht im Feld, nicht neben der Beschriftung:
-                      dort saß es zwischen Text und Pflicht-Stern und sah aus
-                      wie ein drittes, halb ausgerichtetes Etwas. */}
-                  <Kbd className="ms-auto">
-                    <Kbd.Abbr keyValue="shift" />
-                    <Kbd.Content>K</Kbd.Content>
-                  </Kbd>
-                  <Autocomplete.ClearButton />
-                  <Autocomplete.Indicator />
-                </Autocomplete.Trigger>
-                <Autocomplete.Popover>
-                  <Autocomplete.Filter filter={fuzzyCustomerMatch}>
-                    <SearchField autoFocus name="customer-search" variant="secondary">
-                      <SearchField.Group>
-                        <SearchField.SearchIcon />
-                        <SearchField.Input placeholder="Kunden durchsuchen…" />
-                        <SearchField.ClearButton />
-                      </SearchField.Group>
-                    </SearchField>
-                    <ListBox
-                      items={clients}
-                      renderEmptyState={() => <EmptyState>Kein Kunde gefunden</EmptyState>}
-                    >
-                      {(c: WizardClient) => (
-                        <ListBox.Item id={c.id} textValue={c.name}>
-                          {c.name}
-                          <ListBox.ItemIndicator />
-                        </ListBox.Item>
-                      )}
-                    </ListBox>
-                  </Autocomplete.Filter>
-                </Autocomplete.Popover>
-              </Autocomplete>
+                placeholder="Kunde suchen…"
+                searchSource={clientSource}
+                value={clientItem}
+                onChange={(item) =>
+                  setState((s) => ({ ...s, business: item?.auxiliaryData.name ?? "" }))
+                }
+                hasEntriesOnFocus
+                maxMenuItems={MENU_ITEMS}
+                debounceMs={0}
+                emptySearchResultsText="Kein Kunde gefunden"
+                ref={customerFieldRef}
+                className="min-w-0 flex-1"
+              />
+
+              {/* Das Kürzel stand vorher im Feld, gleich neben dem Wert. Astryx'
+                  Typeahead hat dafür keinen Platz (kein Slot am Feldende), also
+                  steht es jetzt daneben – auf Höhe des Feldes und nicht neben
+                  der Beschriftung, wo es zwischen Text und Pflicht-Stern saß. */}
+              <span className="flex h-8 items-center">
+                <Kbd keys="shift+k" />
+              </span>
 
               {/* Absichtlich noch ohne Aktion: der Einstieg ist sichtbar, ohne
                   eine Kundenanlage vorzutäuschen, die es im Backend nicht gibt. */}
@@ -635,60 +633,38 @@ function WizardSteps({
                 demselben Weg; reduzierte Bewegung schaltet die Drehung aus. */}
             <Collapsible defaultIsOpen={false} trigger="Erweiterte Einstellungen anzeigen">
               <div className="pb-2">
-                  <Autocomplete
-                    fullWidth
-                    selectionMode="single"
-                    value={state.adAccount || null}
-                    onChange={(key) =>
-                      setState((s) => ({
-                        ...s,
-                        adAccount: key ? String(key) : "",
-                      }))
-                    }
+                <div className="max-w-xl space-y-1.5">
+                  <Typeahead
+                    label="Werbekonto (zahlt)"
                     placeholder="Werbekonto suchen…"
-                    className="max-w-xl"
-                  >
-                    <Label>Werbekonto (zahlt)</Label>
-                    <Autocomplete.Trigger>
-                      <Autocomplete.Value />
-                      <Autocomplete.ClearButton />
-                      <Autocomplete.Indicator />
-                    </Autocomplete.Trigger>
-                    <Autocomplete.Popover>
-                      <Autocomplete.Filter filter={fuzzyCustomerMatch}>
-                        <SearchField autoFocus name="ad-account-search" variant="secondary">
-                          <SearchField.Group>
-                            <SearchField.SearchIcon />
-                            <SearchField.Input placeholder="Werbekonten durchsuchen…" />
-                            <SearchField.ClearButton />
-                          </SearchField.Group>
-                        </SearchField>
-                        <ListBox
-                          items={accounts}
-                          renderEmptyState={() => <EmptyState>Kein Werbekonto gefunden</EmptyState>}
-                        >
-                          {(a: WizardAccount) => (
-                            <ListBox.Item id={a.id} textValue={`${a.customerName} ${a.name}`}>
-                              <span className="min-w-0">
-                                <span className="block truncate">{a.name}</span>
-                                <span className="text-ink-500 block truncate text-xs">
-                                  {a.customerName}
-                                </span>
-                              </span>
-                              <ListBox.ItemIndicator />
-                            </ListBox.Item>
-                          )}
-                        </ListBox>
-                      </Autocomplete.Filter>
-                    </Autocomplete.Popover>
-                    {prefill !== "none" && (
-                      <Description aria-live="polite">
-                        {prefill === "loading"
-                          ? "Die letzte Kampagne dieses Kontos wird nach Standort und Radius durchsucht…"
-                          : "Standort und Radius kommen aus der letzten Kampagne dieses Kontos."}
-                      </Description>
+                    searchSource={accountSource}
+                    value={accountItem}
+                    onChange={(item) => setState((s) => ({ ...s, adAccount: item?.id ?? "" }))}
+                    hasEntriesOnFocus
+                    maxMenuItems={MENU_ITEMS}
+                    debounceMs={0}
+                    emptySearchResultsText="Kein Werbekonto gefunden"
+                    renderItem={(item) => (
+                      <span className="min-w-0">
+                        <span className="block truncate">{item.label}</span>
+                        <span className="text-ink-500 block truncate text-xs">
+                          {item.auxiliaryData.customerName}
+                        </span>
+                      </span>
                     )}
-                  </Autocomplete>
+                    width="100%"
+                  />
+                  {/* Steht neben dem Feld statt in dessen description-Slot: der
+                      Satz wechselt, während man hinschaut, und aria-live sagt
+                      das an – ein description kann das nicht. */}
+                  {prefill !== "none" && (
+                    <Text type="supporting" as="p" aria-live="polite">
+                      {prefill === "loading"
+                        ? "Die letzte Kampagne dieses Kontos wird nach Standort und Radius durchsucht…"
+                        : "Standort und Radius kommen aus der letzten Kampagne dieses Kontos."}
+                    </Text>
+                  )}
+                </div>
               </div>
             </Collapsible>
           </div>
@@ -1124,6 +1100,29 @@ function WizardSteps({
       </Card>
     </div>
   );
+}
+
+/** Die Liste ist lokal und kurz – 50 zeigt sie faktisch ganz. */
+const MENU_ITEMS = 50;
+
+type ClientItem = SearchableItem<WizardClient> & { auxiliaryData: WizardClient };
+type AccountItem = SearchableItem<WizardAccount> & { auxiliaryData: WizardAccount };
+
+/**
+ * Astryx' Typeahead filtert über eine SearchSource, nicht über einen
+ * filter-Prop. fuzzyCustomerMatch bleibt damit erhalten – getippte Kürzel wie
+ * „hkps" finden „Häusliche Krankenpflege Schölzke", was ein reiner
+ * Teilstring-Vergleich (Astryx' eingebaute Suche) nicht täte. Die Listen liegen
+ * fertig im Browser, also ist die Suche synchron und ohne Verzögerung.
+ */
+function fuzzySource<T extends SearchableItem>(
+  items: T[],
+  textOf: (item: T) => string = (item) => item.label,
+): SearchSource<T> {
+  return {
+    bootstrap: () => items,
+    search: (query) => (query ? items.filter((item) => fuzzyCustomerMatch(textOf(item), query)) : items),
+  };
 }
 
 // Astryx' DateInput rechnet in ISO-Strings statt in CalendarDate. Die
