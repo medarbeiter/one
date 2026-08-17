@@ -12,14 +12,12 @@ import {
   Disclosure,
   DisclosureGroup,
   EmptyState,
-  Input,
   Kbd,
   Label,
   ListBox,
   NumberField,
   SearchField,
   Select,
-  TextField,
 } from "@heroui/react";
 import {
   Badge,
@@ -30,6 +28,7 @@ import {
   Heading,
   ProgressBar,
   Text,
+  TextInput,
 } from "@astryxdesign/core";
 import { CaretRightIcon, UserPlusIcon } from "@phosphor-icons/react";
 // React.Key kennt bigint, react-aria nicht – Collections rechnen mit dem
@@ -624,10 +623,10 @@ function WizardSteps({
                 />
               </Card>
             ) : (
-              <Description>
+              <Text type="supporting" as="p">
                 Die weiteren Schritte öffnen sich, sobald ein Kunde gewählt ist — seine
                 Facebook-Seite trägt die Anzeigen und Lead-Formulare.
-              </Description>
+              </Text>
             )}
 
             {/* Fast immer MedArbeiter; die Ausnahme liegt eine Ebene tiefer und
@@ -795,22 +794,30 @@ function WizardSteps({
                 Feld – und darunter nur das, was ihn ändert. */}
             <FieldsetSection legend="Name der Kampagne">
               {editingName || state.nameEdited ? (
-                <TextField
-                  value={state.campaignName}
-                  onChange={(campaignNameValue) =>
-                    setState((s) => ({
-                      ...s,
-                      campaignName: campaignNameValue,
-                      nameEdited: true,
-                    }))
-                  }
-                  isRequired
-                  className="space-y-1.5"
-                >
-                  <Label className="sr-only">Kampagnenname</Label>
-                  <Input aria-label="Kampagnenname" />
-                  <Description className="flex items-center justify-between gap-3">
-                    Von Hand geändert — der Name folgt den Feldern unten nicht mehr.
+                <div className="space-y-1.5">
+                  <TextInput
+                    label="Kampagnenname"
+                    isLabelHidden
+                    value={state.campaignName}
+                    onChange={(campaignNameValue) =>
+                      setState((s) => ({
+                        ...s,
+                        campaignName: campaignNameValue,
+                        nameEdited: true,
+                      }))
+                    }
+                    isRequired
+                    description={NAME_EDITED_HINT}
+                    width="100%"
+                  />
+                  {/* Der Hinweis steht doppelt: als `description` hängt er
+                      über aria-describedby am Feld, wird bei isLabelHidden
+                      aber mit versteckt (eine Astryx-Eigenheit, siehe
+                      Task 10e). Sichtbar ist deshalb diese Zeile – und nur
+                      hier passt der Knopf daneben, den ein `description`
+                      (nur String) nicht tragen kann. */}
+                  <div className="flex items-center justify-between gap-3">
+                    <Text type="supporting">{NAME_EDITED_HINT}</Text>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -820,8 +827,8 @@ function WizardSteps({
                         setState((s) => ({ ...s, nameEdited: false }));
                       }}
                     />
-                  </Description>
-                </TextField>
+                  </div>
+                </div>
               ) : (
                 <div className="border-line bg-surface-secondary flex items-center gap-3 rounded-xl border p-2 ps-3">
                   {/* Text type="code" statt der Astryx-Komponente `Code`:
@@ -871,15 +878,14 @@ function WizardSteps({
                   </Select.Popover>
                   <Description>Steht am Ende des Namens.</Description>
                 </Select>
-                <TextField
+                <TextInput
+                  label="Anderes Kürzel"
                   value={state.initials}
                   onChange={(initials) => setState((s) => ({ ...s, initials }))}
-                  className="space-y-1.5"
-                >
-                  <Label>Anderes Kürzel</Label>
-                  <Input placeholder="z. B. MW" />
-                  <Description>Für alle, die noch in keiner Kampagne stehen.</Description>
-                </TextField>
+                  placeholder="z. B. MW"
+                  description="Für alle, die noch in keiner Kampagne stehen."
+                  width="100%"
+                />
               </div>
             </FieldsetSection>
 
@@ -917,17 +923,15 @@ function WizardSteps({
                 ))}
               </CheckboxGroup>
 
-              <TextField
+              <TextInput
+                label="Weitere Rolle"
                 value={state.roleFreeText}
                 onChange={(roleFreeText) => setState((s) => ({ ...s, roleFreeText }))}
-                className="max-w-sm space-y-1.5"
-              >
-                <Label>Weitere Rolle</Label>
-                <Input placeholder="z. B. Koch" />
-                <Description>
-                  Für Einzelfälle, die in kein Kürzel passen — landet unverändert im Namen.
-                </Description>
-              </TextField>
+                placeholder="z. B. Koch"
+                description="Für Einzelfälle, die in kein Kürzel passen — landet unverändert im Namen."
+                className="max-w-sm"
+                width="100%"
+              />
             </FieldsetSection>
             </div>
 
@@ -1054,9 +1058,9 @@ function WizardSteps({
               <Disclosure.Content>
                 <Disclosure.Body className="space-y-2 pb-2">
                   <Facts rows={FIXED} />
-                  <Description>
+                  <Text type="supporting" as="p">
                     In v1 alles nur lesbar — das Tagesbudget oben ist der einzige editierbare Wert.
-                  </Description>
+                  </Text>
                 </Disclosure.Body>
               </Disclosure.Content>
             </Disclosure>
@@ -1201,11 +1205,11 @@ function WizardSteps({
             {stepIndex < STEPS.length - 1 ? (
               <>
                 {stepIssues[stepIndex] > 0 && (
-                  <Description>
+                  <Text type="supporting">
                     {stepIssues[stepIndex] === 1
                       ? "1 offener Punkt — du kannst ihn später klären."
                       : `${stepIssues[stepIndex]} offene Punkte — du kannst sie später klären.`}
-                  </Description>
+                  </Text>
                 )}
                 <Button
                   isDisabled={locked}
@@ -1227,6 +1231,10 @@ function WizardSteps({
     </div>
   );
 }
+
+// Steht zweimal im Baum – einmal sichtbar, einmal als `description` fürs
+// Vorlesen. Eine Konstante, damit die beiden nie auseinanderlaufen.
+const NAME_EDITED_HINT = "Von Hand geändert — der Name folgt den Feldern unten nicht mehr.";
 
 /**
  * Astryx kennt kein Fieldset. Ein Abschnitt mit Beschriftung ist deshalb
