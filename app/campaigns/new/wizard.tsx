@@ -255,13 +255,10 @@ type WizardProps = {
 };
 
 export function Wizard(props: WizardProps) {
-  // Ohne feste Sprache rendert der Server en-US und der Browser de-DE: das
-  // Startdatum sprang beim Laden sichtbar von 8/13/2026 auf 13.8.2026.
-  return (
-    <I18nProvider locale="de-DE">
-      <WizardSteps {...props} />
-    </I18nProvider>
-  );
+  // Die feste Sprache kommt jetzt aus lib/intl-de.ts, einmal fürs ganze
+  // Layout gesetzt (siehe app/layout.tsx) statt hier pro Assistent gekapselt –
+  // Astryx hat kein I18nProvider-Gegenstück.
+  return <WizardSteps {...props} />;
 }
 
 function WizardSteps({
