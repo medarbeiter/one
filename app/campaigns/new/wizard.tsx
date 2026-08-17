@@ -4,8 +4,6 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Autocomplete,
   Calendar,
-  Checkbox,
-  CheckboxGroup,
   DateField,
   DatePicker,
   Description,
@@ -22,6 +20,8 @@ import {
   Banner,
   Button,
   Card,
+  CheckboxList,
+  CheckboxListItem,
   Divider,
   Heading,
   NumberInput,
@@ -888,30 +888,21 @@ function WizardSteps({
                 aus dem Überschriften-Generator einen Schritt weiter vorn. */}
             <div ref={rolesRef} className="scroll-mt-24">
             <FieldsetSection legend="Gesuchte Rollen">
-              <CheckboxGroup
+              {/* Astryx' CheckboxList legt die Einträge selbst an (als <ul>,
+                  untereinander) – das vorher von Hand gesetzte flex-row-wrap
+                  entfällt, sieben Rollen stehen jetzt in einer Spalte.
+                  aria-label wird zu label + isLabelHidden: die sichtbare
+                  Überschrift trägt schon die Legende des Abschnitts. */}
+              <CheckboxList
+                label="Rollen"
+                isLabelHidden
                 value={state.roles}
                 onChange={(roles) => setState((s) => ({ ...s, roles }))}
-                // HeroUI's .checkbox-group ist standardmäßig flex-col; flex-wrap
-                // allein ändert daran nichts (andere CSS-Eigenschaft) – ohne
-                // flex-row bleibt es eine lange einspaltige Liste.
-                className="flex flex-row flex-wrap gap-x-5 gap-y-2.5"
-                aria-label="Rollen"
               >
                 {ROLES.map((r) => (
-                  // Control muss in Content verschachtelt sein, nicht daneben: Content
-                  // rendert das <label>, das den (visuell versteckten) <input> enthält –
-                  // nur was darin liegt, ist per Klick erreichbar. Als Geschwister blieb
-                  // die Box tot und die Gruppe fiel in .checkbox' flex-col auseinander.
-                  <Checkbox key={r.code} value={r.code}>
-                    <Checkbox.Content>
-                      <Checkbox.Control>
-                        <Checkbox.Indicator />
-                      </Checkbox.Control>
-                      {r.label}
-                    </Checkbox.Content>
-                  </Checkbox>
+                  <CheckboxListItem key={r.code} value={r.code} label={r.label} />
                 ))}
-              </CheckboxGroup>
+              </CheckboxList>
 
               <TextInput
                 label="Weitere Rolle"
