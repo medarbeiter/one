@@ -47,6 +47,11 @@ const MAX_ITEMS = 5;
 /** Was der Browser an Dateien annimmt – der Route Handler lehnt alles andere ab. */
 const ACCEPT = "video/*,image/jpeg,image/png";
 
+/** Ein Lead-Formular, verpackt für den Typeahead — id verdoppelt sich als
+ *  Suchbegriff, damit eine kopierte Formular-ID genau wie der Name greift. */
+type FormItem = SearchableItem<LeadForm> & { auxiliaryData: LeadForm };
+const toFormItem = (f: LeadForm): FormItem => ({ id: f.id, label: f.name, auxiliaryData: f });
+
 /**
  * Der Dateiwähler.
  *
@@ -79,12 +84,12 @@ function FilePicker({ onFiles }: { onFiles: (files: FileList) => void }) {
       </Button>
       {/* Warum das Warten manchmal länger dauert, und warum Fotos immer zu
           zweit auftreten müssen. */}
-      <Description className="min-w-0 flex-1">
+      <Text type="supporting" as="div" className="min-w-0 flex-1">
         Videos werden von allein zu UGC-Anzeigen. Fotos werden 9:16 + 1:1 gepaart — passende
         Nummern („Creative 3“, „Creative 4“) werden automatisch gepaart, alles andere ziehst du
         selbst zusammen. iPhone- und Schnittexporte (HEVC, ProRes) werden vor dem Upload zu
         H.264/MP4 konvertiert.
-      </Description>
+      </Text>
     </div>
   );
 }
@@ -243,24 +248,28 @@ function TextListField({
   return (
     <div role="group" aria-label={labelText} className="space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <Label>
+        <Text type="label" as="div">
           {labelText}{" "}
           <span className="text-ink-500 font-normal tabular-nums">
             {values.length}/{MAX_ITEMS}
           </span>
-        </Label>
+        </Text>
         <div className="flex flex-wrap items-center gap-2">
           {action}
-          <Button variant="outline" size="sm" onPress={add} isDisabled={values.length >= MAX_ITEMS}>
-            <PlusIcon size={14} weight="bold" />
-            {singular} hinzufügen
-          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={<PlusIcon size={14} weight="bold" />}
+            label={`${singular} hinzufügen`}
+            onClick={add}
+            isDisabled={values.length >= MAX_ITEMS}
+          />
         </div>
       </div>
 
-      {/* px-0.5 py-1: der Fokusring liegt außerhalb des Feldrands und würde am
-          Rand des Scrollbereichs sonst abgeschnitten. */}
-      <ScrollShadow className="max-h-[32rem] px-0.5 py-1" size={48}>
+      {/* Rand statt Vorgabe-Innenpolster: der Fokusring liegt außerhalb des
+          Feldrands und würde am Rand des Scrollbereichs sonst abgeschnitten. */}
+      <div className="scroll-fade max-h-[32rem] px-0.5 py-1">
         <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
           {values.map((v, i) => (
             <div key={i} className="min-w-0 space-y-1">
@@ -272,28 +281,45 @@ function TextListField({
                   variant="ghost"
                   size="sm"
                   isIconOnly
-                  aria-label={`${singular} ${i + 1} entfernen`}
-                  onPress={() => remove(i)}
+                  icon={<XIcon size={14} weight="bold" />}
+                  label={`${singular} ${i + 1} entfernen`}
+                  onClick={() => remove(i)}
                   isDisabled={values.length === 1}
-                >
-                  <XIcon size={14} weight="bold" />
-                </Button>
+                />
               </div>
-              <TextField value={v} onChange={(nv) => update(i, nv)} fullWidth>
-                <Label className="sr-only">{`${singular} ${i + 1}`}</Label>
-                {/* Vier Zeilen, nicht fünf: erst damit passen die üblichen fünf
-                    Primärtexte in zwei Spalten ohne Scrollen ins Feld. */}
-                {multiline ? <TextArea rows={4} maxLength={limit} /> : <Input maxLength={limit} />}
-                {/* Der Zähler gehört ans Feld, nicht daneben: Description hängt per
-                    aria-describedby daran und wird mit vorgelesen. */}
-                <Description className={v.length > limit ? "text-danger-700" : undefined}>
-                  {v.length}/{limit}
-                </Description>
-              </TextField>
+              {/* Der Zähler gehört ans Feld, nicht daneben: description hängt
+                  per aria-describedby daran und wird mit vorgelesen. */}
+              {multiline ? (
+                // Vier Zeilen, nicht fünf: erst damit passen die üblichen fünf
+                // Primärtexte in zwei Spalten ohne Scrollen ins Feld. TextArea
+                // zeigt den Zeichenzähler eingebaut über maxLength an.
+                <TextArea
+                  label={`${singular} ${i + 1}`}
+                  isLabelHidden
+                  value={v}
+                  onChange={(nv) => update(i, nv)}
+                  rows={4}
+                  maxLength={limit}
+                  width="100%"
+                />
+              ) : (
+                // TextInput hat keinen eingebauten Zeichenzähler (kein
+                // maxLength) — der Zähler kommt hier als description-Text,
+                // die Statusfarbe schlägt bei Überlänge auf error um.
+                <TextInput
+                  label={`${singular} ${i + 1}`}
+                  isLabelHidden
+                  value={v}
+                  onChange={(nv) => update(i, nv)}
+                  width="100%"
+                  description={`${v.length}/${limit}`}
+                  status={v.length > limit ? { type: "error" } : undefined}
+                />
+              )}
             </div>
           ))}
         </div>
-      </ScrollShadow>
+      </div>
     </div>
   );
 }
@@ -540,6 +566,15 @@ export function AdSetBlock({
   };
 
   const linkable = otherAdSets.filter((s) => s.ads.some((a) => !a.source));
+  // Statisch statt async: die Formulare sind schon geladen (refreshForms),
+  // der Typeahead muss dafür nicht selbst nachfragen — daher debounceMs={0}
+  // unten. keywords hängt die ID an, damit eine kopierte Formular-ID genauso
+  // greift wie der Name (ersetzt HeroUIs defaultFilter).
+  const formSearchSource = useMemo(
+    () => createStaticSource(forms.map(toFormItem), { keywords: (item) => [item.auxiliaryData.id] }),
+    [forms],
+  );
+  const selectedForm = value.formId ? (forms.find((f) => f.id === value.formId) ?? null) : null;
   const secondTextMissing = needsSecondText(value);
   const notices = checkCopy({
     bodies: value.bodies,
@@ -675,15 +710,14 @@ export function AdSetBlock({
 
       <FieldsetSection legend="Standort und Umkreis">
         <div className="w-full space-y-4">
-          <TextField
+          <TextInput
+            label="Name der Anzeigengruppe"
             value={value.name}
             onChange={(name) => onChange({ name })}
             isRequired
-            className="max-w-xl space-y-1"
-          >
-            <Label>Name der Anzeigengruppe</Label>
-            <Input />
-          </TextField>
+            width="100%"
+            className="max-w-xl"
+          />
 
           <LocationField
             value={value}
@@ -706,56 +740,39 @@ export function AdSetBlock({
         }
       >
         <div className="w-full space-y-4">
-        {/* ComboBox statt Select: eine Seite hat schnell dreißig Formulare mit
+        {/* Typeahead statt Select: eine Seite hat schnell dreißig Formulare mit
             fast gleichem Namen ("PDL Kampagne 03/26"), und die scrollt niemand
             durch. Gefiltert wird über Name und ID – die ID steht in Meta neben
             dem Formular und ist das einzige, was sich eindeutig kopieren lässt. */}
-        <ComboBox
-          aria-label="Lead-Formular"
-          selectedKey={value.formId || null}
-          onSelectionChange={(key) => onChange({ formId: key ? String(key) : "" })}
+        <Typeahead
+          label="Lead-Formular"
+          isLabelHidden
+          searchSource={formSearchSource}
+          debounceMs={0}
+          value={selectedForm ? toFormItem(selectedForm) : null}
+          onChange={(item) => onChange({ formId: item ? item.id : "" })}
           isDisabled={!pageId}
-          fullWidth
+          width="100%"
           className="max-w-xl"
-          defaultFilter={(textValue, inputValue) => {
-            const q = inputValue.trim().toLowerCase();
-            if (!q) return true;
-            if (textValue.toLowerCase().includes(q)) return true;
-            return forms.some((f) => f.name === textValue && f.id.includes(q));
-          }}
-        >
-          <ComboBox.InputGroup>
-            <Input
-              placeholder={
-                !pageId
-                  ? "Erst den beworbenen Kunden wählen…"
-                  : formsLoading
-                    ? "Wird geladen…"
-                    : "Formular suchen oder auswählen…"
-              }
-            />
-            <ComboBox.Trigger />
-          </ComboBox.InputGroup>
-          <ComboBox.Popover>
-            <ListBox items={forms}>
-              {(f: LeadForm) => (
-                <ListBox.Item id={f.id} textValue={f.name}>
-                  {f.name}
-                </ListBox.Item>
-              )}
-            </ListBox>
-          </ComboBox.Popover>
-        </ComboBox>
+          placeholder={
+            !pageId
+              ? "Erst den beworbenen Kunden wählen…"
+              : formsLoading
+                ? "Wird geladen…"
+                : "Formular suchen oder auswählen…"
+          }
+          emptySearchResultsText="Kein Formular gefunden."
+        />
         {formsError && (
           <Banner status="error" title="Lead-Formulare konnten nicht geladen werden" description={formsError} />
         )}
         {/* Kein Fehler, aber auch keine Auswahl: die Seite hat schlicht noch
             kein Formular. Ohne diesen Hinweis wirkt das leere Feld wie ein Bug. */}
         {!formsError && !formsLoading && pageId && forms.length === 0 && (
-          <Description>
+          <Text type="supporting" as="div">
             {pageName || "Diese Seite"} hat noch kein Lead-Formular — erstelle eines in Meta und
             klicke dann auf Aktualisieren.
-          </Description>
+          </Text>
         )}
 
         {/* Der Weg an der Liste vorbei: ein gerade gebautes Formular steht in
@@ -763,32 +780,31 @@ export function AdSetBlock({
             passen ohnehin nicht hinein. Die ID steht im Baukasten neben dem
             Formularnamen; eine kopierte Adresszeile wird auch angenommen. */}
         <div className="flex max-w-xl items-end gap-2">
-          <TextField
+          <TextInput
+            label="Formular nicht dabei? Per ID holen"
             value={formIdInput}
             onChange={setFormIdInput}
             isDisabled={!pageId || pulling}
-            className="flex-1 space-y-1"
-          >
-            <Label>Formular nicht dabei? Per ID holen</Label>
-            <Input
-              placeholder="z. B. 1234567890123456"
-              inputMode="numeric"
-              onKeyDown={(e) => {
-                // Enter im Assistenten schickt sonst den ganzen Schritt ab.
-                if (e.key !== "Enter") return;
-                e.preventDefault();
-                if (formIdInput.trim() && !pulling) pullForm();
-              }}
-            />
-          </TextField>
+            width="100%"
+            className="flex-1"
+            placeholder="z. B. 1234567890123456"
+            // TextInput hat keine inputMode-Prop (BaseProps deckt keine nativen
+            // Input-Attribute ab) — die numerische Tastatur auf Mobilgeräten
+            // entfällt hier, keine funktionale Einbuße.
+            onKeyDown={(e) => {
+              // Enter im Assistenten schickt sonst den ganzen Schritt ab.
+              if (e.key !== "Enter") return;
+              e.preventDefault();
+              if (formIdInput.trim() && !pulling) pullForm();
+            }}
+          />
           <Button
-            variant="outline"
+            variant="secondary"
             size="sm"
-            onPress={pullForm}
+            label={pulling ? "Wird geholt…" : "Formular holen"}
+            onClick={pullForm}
             isDisabled={!pageId || pulling || !formIdInput.trim()}
-          >
-            {pulling ? "Wird geholt…" : "Formular holen"}
-          </Button>
+          />
         </div>
         </div>
 
@@ -868,18 +884,19 @@ export function AdSetBlock({
             }
           />
 
-          <TextField
+          {/* Mehrzeilig wie die Primary texts: hier stehen Aufzählungen mit
+              Zeilenumbrüchen ("✔ 30 Tage Urlaub …"), keine Schlagzeile. Der
+              Zähler kam bei HeroUI manuell in Label — TextArea zeigt ihn über
+              maxLength selbst an, der Titel bleibt also schlicht. */}
+          <TextArea
+            label="Beschreibung"
             value={value.description}
             onChange={(description) => onChange({ description })}
-            className="max-w-2xl space-y-1"
-          >
-            <Label>
-              Beschreibung ({value.description.length}/{DESCRIPTION_LIMIT})
-            </Label>
-            {/* Mehrzeilig wie die Primary texts: hier stehen Aufzählungen mit
-                Zeilenumbrüchen ("✔ 30 Tage Urlaub …"), keine Schlagzeile. */}
-            <TextArea rows={6} maxLength={DESCRIPTION_LIMIT} />
-          </TextField>
+            rows={6}
+            maxLength={DESCRIPTION_LIMIT}
+            width="100%"
+            className="max-w-2xl"
+          />
           <CopyNotices notices={notices} field="description" />
         </div>
       </FieldsetSection>
