@@ -326,8 +326,8 @@ function WizardSteps({
 
   // Beide Suchfelder laufen über dieselbe unscharfe Suche wie vorher – Astryx
   // nimmt sie als SearchSource entgegen statt als filter-Prop. Werbekonten
-  // werden zusätzlich über den Kundennamen gefunden, so wie ihn HeroUIs
-  // textValue mitgeführt hat. maxMenuItems steht jeweils auf der Länge der
+  // werden zusätzlich über den Kundennamen gefunden – derselbe Suchtext wie
+  // vorher, nur an anderer Stelle. maxMenuItems steht jeweils auf der Länge der
   // Liste: Astryx zeigt sonst nur zehn Einträge, und beide Listen gehen in die
   // Hunderte – wer ohne Tippen durchsehen will, sähe den Rest nicht.
   const clientItems = useMemo<ClientItem[]>(
