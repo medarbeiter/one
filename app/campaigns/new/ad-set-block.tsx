@@ -1,27 +1,20 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  Alert,
+  Banner,
   Button,
-  ComboBox,
-  Description,
-  Dropdown,
-  Fieldset,
-  Input,
-  Label,
-  ListBox,
-  ScrollShadow,
-  Separator,
+  createStaticSource,
+  Divider,
+  DropdownMenu,
+  Text,
   TextArea,
-  TextField,
+  TextInput,
   Toolbar,
   Tooltip,
-} from "@heroui/react";
-import { buttonVariants } from "@heroui/styles";
-// Der Kontext, über den React Aria den triggerRef eines Tooltips verteilt –
-// siehe GenerateTitlesButton. HeroUI reicht ihn nicht durch, react-aria schon.
-import { FocusableContext } from "react-aria/private/interactions/useFocusable";
+  Typeahead,
+  type SearchableItem,
+} from "@astryxdesign/core";
 import { PlusIcon, SparkleIcon, XIcon } from "@phosphor-icons/react";
 import type { LeadForm } from "@/lib/forms";
 import { instantFormsUrl } from "@/lib/forms";
@@ -685,7 +678,7 @@ export function AdSetBlock({
         )}
       </Fieldset>
 
-      <Separator />
+      <Divider />
 
       <Fieldset>
         <Fieldset.Legend>Standort und Umkreis</Fieldset.Legend>
@@ -708,7 +701,7 @@ export function AdSetBlock({
         </Fieldset.Group>
       </Fieldset>
 
-      <Separator />
+      <Divider />
 
       <Fieldset>
         {/* Wessen Formulare das sind, steht in der Überschrift – ohne den
@@ -832,7 +825,7 @@ export function AdSetBlock({
         </Fieldset.Actions>
       </Fieldset>
 
-      <Separator />
+      <Divider />
 
       <Fieldset>
         <Fieldset.Legend>Texte</Fieldset.Legend>
@@ -906,7 +899,7 @@ export function AdSetBlock({
         </Fieldset.Group>
       </Fieldset>
 
-      <Separator />
+      <Divider />
 
       {/* Ganz unten und nur als Umriss: das Entfernen ist die seltenste Aktion
           hier und stand vorher als erstes in der Kopfzeile. */}
