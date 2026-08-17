@@ -327,7 +327,9 @@ function WizardSteps({
   // Beide Suchfelder laufen über dieselbe unscharfe Suche wie vorher – Astryx
   // nimmt sie als SearchSource entgegen statt als filter-Prop. Werbekonten
   // werden zusätzlich über den Kundennamen gefunden, so wie ihn HeroUIs
-  // textValue mitgeführt hat.
+  // textValue mitgeführt hat. maxMenuItems steht jeweils auf der Länge der
+  // Liste: Astryx zeigt sonst nur zehn Einträge, und beide Listen gehen in die
+  // Hunderte – wer ohne Tippen durchsehen will, sähe den Rest nicht.
   const clientItems = useMemo<ClientItem[]>(
     () => clients.map((c) => ({ id: c.id, label: c.name, auxiliaryData: c })),
     [clients],
@@ -579,7 +581,7 @@ function WizardSteps({
                   setState((s) => ({ ...s, business: item?.auxiliaryData.name ?? "" }))
                 }
                 hasEntriesOnFocus
-                maxMenuItems={MENU_ITEMS}
+                maxMenuItems={clientItems.length}
                 debounceMs={0}
                 emptySearchResultsText="Kein Kunde gefunden"
                 ref={customerFieldRef}
@@ -641,7 +643,7 @@ function WizardSteps({
                     value={accountItem}
                     onChange={(item) => setState((s) => ({ ...s, adAccount: item?.id ?? "" }))}
                     hasEntriesOnFocus
-                    maxMenuItems={MENU_ITEMS}
+                    maxMenuItems={accountItems.length}
                     debounceMs={0}
                     emptySearchResultsText="Kein Werbekonto gefunden"
                     renderItem={(item) => (
@@ -679,7 +681,15 @@ function WizardSteps({
             {/* CollapsibleGroup rendert selbst kein DOM, solange es keine
                 Trennlinien zeichnet – der Abstand zwischen den Rahmen sitzt
                 deshalb an einem eigenen div. */}
-            <CollapsibleGroup type="multiple" value={openSets} onChange={onOpenSetsChange}>
+            <CollapsibleGroup
+              type="multiple"
+              value={openSets}
+              onChange={onOpenSetsChange}
+              // Ohne Trennlinien geben die Aufklapper sich sonst gar keine
+              // Innenabstände; "spacious" trifft die 14 px, die die Kopfzeile
+              // vorher von Hand trug.
+              density="spacious"
+            >
               <div className="space-y-3">
                 {issues.perSet.map(({ set, blockers }, i) => (
                   // Jeder Standort in einem eigenen Rahmen: aufgeklappt sind es
@@ -688,7 +698,7 @@ function WizardSteps({
                   <Collapsible
                     key={set.id}
                     value={set.id}
-                    className="border-line bg-surface collapsible-wide-trigger rounded-2xl border px-4 py-1"
+                    className="border-line bg-surface collapsible-wide-trigger rounded-2xl border px-4"
                     trigger={
                       <span className="flex items-center gap-3 text-left">
                         <span className="min-w-0 flex-1">
@@ -709,31 +719,29 @@ function WizardSteps({
                       </span>
                     }
                   >
-                    <div className="pb-4">
-                      {/* Ohne Vorschau daneben: sie steht in der Überprüfung, wo
-                          alle Standorte auf einmal zur Wahl stehen. Hier zählt
-                          die Breite für die Felder. */}
-                      <AdSetBlock
-                        value={set}
-                        pageId={client?.pageId ?? ""}
-                        pageName={client?.pageName ?? ""}
-                        instagramUserId={instagram?.id}
-                        instagramLabel={instagramLabel}
-                        adAccount={state.adAccount}
-                        business={state.business}
-                        roles={state.roles}
-                        roleFreeText={state.roleFreeText}
-                        blockers={blockers}
-                        otherAdSets={state.adSets
-                          .filter((other) => other.id !== set.id)
-                          .map(({ id, name, ads }) => ({ id, name, ads }))}
-                        borrowersOfAd={(adId) => borrowersOf(state.adSets, set.id, adId)}
-                        onEditRoles={goToRoles}
-                        onChange={(patch) => updateAdSet(i, patch)}
-                        onRemove={() => removeAdSet(i)}
-                        canRemove={state.adSets.length > 1}
-                      />
-                    </div>
+                    {/* Ohne Vorschau daneben: sie steht in der Überprüfung, wo
+                        alle Standorte auf einmal zur Wahl stehen. Hier zählt
+                        die Breite für die Felder. */}
+                    <AdSetBlock
+                      value={set}
+                      pageId={client?.pageId ?? ""}
+                      pageName={client?.pageName ?? ""}
+                      instagramUserId={instagram?.id}
+                      instagramLabel={instagramLabel}
+                      adAccount={state.adAccount}
+                      business={state.business}
+                      roles={state.roles}
+                      roleFreeText={state.roleFreeText}
+                      blockers={blockers}
+                      otherAdSets={state.adSets
+                        .filter((other) => other.id !== set.id)
+                        .map(({ id, name, ads }) => ({ id, name, ads }))}
+                      borrowersOfAd={(adId) => borrowersOf(state.adSets, set.id, adId)}
+                      onEditRoles={goToRoles}
+                      onChange={(patch) => updateAdSet(i, patch)}
+                      onRemove={() => removeAdSet(i)}
+                      canRemove={state.adSets.length > 1}
+                    />
                   </Collapsible>
                 ))}
               </div>
@@ -1101,9 +1109,6 @@ function WizardSteps({
     </div>
   );
 }
-
-/** Die Liste ist lokal und kurz – 50 zeigt sie faktisch ganz. */
-const MENU_ITEMS = 50;
 
 type ClientItem = SearchableItem<WizardClient> & { auxiliaryData: WizardClient };
 type AccountItem = SearchableItem<WizardAccount> & { auxiliaryData: WizardAccount };
