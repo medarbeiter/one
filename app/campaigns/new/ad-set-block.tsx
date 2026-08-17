@@ -79,9 +79,7 @@ function FilePicker({ onFiles }: { onFiles: (files: FileList) => void }) {
           e.target.value = "";
         }}
       />
-      <Button variant="secondary" onPress={() => input.current?.click()}>
-        Dateien wählen
-      </Button>
+      <Button variant="secondary" label="Dateien wählen" onClick={() => input.current?.click()} />
       {/* Warum das Warten manchmal länger dauert, und warum Fotos immer zu
           zweit auftreten müssen. */}
       <Text type="supporting" as="div" className="min-w-0 flex-1">
@@ -141,8 +139,9 @@ function CopyNotices({ notices, field }: { notices: Notice[]; field: CopyField }
  * Ein grauer Knopf sagt allerdings nur, dass hier nichts geht, nicht warum. Die
  * Rollen stehen einen Schritt weiter hinten, also genau dort, wo sie hier
  * niemand vermutet: deshalb der Tooltip, und darin der Weg dorthin statt nur
- * der Ortsangabe. React Aria hält den Tooltip offen, solange der Zeiger darin
- * steht — nur so ist der Knopf darin überhaupt erreichbar.
+ * der Ortsangabe. Astryx' Tooltip bringt dafür eine eigene Hover-Brücke mit
+ * (kein React Aria mehr darunter) — der Zeiger darf vom Rahmen zum Knopf im
+ * Tooltip wandern, ohne dass der Tooltip vorher schließt.
  */
 function GenerateTitlesButton({
   hasRole,
@@ -155,56 +154,42 @@ function GenerateTitlesButton({
 }) {
   if (hasRole)
     return (
-      <Button variant="outline" size="sm" onPress={onGenerate}>
-        <SparkleIcon size={14} weight="bold" />
-        Überschriften generieren
-      </Button>
+      <Button
+        variant="secondary"
+        size="sm"
+        icon={<SparkleIcon size={14} weight="bold" />}
+        label="Überschriften generieren"
+        onClick={onGenerate}
+      />
     );
   return (
-    <Tooltip>
-      {/* Der Tooltip hängt am Rahmen, nicht am Knopf: ein <button disabled>
-          verschluckt Hover und Fokus, der Hinweis bliebe genau dann aus, wenn
-          er gebraucht wird. pointer-events-none am Knopf gibt die Fläche an
-          den Rahmen weiter – sonst greift der Hover nur auf dem Haarrand
-          daneben und der Tooltip kommt mal und mal nicht. */}
-      <Tooltip.Trigger className="inline-flex rounded-xl">
-        <Button
-          variant="outline"
-          size="sm"
-          isDisabled
-          className="pointer-events-none"
-          // Der Rahmen trägt den Hinweis und ist fokussierbar; der Knopf darin
-          // wäre sonst ein zweiter, toter Halt in der Tab-Reihenfolge.
-          excludeFromTabOrder
-        >
-          <SparkleIcon size={14} weight="bold" />
-          Überschriften generieren
-        </Button>
-      </Tooltip.Trigger>
-      {/* Der abgeschnittene FocusableContext ist kein Zierrat, sondern der Grund,
-          warum der Tooltip überhaupt über dem Knopf steht: React Aria reicht den
-          triggerRef über genau diesen Kontext weiter, und jedes fokussierbare
-          Element darunter – auch das im Tooltip, denn das Portal bleibt ein Kind
-          im React-Baum – schreibt sich selbst hinein (useSyncRef). Ohne den Schnitt
-          maß React Aria „Rollen wählen“ statt des Knopfes und setzte den Tooltip
-          an dessen Stelle: oben links. */}
-      <FocusableContext value={null}>
-        {/* break-normal gegen das break-all der Vorgabe – das trennt
-            „Überschriften“ mitten im Wort. */}
-        <Tooltip.Content
-          placement="top"
-          showArrow
-          className="flex max-w-64 flex-col items-center gap-2 break-normal text-center"
-        >
+    <Tooltip
+      placement="above"
+      content={
+        <div className="flex max-w-64 flex-col items-center gap-2 text-center break-normal">
           <p>
             Ohne gesuchte Rolle bleiben nur allgemeine Vorschläge — „Pflegefachkraft (m/w/d)
             gesucht“ braucht die Rolle aus Schritt 3.
           </p>
-          <Button variant="tertiary" size="sm" onPress={onEditRoles}>
-            Rollen wählen
-          </Button>
-        </Tooltip.Content>
-      </FocusableContext>
+          <Button variant="ghost" size="sm" label="Rollen wählen" onClick={onEditRoles} />
+        </div>
+      }
+    >
+      {/* Der Tooltip hängt am Rahmen, nicht am Knopf: ein <button disabled>
+          verschluckt Hover und Fokus, der Hinweis bliebe genau dann aus, wenn
+          er gebraucht wird. Ein span mit tabIndex={0} trägt Hover und Fokus
+          stattdessen; pointer-events-none am Knopf gibt die Fläche an den
+          Rahmen weiter – sonst greift der Hover nur auf dem Haarrand daneben. */}
+      <span tabIndex={0} className="inline-flex rounded-xl">
+        <Button
+          variant="secondary"
+          size="sm"
+          isDisabled
+          className="pointer-events-none"
+          icon={<SparkleIcon size={14} weight="bold" />}
+          label="Überschriften generieren"
+        />
+      </span>
     </Tooltip>
   );
 }
@@ -813,21 +798,19 @@ export function AdSetBlock({
               Manager zuletzt offen war – in der Praxis MedArbeiter statt des
               Kunden. Lieber gar nicht anbieten als auf die falsche Seite. */}
           <Button
-            variant="outline"
+            variant="secondary"
             size="sm"
             isDisabled={!pageId}
-            onPress={() => window.open(instantFormsUrl(pageId), "_blank")}
-          >
-            Formular in Meta erstellen
-          </Button>
+            label="Formular in Meta erstellen"
+            onClick={() => window.open(instantFormsUrl(pageId), "_blank")}
+          />
           <Button
-            variant="outline"
+            variant="secondary"
             size="sm"
-            onPress={() => refreshForms(true)}
+            label={formsLoading ? "Wird aktualisiert…" : "Aktualisieren"}
+            onClick={() => refreshForms(true)}
             isDisabled={formsLoading || !pageId}
-          >
-            {formsLoading ? "Wird aktualisiert…" : "Aktualisieren"}
-          </Button>
+          />
         </div>
       </FieldsetSection>
 
