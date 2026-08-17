@@ -261,6 +261,21 @@ function TextListField({
               <div className="flex items-center justify-between gap-2">
                 <span className="text-ink-500 text-xs font-medium">
                   {singular} {i + 1}
+                  {/* TextInput hat keinen eingebauten Zeichenzähler; die
+                      description-Prop wäre hier eine Lösung, aber isLabelHidden
+                      blendet description zusammen mit dem Label auf srOnly aus
+                      (FieldLabel.tsx) — ein Zähler, den niemand sieht, bis das
+                      Feld schon zu lang ist. Deshalb steht der Zähler hier
+                      sichtbar, im selben Muster wie der Gruppenzähler oben. */}
+                  {!multiline && (
+                    <span
+                      className={`ml-1 font-normal tabular-nums ${
+                        v.length > limit ? "text-danger-700" : "text-ink-500"
+                      }`}
+                    >
+                      ({v.length}/{limit})
+                    </span>
+                  )}
                 </span>
                 <Button
                   variant="ghost"
@@ -272,12 +287,12 @@ function TextListField({
                   isDisabled={values.length === 1}
                 />
               </div>
-              {/* Der Zähler gehört ans Feld, nicht daneben: description hängt
-                  per aria-describedby daran und wird mit vorgelesen. */}
               {multiline ? (
                 // Vier Zeilen, nicht fünf: erst damit passen die üblichen fünf
                 // Primärtexte in zwei Spalten ohne Scrollen ins Feld. TextArea
-                // zeigt den Zeichenzähler eingebaut über maxLength an.
+                // zeigt den Zeichenzähler eingebaut über maxLength an — und
+                // anders als TextInputs description bleibt der bei
+                // isLabelHidden sichtbar.
                 <TextArea
                   label={`${singular} ${i + 1}`}
                   isLabelHidden
@@ -288,9 +303,10 @@ function TextListField({
                   width="100%"
                 />
               ) : (
-                // TextInput hat keinen eingebauten Zeichenzähler (kein
-                // maxLength) — der Zähler kommt hier als description-Text,
-                // die Statusfarbe schlägt bei Überlänge auf error um.
+                // description bleibt zusätzlich gesetzt (sichtbarer Zähler
+                // steht daneben, siehe oben): sie hängt unabhängig von
+                // isLabelHidden per aria-describedby am Input und wird beim
+                // Fokussieren vorgelesen, auch wenn sie selbst unsichtbar ist.
                 <TextInput
                   label={`${singular} ${i + 1}`}
                   isLabelHidden
