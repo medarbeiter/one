@@ -1,7 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Alert, Button, Modal, Spinner } from "@heroui/react";
+import {
+  Banner,
+  Button,
+  Dialog,
+  DialogHeader,
+  Layout,
+  LayoutContent,
+  LayoutFooter,
+  Spinner,
+} from "@astryxdesign/core";
 import { imagePreviewUrl, stripExtension, type Orientation } from "@/lib/media";
 import type { WizardImageAsset } from "./state";
 
@@ -128,21 +137,20 @@ export function CropDialog({
   }
 
   return (
-    <Modal isOpen={isOpen} onOpenChange={onOpenChange}>
-      <Modal.Backdrop>
-        <Modal.Container>
-          <Modal.Dialog>
-            <Modal.Header>
-              <Modal.Heading>Bild zuschneiden</Modal.Heading>
-            </Modal.Header>
-            <Modal.Body className="space-y-3">
+    <Dialog isOpen={isOpen} onOpenChange={onOpenChange}>
+      <Layout
+        header={<DialogHeader title="Bild zuschneiden" onOpenChange={onOpenChange} />}
+        content={
+          <LayoutContent>
+            <div className="space-y-3">
               <div className="flex gap-2">
                 {(Object.keys(FRAMES) as Orientation[]).map((o) => (
                   <Button
                     key={o}
                     size="sm"
-                    variant={target === o ? "primary" : "outline"}
-                    onPress={() => {
+                    variant={target === o ? "primary" : "secondary"}
+                    label={FRAMES[o].label}
+                    onClick={() => {
                       setTarget(o);
                       setZoom(1);
                       if (natural) {
@@ -154,9 +162,7 @@ export function CropDialog({
                         });
                       }
                     }}
-                  >
-                    {FRAMES[o].label}
-                  </Button>
+                  />
                 ))}
               </div>
 
@@ -229,25 +235,28 @@ export function CropDialog({
                 />
               </label>
 
-              {error && (
-                <Alert status="danger">
-                  <Alert.Content>
-                    <Alert.Description>{error}</Alert.Description>
-                  </Alert.Content>
-                </Alert>
-              )}
-            </Modal.Body>
-            <Modal.Footer>
-              <Button variant="outline" onPress={() => onOpenChange(false)} isDisabled={busy}>
-                Abbrechen
-              </Button>
-              <Button onPress={apply} isDisabled={busy || !natural}>
-                {busy ? "Wird hochgeladen…" : "Zuschneiden & ersetzen"}
-              </Button>
-            </Modal.Footer>
-          </Modal.Dialog>
-        </Modal.Container>
-      </Modal.Backdrop>
-    </Modal>
+              {error && <Banner status="error" title={error} />}
+            </div>
+          </LayoutContent>
+        }
+        footer={
+          <LayoutFooter hasDivider>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="secondary"
+                label="Abbrechen"
+                onClick={() => onOpenChange(false)}
+                isDisabled={busy}
+              />
+              <Button
+                label={busy ? "Wird hochgeladen…" : "Zuschneiden & ersetzen"}
+                onClick={apply}
+                isDisabled={busy || !natural}
+              />
+            </div>
+          </LayoutFooter>
+        }
+      />
+    </Dialog>
   );
 }
