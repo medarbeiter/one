@@ -112,7 +112,18 @@ export function LocationField({
         <Typeahead
           label="Standort"
           isRequired
-          placeholder="Stadt, PLZ oder Musterstraße 1, 12345 Musterstadt"
+          // Der Platzhalter ist nur sichtbar, solange kein Ort ausgewählt ist –
+          // genau dann, wenn eine getippte, noch nicht bei Meta gefundene
+          // Adresse in addressString stecken kann (z. B. aus einer anderen
+          // Anzeigengruppe übernommen). Sie steckt weiter im Entwurf und wird
+          // mit abgeschickt; der Typeahead kann sein Eingabefeld nur nicht von
+          // außen vorbelegen. Der Platzhalter ist die einzige Stelle, an der
+          // sie trotzdem sichtbar wird – nicht vereinfachen.
+          placeholder={
+            value.place
+              ? "Stadt, PLZ oder Musterstraße 1, 12345 Musterstadt"
+              : value.addressString || "Stadt, PLZ oder Musterstraße 1, 12345 Musterstadt"
+          }
           searchSource={placeSearchSource}
           debounceMs={SEARCH_DELAY_MS}
           value={value.place ? toPlaceItem(value.place) : null}
