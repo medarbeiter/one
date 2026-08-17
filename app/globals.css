@@ -58,3 +58,17 @@
   overflow-y: auto;
   mask-image: linear-gradient(to bottom, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
 }
+
+/* Astryx' Collapsible steckt seinen Auslöser-Inhalt in einen <span>, der sich
+ * nach seinem Inhalt bemisst; der Pfeil rechts wird per space-between an den
+ * Rand gedrückt. Die Standort-Kopfzeilen im Kampagnen-Assistenten tragen aber
+ * mehr als eine Beschriftung – Name, Adresse und zwei Zähler –, und die Zähler
+ * gehören an den rechten Rand neben den Pfeil, nicht an den Namen geklebt.
+ * Dafür muss dieser span wachsen dürfen. Astryx setzt dort selbst kein
+ * flex-grow, es kollidiert also nichts; der doppelte Selektor hält die Regel
+ * trotzdem sicher über Astryx' @layer astryx-base, der in dieser App hinter
+ * Tailwinds Utilities steht. */
+.collapsible-wide-trigger.collapsible-wide-trigger > button > span:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}

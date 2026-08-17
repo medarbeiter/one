@@ -4,8 +4,6 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Autocomplete,
   Description,
-  Disclosure,
-  DisclosureGroup,
   EmptyState,
   Kbd,
   Label,
@@ -19,6 +17,8 @@ import {
   Card,
   CheckboxList,
   CheckboxListItem,
+  Collapsible,
+  CollapsibleGroup,
   DateInput,
   Divider,
   Heading,
@@ -29,10 +29,7 @@ import {
   TextInput,
   type ISODateString,
 } from "@astryxdesign/core";
-import { CaretRightIcon, UserPlusIcon } from "@phosphor-icons/react";
-// React.Key kennt bigint, react-aria nicht – Collections rechnen mit dem
-// engeren Typ, sonst passt das Set nicht auf onExpandedChange.
-import { type Key } from "@heroui/react/rac";
+import { UserPlusIcon } from "@phosphor-icons/react";
 import { getLocalTimeZone, parseDate, today } from "@internationalized/date";
 import { campaignName, ROLES } from "@/lib/naming";
 import { label, plural } from "@/lib/labels";
@@ -283,13 +280,18 @@ function WizardSteps({
   }, []);
   // Standorte starten zugeklappt: aufgeklappt ist ein Block zwei Bildschirm-
   // höhen hoch, und meistens wird nur an einem gearbeitet. Mehrere gleichzeitig
-  // sind erlaubt – zum Vergleichen zweier Texte gibt es keinen anderen Weg.
-  const [openSets, setOpenSets] = useState<Set<Key>>(new Set());
+  // sind erlaubt – zum Vergleichen zweier Texte gibt es keinen anderen Weg
+  // (CollapsibleGroup type="multiple").
+  const [openSets, setOpenSets] = useState<string[]>([]);
+  // CollapsibleGroup meldet den Wert je nach Modus als String oder String-Liste;
+  // im multiple-Modus ist es immer die Liste, das Array bleibt der Normalfall.
+  const onOpenSetsChange = (open: string | string[]) =>
+    setOpenSets(Array.isArray(open) ? open : [open]);
   // Ein einzelner zugeklappter Standort sieht aus wie eine leere Seite. Die id
   // wechselt beim Wiederherstellen eines Entwurfs, deshalb am Wert hängend.
   const firstSetId = state.adSets[0]?.id;
   useEffect(() => {
-    if (firstSetId) setOpenSets(new Set([firstSetId]));
+    if (firstSetId) setOpenSets([firstSetId]);
   }, [firstSetId]);
   // Der Name baut sich selbst; das Feld dafür erscheint erst auf Wunsch.
   const [editingName, setEditingName] = useState(false);
@@ -436,7 +438,7 @@ function WizardSteps({
   const addLocation = () =>
     setState((s) => {
       const fresh = emptyAdSet(s.adSets.length);
-      setOpenSets(new Set([fresh.id]));
+      setOpenSets([fresh.id]);
       return { ...s, adSets: [...s.adSets, fresh] };
     });
 
@@ -631,20 +633,8 @@ function WizardSteps({
             {/* Fast immer MedArbeiter; die Ausnahme liegt eine Ebene tiefer und
                 hält so den üblichen Pfad kurz. Öffnen und Schließen folgen
                 demselben Weg; reduzierte Bewegung schaltet die Drehung aus. */}
-            <Disclosure>
-              <Disclosure.Heading>
-                <Disclosure.Trigger className="group text-ink-700 flex w-full items-center gap-2 py-2 text-left text-sm font-medium">
-                  Erweiterte Einstellungen anzeigen
-                  <CaretRightIcon
-                    aria-hidden
-                    className="transition-transform duration-300 ease-out group-aria-expanded:rotate-90 motion-reduce:transition-none"
-                    size={16}
-                    weight="bold"
-                  />
-                </Disclosure.Trigger>
-              </Disclosure.Heading>
-              <Disclosure.Content>
-                <Disclosure.Body className="pb-2">
+            <Collapsible defaultIsOpen={false} trigger="Erweiterte Einstellungen anzeigen">
+              <div className="pb-2">
                   <Autocomplete
                     fullWidth
                     selectionMode="single"
@@ -699,9 +689,8 @@ function WizardSteps({
                       </Description>
                     )}
                   </Autocomplete>
-                </Disclosure.Body>
-              </Disclosure.Content>
-            </Disclosure>
+              </div>
+            </Collapsible>
           </div>
         )}
 
@@ -711,43 +700,40 @@ function WizardSteps({
             {/* Ein Standort je Zeile, aufgeklappt nur der, an dem gearbeitet
                 wird. Die Kopfzeile trägt, was sonst erst im Block steht:
                 Adresse, Zahl der Anzeigen, offene Punkte. */}
-            <DisclosureGroup
-              expandedKeys={openSets}
-              onExpandedChange={setOpenSets}
-              allowsMultipleExpanded
-              className="space-y-3"
-            >
-              {issues.perSet.map(({ set, blockers }, i) => (
-                // Jeder Standort in einem eigenen Rahmen: aufgeklappt sind es
-                // zwei Bildschirmhöhen Felder, und ohne Kante war nicht zu
-                // sehen, wo der eine aufhört und der nächste anfängt.
-                <Disclosure
-                  key={set.id}
-                  id={set.id}
-                  className="border-line bg-surface rounded-2xl border px-4"
-                >
-                  <Disclosure.Heading>
-                    <Disclosure.Trigger className="flex w-full items-center gap-3 py-3.5 text-left">
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium">{set.name}</span>
-                        <span className="text-ink-500 block truncate text-xs">
-                          {locationSummary(set)}
+            {/* CollapsibleGroup rendert selbst kein DOM, solange es keine
+                Trennlinien zeichnet – der Abstand zwischen den Rahmen sitzt
+                deshalb an einem eigenen div. */}
+            <CollapsibleGroup type="multiple" value={openSets} onChange={onOpenSetsChange}>
+              <div className="space-y-3">
+                {issues.perSet.map(({ set, blockers }, i) => (
+                  // Jeder Standort in einem eigenen Rahmen: aufgeklappt sind es
+                  // zwei Bildschirmhöhen Felder, und ohne Kante war nicht zu
+                  // sehen, wo der eine aufhört und der nächste anfängt.
+                  <Collapsible
+                    key={set.id}
+                    value={set.id}
+                    className="border-line bg-surface collapsible-wide-trigger rounded-2xl border px-4 py-1"
+                    trigger={
+                      <span className="flex items-center gap-3 text-left">
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium">{set.name}</span>
+                          <span className="text-ink-500 block truncate text-xs font-normal">
+                            {locationSummary(set)}
+                          </span>
                         </span>
+                        {/* Anders als IssueChip trägt dieser Zähler keine
+                            Bewertung – er sagt nur, wie viele Anzeigen im Block
+                            stecken. Deshalb neutral statt error/success. */}
+                        <Badge
+                          variant="neutral"
+                          className="tabular-nums"
+                          label={plural(set.ads.length, "Anzeige", "Anzeigen")}
+                        />
+                        <IssueChip count={blockers.length} />
                       </span>
-                      {/* Anders als IssueChip trägt dieser Zähler keine
-                          Bewertung – er sagt nur, wie viele Anzeigen im Block
-                          stecken. Deshalb neutral statt error/success. */}
-                      <Badge
-                        variant="neutral"
-                        className="tabular-nums"
-                        label={plural(set.ads.length, "Anzeige", "Anzeigen")}
-                      />
-                      <IssueChip count={blockers.length} />
-                      <Disclosure.Indicator />
-                    </Disclosure.Trigger>
-                  </Disclosure.Heading>
-                  <Disclosure.Content>
-                    <Disclosure.Body className="pb-4">
+                    }
+                  >
+                    <div className="pb-4">
                       {/* Ohne Vorschau daneben: sie steht in der Überprüfung, wo
                           alle Standorte auf einmal zur Wahl stehen. Hier zählt
                           die Breite für die Felder. */}
@@ -771,11 +757,11 @@ function WizardSteps({
                         onRemove={() => removeAdSet(i)}
                         canRemove={state.adSets.length > 1}
                       />
-                    </Disclosure.Body>
-                  </Disclosure.Content>
-                </Disclosure>
-              ))}
-            </DisclosureGroup>
+                    </div>
+                  </Collapsible>
+                ))}
+              </div>
+            </CollapsibleGroup>
 
             <Button variant="secondary" onClick={addLocation} label="Standort hinzufügen" />
           </div>
@@ -970,30 +956,19 @@ function WizardSteps({
               />
             </FieldsetSection>
 
-            <Disclosure>
-              <Disclosure.Heading>
-                {/* Derselbe Auslöser wie in Schritt 1: zwei Klappen, die
-                    dasselbe tun, sollen auch gleich aussehen und gleich
-                    aufgehen. Reduzierte Bewegung schaltet die Drehung aus. */}
-                <Disclosure.Trigger className="group text-ink-700 flex w-full items-center gap-2 py-2 text-left text-sm font-medium">
-                  Feste Einstellungen ansehen
-                  <CaretRightIcon
-                    aria-hidden
-                    className="transition-transform duration-300 ease-out group-aria-expanded:rotate-90 motion-reduce:transition-none"
-                    size={16}
-                    weight="bold"
-                  />
-                </Disclosure.Trigger>
-              </Disclosure.Heading>
-              <Disclosure.Content>
-                <Disclosure.Body className="space-y-2 pb-2">
+            {/* Derselbe Auslöser wie in Schritt 1: zwei Klappen, die dasselbe
+                tun, sollen auch gleich aussehen und gleich aufgehen. Den Pfeil
+                samt Drehung bringt Astryx' Collapsible jetzt selbst mit; die
+                Bewegung ist über theme/motion.css global auf
+                prefers-reduced-motion gestellt. */}
+            <Collapsible defaultIsOpen={false} trigger="Feste Einstellungen ansehen">
+              <div className="space-y-2 pb-2">
                   <Facts rows={FIXED} />
                   <Text type="supporting" as="p">
                     In v1 alles nur lesbar — das Tagesbudget oben ist der einzige editierbare Wert.
                   </Text>
-                </Disclosure.Body>
-              </Disclosure.Content>
-            </Disclosure>
+              </div>
+            </Collapsible>
           </div>
         )}
 
