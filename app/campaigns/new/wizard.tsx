@@ -180,9 +180,11 @@ function LaunchProgressBar({ progress }: { progress: LaunchProgress }) {
 /** Der Zähler offener Punkte an einem Schritt oder Standort. */
 function IssueChip({ count }: { count: number }) {
   return (
-    <Chip size="sm" variant="soft" color={count ? "danger" : "success"} className="tabular-nums">
-      {count ? `${count} offen` : "bereit"}
-    </Chip>
+    <Badge
+      variant={count ? "error" : "success"}
+      className="tabular-nums"
+      label={count ? `${count} offen` : "bereit"}
+    />
   );
 }
 
