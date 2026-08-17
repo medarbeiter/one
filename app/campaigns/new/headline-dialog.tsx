@@ -10,7 +10,17 @@
  */
 
 import { useEffect, useState } from "react";
-import { Alert, Button, Checkbox, CheckboxGroup, Modal, ScrollShadow } from "@heroui/react";
+import {
+  Banner,
+  Button,
+  CheckboxList,
+  CheckboxListItem,
+  Dialog,
+  DialogHeader,
+  Layout,
+  LayoutContent,
+  LayoutFooter,
+} from "@astryxdesign/core";
 import { generateHeadlines } from "@/lib/headlines";
 
 export function HeadlineDialog({
@@ -49,75 +59,66 @@ export function HeadlineDialog({
   const full = selected.length >= free;
 
   return (
-    <Modal isOpen={isOpen} onOpenChange={onOpenChange}>
-      <Modal.Backdrop>
-        <Modal.Container>
-          <Modal.Dialog>
-            <Modal.Header>
-              <Modal.Heading>Überschriften generieren</Modal.Heading>
-            </Modal.Header>
-            <Modal.Body className="space-y-3">
+    <Dialog isOpen={isOpen} onOpenChange={onOpenChange}>
+      <Layout
+        header={<DialogHeader title="Überschriften generieren" onOpenChange={onOpenChange} />}
+        content={
+          <LayoutContent>
+            <div className="space-y-3">
               {free === 0 ? (
-                <Alert status="default">
-                  <Alert.Content>
-                    <Alert.Title>Alle Überschriften sind belegt</Alert.Title>
-                    <Alert.Description>
-                      Meta rotiert höchstens fünf. Entferne eine, um eine andere zu übernehmen.
-                    </Alert.Description>
-                  </Alert.Content>
-                </Alert>
+                <Banner
+                  status="info"
+                  title="Alle Überschriften sind belegt"
+                  description="Meta rotiert höchstens fünf. Entferne eine, um eine andere zu übernehmen."
+                />
               ) : (
                 <p className="text-ink-500 text-sm tabular-nums">
                   {selected.length} von {free} ausgewählt
                 </p>
               )}
 
-              <ScrollShadow className="max-h-[24rem] px-0.5 py-1" size={48}>
-                <CheckboxGroup
+              {/* .scroll-fade ersetzt HeroUIs ScrollShadow (app/globals.css). */}
+              <div className="scroll-fade max-h-[24rem] px-0.5 py-1">
+                <CheckboxList
+                  label="Vorgeschlagene Überschriften"
+                  isLabelHidden
                   value={selected}
                   onChange={setSelected}
-                  aria-label="Vorgeschlagene Überschriften"
-                  className="flex flex-col gap-2.5"
                 >
                   {suggestions.map((title) => (
-                    <Checkbox
+                    <CheckboxListItem
                       key={title}
+                      label={title}
                       value={title}
                       // Voll heißt: das Ausgewählte bleibt anklickbar (zum
                       // Abwählen), der Rest nicht. Sonst müsste man raten,
                       // warum ein Klick nichts tut.
                       isDisabled={full && !selected.includes(title)}
-                    >
-                      <Checkbox.Content>
-                        <Checkbox.Control>
-                          <Checkbox.Indicator />
-                        </Checkbox.Control>
-                        {title}
-                      </Checkbox.Content>
-                    </Checkbox>
+                    />
                   ))}
-                </CheckboxGroup>
-              </ScrollShadow>
-            </Modal.Body>
-            <Modal.Footer>
-              <Button variant="outline" onPress={() => onOpenChange(false)}>
-                Abbrechen
-              </Button>
+                </CheckboxList>
+              </div>
+            </div>
+          </LayoutContent>
+        }
+        footer={
+          <LayoutFooter hasDivider>
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" label="Abbrechen" onClick={() => onOpenChange(false)} />
               <Button
+                label="Übernehmen"
                 isDisabled={selected.length === 0}
-                onPress={() => {
+                onClick={() => {
                   // In der Reihenfolge der Vorschläge, nicht der Klicks: so
                   // steht die Liste hinterher so da, wie sie im Dialog stand.
                   onApply(suggestions.filter((t) => selected.includes(t)));
                   onOpenChange(false);
                 }}
-              >
-                Übernehmen
-              </Button>
-            </Modal.Footer>
-          </Modal.Dialog>
-        </Modal.Container>
-      </Modal.Backdrop>
-    </Modal>
+              />
+            </div>
+          </LayoutFooter>
+        }
+      />
+    </Dialog>
   );
 }

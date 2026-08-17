@@ -50,3 +50,11 @@
 
   --shadow-surface: var(--shadow-low);
 }
+
+/* Ersetzt HeroUIs ScrollShadow: ein Verlauf an Ober- und Unterkante zeigt,
+ * dass eine Liste weiterscrollt, ohne einen eigenen Wrapper-Komponenten zu
+ * brauchen. */
+.scroll-fade {
+  overflow-y: auto;
+  mask-image: linear-gradient(to bottom, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
+}
