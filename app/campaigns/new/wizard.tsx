@@ -198,27 +198,30 @@ function IssueChip({ count }: { count: number }) {
  */
 function LeadgenTosAlert({ client }: { client: WizardClient }) {
   return (
-    <Alert status="danger">
-      <Alert.Content>
-        <Alert.Title>Seite hat die Lead-Bedingungen nicht angenommen</Alert.Title>
-        <Alert.Description>
+    <Banner
+      status="error"
+      title="Seite hat die Lead-Bedingungen nicht angenommen"
+      description={
+        <>
           Meta lehnt jede Anzeige über <strong>{client.pageName}</strong> ab, bis ein Administrator
           dieser Seite die Nutzungsbedingungen für Lead-Anzeigen annimmt. Zugriff auf das zahlende
           Werbekonto genügt dafür nicht.
-        </Alert.Description>
-      </Alert.Content>
-      {/* target="_blank": der Entwurf liegt im sessionStorage dieses Tabs, und
-          wer ihn zum Annehmen verlässt, käme sonst auf einen leeren Assistenten
-          zurück. */}
-      <a
-        href={leadgenTosUrl(client.pageId)}
-        target="_blank"
-        rel="noreferrer"
-        className={buttonVariants({ variant: "outline", size: "sm" })}
-      >
-        Bei Meta annehmen
-      </a>
-    </Alert>
+        </>
+      }
+      endContent={
+        // target="_blank": der Entwurf liegt im sessionStorage dieses Tabs, und
+        // wer ihn zum Annehmen verlässt, käme sonst auf einen leeren Assistenten
+        // zurück.
+        <AstryxButton
+          label="Bei Meta annehmen"
+          href={leadgenTosUrl(client.pageId)}
+          target="_blank"
+          rel="noreferrer"
+          variant="secondary"
+          size="sm"
+        />
+      }
+    />
   );
 }
 
