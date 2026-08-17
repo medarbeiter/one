@@ -178,26 +178,10 @@ type TileAction = { id: string; label: string; run: () => void };
 
 function ActionsMenu({ label, actions }: { label: string; actions: TileAction[] }) {
   return (
-    <Dropdown>
-      <Dropdown.Trigger
-        aria-label={label}
-        className={buttonVariants({ variant: "ghost", size: "sm", isIconOnly: true })}
-      >
-        <DotsThreeIcon size={18} weight="bold" />
-      </Dropdown.Trigger>
-      <Dropdown.Popover>
-        <Dropdown.Menu
-          items={actions}
-          onAction={(key) => actions.find((a) => a.id === key)?.run()}
-        >
-          {(a: TileAction) => (
-            <Dropdown.Item id={a.id} textValue={a.label}>
-              {a.label}
-            </Dropdown.Item>
-          )}
-        </Dropdown.Menu>
-      </Dropdown.Popover>
-    </Dropdown>
+    <DropdownMenu
+      button={{ label, isIconOnly: true, icon: <Sign meaning="moreActions" />, variant: "ghost", size: "sm" }}
+      items={actions.map((a) => ({ label: a.label, onClick: a.run }))}
+    />
   );
 }
 
