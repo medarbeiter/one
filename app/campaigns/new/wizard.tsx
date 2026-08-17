@@ -22,18 +22,23 @@ import {
   Label,
   ListBox,
   NumberField,
-  ProgressBar,
   SearchField,
   Select,
   Separator,
   TextField,
   Typography,
 } from "@heroui/react";
-import { buttonVariants } from "@heroui/styles";
+import {
+  Badge,
+  Banner,
+  Button as AstryxButton,
+  ProgressBar,
+  Text,
+} from "@astryxdesign/core";
 import { CaretRightIcon, UserPlusIcon } from "@phosphor-icons/react";
 // React.Key kennt bigint, react-aria nicht – Collections rechnen mit dem
 // engeren Typ, sonst passt das Set nicht auf onExpandedChange.
-import { I18nProvider, type Key } from "@heroui/react/rac";
+import { type Key } from "@heroui/react/rac";
 import { getLocalTimeZone, parseDate, today } from "@internationalized/date";
 import { campaignName, ROLES } from "@/lib/naming";
 import { label, plural } from "@/lib/labels";
@@ -158,28 +163,16 @@ function LaunchProgressBar({ progress }: { progress: LaunchProgress }) {
       {/* Solange der Server noch nicht weiß, wie viele Schritte kommen, ist der
           Balken unbestimmt – ein Balken bei 0 % sieht aus wie ein Hänger. */}
       <ProgressBar
-        aria-label="Kampagne wird erstellt"
-        size="sm"
+        label={`${text}…`}
         value={done}
-        minValue={0}
-        maxValue={total || 1}
+        max={total || 1}
         isIndeterminate={!total}
-      >
-        <Label className="truncate" title={text}>
-          {text}…
-        </Label>
-        {total > 0 && (
-          <ProgressBar.Output>
-            {done} / {total}
-          </ProgressBar.Output>
-        )}
-        <ProgressBar.Track>
-          <ProgressBar.Fill />
-        </ProgressBar.Track>
-      </ProgressBar>
-      <Description>
+        hasValueLabel={total > 0}
+        formatValueLabel={(v, m) => `${v} / ${m}`}
+      />
+      <Text type="supporting">
         Lass diesen Tab offen — wenn du ihn schließt, stoppt der Lauf mittendrin.
-      </Description>
+      </Text>
     </div>
   );
 }
