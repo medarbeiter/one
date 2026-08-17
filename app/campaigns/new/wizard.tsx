@@ -565,7 +565,7 @@ function WizardSteps({
             {/* Ein Feld, zwei Wirkungen: die Seite des Kunden trägt Anzeigen und
                 Lead-Formulare, sein Name baut den Kampagnennamen. Die Suche ist
                 lokal und sofort; beim Laden der Meta-Liste deckt loading.tsx
-                genau diese Fläche mit HeroUI-Skeletons ab. */}
+                genau diese Fläche mit Skeletons ab. */}
             <div className="flex max-w-xl items-end gap-2">
               {/* Astryx' Typeahead ist selbst das Suchfeld – der Umweg über
                   Auslöser, Popover und ein zweites SearchField darin entfällt,
@@ -631,42 +631,41 @@ function WizardSteps({
             )}
 
             {/* Fast immer MedArbeiter; die Ausnahme liegt eine Ebene tiefer und
-                hält so den üblichen Pfad kurz. Öffnen und Schließen folgen
-                demselben Weg; reduzierte Bewegung schaltet die Drehung aus. */}
+                hält so den üblichen Pfad kurz. Den Pfeil samt Drehung bringt
+                Astryx' Collapsible selbst mit; die Bewegung ist über
+                theme/motion.css global auf prefers-reduced-motion gestellt. */}
             <Collapsible defaultIsOpen={false} trigger="Erweiterte Einstellungen anzeigen">
-              <div className="pb-2">
-                <div className="max-w-xl space-y-1.5">
-                  <Typeahead
-                    label="Werbekonto (zahlt)"
-                    placeholder="Werbekonto suchen…"
-                    searchSource={accountSource}
-                    value={accountItem}
-                    onChange={(item) => setState((s) => ({ ...s, adAccount: item?.id ?? "" }))}
-                    hasEntriesOnFocus
-                    maxMenuItems={accountItems.length}
-                    debounceMs={0}
-                    emptySearchResultsText="Kein Werbekonto gefunden"
-                    renderItem={(item) => (
-                      <span className="min-w-0">
-                        <span className="block truncate">{item.label}</span>
-                        <span className="text-ink-500 block truncate text-xs">
-                          {item.auxiliaryData.customerName}
-                        </span>
+              <div className="max-w-xl space-y-1.5 pb-2">
+                <Typeahead
+                  label="Werbekonto (zahlt)"
+                  placeholder="Werbekonto suchen…"
+                  searchSource={accountSource}
+                  value={accountItem}
+                  onChange={(item) => setState((s) => ({ ...s, adAccount: item?.id ?? "" }))}
+                  hasEntriesOnFocus
+                  maxMenuItems={accountItems.length}
+                  debounceMs={0}
+                  emptySearchResultsText="Kein Werbekonto gefunden"
+                  renderItem={(item) => (
+                    <span className="min-w-0">
+                      <span className="block truncate">{item.label}</span>
+                      <span className="text-ink-500 block truncate text-xs">
+                        {item.auxiliaryData.customerName}
                       </span>
-                    )}
-                    width="100%"
-                  />
-                  {/* Steht neben dem Feld statt in dessen description-Slot: der
-                      Satz wechselt, während man hinschaut, und aria-live sagt
-                      das an – ein description kann das nicht. */}
-                  {prefill !== "none" && (
-                    <Text type="supporting" as="p" aria-live="polite">
-                      {prefill === "loading"
-                        ? "Die letzte Kampagne dieses Kontos wird nach Standort und Radius durchsucht…"
-                        : "Standort und Radius kommen aus der letzten Kampagne dieses Kontos."}
-                    </Text>
+                    </span>
                   )}
-                </div>
+                  width="100%"
+                />
+                {/* Steht neben dem Feld statt in dessen description-Slot: der
+                    Satz wechselt, während man hinschaut, und aria-live sagt
+                    das an – ein description kann das nicht. */}
+                {prefill !== "none" && (
+                  <Text type="supporting" as="p" aria-live="polite">
+                    {prefill === "loading"
+                      ? "Die letzte Kampagne dieses Kontos wird nach Standort und Radius durchsucht…"
+                      : "Standort und Radius kommen aus der letzten Kampagne dieses Kontos."}
+                  </Text>
+                )}
               </div>
             </Collapsible>
           </div>
@@ -947,10 +946,10 @@ function WizardSteps({
                 prefers-reduced-motion gestellt. */}
             <Collapsible defaultIsOpen={false} trigger="Feste Einstellungen ansehen">
               <div className="space-y-2 pb-2">
-                  <Facts rows={FIXED} />
-                  <Text type="supporting" as="p">
-                    In v1 alles nur lesbar — das Tagesbudget oben ist der einzige editierbare Wert.
-                  </Text>
+                <Facts rows={FIXED} />
+                <Text type="supporting" as="p">
+                  In v1 alles nur lesbar — das Tagesbudget oben ist der einzige editierbare Wert.
+                </Text>
               </div>
             </Collapsible>
           </div>
@@ -1116,7 +1115,7 @@ type AccountItem = SearchableItem<WizardAccount> & { auxiliaryData: WizardAccoun
 /**
  * Astryx' Typeahead filtert über eine SearchSource, nicht über einen
  * filter-Prop. fuzzyCustomerMatch bleibt damit erhalten – getippte Kürzel wie
- * „hkps" finden „Häusliche Krankenpflege Schölzke", was ein reiner
+ * „hkps“ finden „Häusliche Krankenpflege Schölzke“, was ein reiner
  * Teilstring-Vergleich (Astryx' eingebaute Suche) nicht täte. Die Listen liegen
  * fertig im Browser, also ist die Suche synchron und ohne Verzögerung.
  */
@@ -1126,7 +1125,8 @@ function fuzzySource<T extends SearchableItem>(
 ): SearchSource<T> {
   return {
     bootstrap: () => items,
-    search: (query) => (query ? items.filter((item) => fuzzyCustomerMatch(textOf(item), query)) : items),
+    search: (query) =>
+      query ? items.filter((item) => fuzzyCustomerMatch(textOf(item), query)) : items,
   };
 }
 
