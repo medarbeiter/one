@@ -20,19 +20,9 @@
  */
 
 import { useEffect, useState, type ReactNode } from "react";
-import {
-  AlertDialog,
-  Button,
-  Dropdown,
-  Input,
-  Label,
-  ProgressCircle,
-  ScrollShadow,
-  Skeleton,
-  TextField,
-} from "@heroui/react";
-import { buttonVariants } from "@heroui/styles";
-import { DotsThreeIcon, WarningIcon } from "@phosphor-icons/react";
+import { AlertDialog, DropdownMenu, Skeleton, TextInput } from "@astryxdesign/core";
+import { Sign } from "@/theme/icons";
+import { ProgressRing } from "@/app/shell/progress-ring";
 import { cleanStem, imagePreviewUrl } from "@/lib/media";
 import { CropDialog } from "./crop-dialog";
 import type { UploadJob } from "./upload-queue";
@@ -106,7 +96,7 @@ function MediaFrame({
         // Ein Video hat vor Metas Thumbnail kein Bild. Der schimmernde Rahmen
         // sagt dasselbe wie ein Spinner – nur an der Stelle, an der gleich das
         // Motiv steht, und ohne die Kachel zu verändern, wenn es soweit ist.
-        <Skeleton className="size-full rounded-none" />
+        <Skeleton radius="none" />
       ) : (
         <span className="text-ink-500 absolute inset-1 grid place-items-center text-center text-[10px] leading-tight break-all">
           {alt}
@@ -160,7 +150,9 @@ function TileHeader({
       </span>
       <div className="flex shrink-0 items-center gap-1">
         {hasWarning && (
-          <WarningIcon size={15} weight="fill" className="text-warning-700" aria-hidden />
+          <span className="text-warning-700">
+            <Sign meaning="warning" size={15} />
+          </span>
         )}
         {children}
       </div>

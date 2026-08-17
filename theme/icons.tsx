@@ -1,10 +1,10 @@
 'use client';
 
 import {
-  ArrowClockwise, CaretLeft, CaretRight, Check, Copy, Eye, Gear, ImageSquare,
-  Link as LinkIcon, MagnifyingGlass, MapPin, Megaphone, Pause, PencilSimple,
-  Play, Plus, Rocket, SignOut, Trash, UploadSimple, User, Users, VideoCamera,
-  Warning, X, type Icon as PhosphorIcon,
+  ArrowClockwise, CaretLeft, CaretRight, Check, Copy, DotsThree, Eye, Gear,
+  ImageSquare, Link as LinkIcon, MagnifyingGlass, MapPin, Megaphone, Pause,
+  PencilSimple, Play, Plus, Rocket, SignOut, Trash, UploadSimple, User, Users,
+  VideoCamera, Warning, X, type Icon as PhosphorIcon,
 } from '@phosphor-icons/react';
 import type { ReactNode } from 'react';
 
@@ -51,6 +51,8 @@ export const MEANINGS = {
 
   previous: { solid: CaretLeft, outline: CaretLeft },
   next: { solid: CaretRight, outline: CaretRight },
+
+  moreActions: { solid: DotsThree, outline: DotsThree },
 } satisfies Record<string, { solid: PhosphorIcon; outline: PhosphorIcon }>;
 
 export type Meaning = keyof typeof MEANINGS;
