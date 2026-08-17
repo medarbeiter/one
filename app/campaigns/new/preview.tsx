@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Card } from "@heroui/react";
+import { Button, Card, Heading } from "@astryxdesign/core";
+import { Sign } from "@/theme/icons";
 import { imagePreviewUrl } from "@/lib/media";
 import type { FormatAsset } from "@/lib/launch";
 import type { WizardAdSet } from "./state";
@@ -66,11 +67,13 @@ export function Preview({
   const ad = adSet.ads[0];
 
   return (
+    // Astryx' Card hat keine Unterteile (Header/Content) mehr – Titel und
+    // Inhalt teilen sich denselben space-y-Block.
     <Card className="h-fit">
-      <Card.Header>
-        <Card.Title className="text-base">Vorschau</Card.Title>
-      </Card.Header>
-      <Card.Content className="space-y-2 text-sm">
+      <div className="space-y-2 text-sm">
+        <Heading level={3} className="text-base">
+          Vorschau
+        </Heading>
         <p className="text-ink-900 truncate font-medium">{pageName || "Deine Seite"}</p>
 
         <p
@@ -100,30 +103,28 @@ export function Preview({
 
         <div className="flex items-center justify-between pt-1">
           <Button
-            variant="outline"
+            variant="secondary"
             size="sm"
             isIconOnly
+            icon={<Sign meaning="previous" />}
             isDisabled={index === 0}
-            onPress={() => setVariant(index - 1)}
-            aria-label="Vorherige Variante"
-          >
-            ‹
-          </Button>
+            onClick={() => setVariant(index - 1)}
+            label="Vorherige Variante"
+          />
           <span className="text-ink-500 text-xs">
             Variante {index + 1} / {variantCount}
           </span>
           <Button
-            variant="outline"
+            variant="secondary"
             size="sm"
             isIconOnly
+            icon={<Sign meaning="next" />}
             isDisabled={index === variantCount - 1}
-            onPress={() => setVariant(index + 1)}
-            aria-label="Nächste Variante"
-          >
-            ›
-          </Button>
+            onClick={() => setVariant(index + 1)}
+            label="Nächste Variante"
+          />
         </div>
-      </Card.Content>
+      </div>
     </Card>
   );
 }
