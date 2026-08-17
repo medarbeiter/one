@@ -13,7 +13,6 @@ import { NewCampaign } from "./shell/new-campaign";
 import { ScopeSwitcher } from "./shell/scope-switcher";
 import { Sidebar } from "./shell/sidebar";
 import { TokenHealth } from "./shell/token-health";
-import { Toasts } from "./shell/ui";
 import { UserBadge } from "./shell/user-badge";
 
 export const metadata: Metadata = {
@@ -90,8 +89,8 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
             </header>
             <main className="min-h-0 flex-1 overflow-y-auto p-6">{children}</main>
           </div>
-          {/* Region für imperative Toasts (toast.success/.danger) – einmal pro App. */}
-          <Toasts />
+          {/* Die Toast-Region kommt jetzt aus Providers (LayerProvider) –
+              der umschließt den ganzen Baum unten, statt daneben zu stehen. */}
         </Providers>
       </body>
     </html>

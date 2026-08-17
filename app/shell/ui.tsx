@@ -24,7 +24,6 @@ import {
   Text,
   type TextProps,
 } from "@astryxdesign/core";
-import { ToastViewport } from "@astryxdesign/core/Toast";
 
 // Astryx uses flat exports, not HeroUI's compound namespacing (Table.Cell,
 // Card.Header, ...). Names that match Astryx's own exports are re-exported
@@ -108,7 +107,10 @@ export function TypographyCode(props: Omit<TextProps, "type">) {
 // - Table.Content → Astryx's Table *is* the <table>; HeroUI's outer <Table>
 //   card wrapper has no counterpart and disappears at the call sites.
 // - Typography (the compound root) → Text and Heading are separate.
-
-export function Toasts() {
-  return <ToastViewport />;
-}
+//
+// Toasts: no wrapper here either. `useToast` needs its `ToastContext` as an
+// ancestor, which only holds if the viewport wraps the app tree as children
+// — a bare `<ToastViewport />` mounted as a sibling of `<main>` provides
+// context to nothing. `app/providers.tsx` now wraps the whole app in
+// `LayerProvider`, which renders that `<ToastViewport>{children}</...>` in
+// the right place; there is nothing left for this file to export.
