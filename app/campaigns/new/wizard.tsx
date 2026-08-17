@@ -15,7 +15,6 @@ import {
   Kbd,
   Label,
   ListBox,
-  NumberField,
   SearchField,
   Select,
 } from "@heroui/react";
@@ -26,6 +25,7 @@ import {
   Card,
   Divider,
   Heading,
+  NumberInput,
   ProgressBar,
   Text,
   TextInput,
@@ -941,58 +941,41 @@ function WizardSteps({
               legend="Budget und Start"
               groupClassName="grid max-w-3xl gap-4 sm:grid-cols-3"
             >
-              <NumberField
+              {/* Unter jedem der drei Felder steht eine Zeile, auch wo es wenig
+                  zu sagen gibt: sonst stehen die Felder auf drei verschiedenen
+                  Höhen und die Reihe franst aus. */}
+              <NumberInput
+                label="Tagesbudget"
                 value={state.dailyBudgetEuros}
                 onChange={(dailyBudgetEuros) => setState((s) => ({ ...s, dailyBudgetEuros }))}
-                minValue={1}
+                min={1}
                 // Meta rechnet in Cent, also muss auch die Eingabe in Cent gehen.
                 // Mit step={1} rastete das Feld beim Verlassen auf ganze Euro ein
                 // und machte aus 30,05 wieder 30,00.
                 step={0.01}
-                formatOptions={{
-                  style: "currency",
-                  currency: "EUR",
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                }}
-                className="space-y-1.5"
-              >
-                <Label>Tagesbudget</Label>
-                <NumberField.Group>
-                  <NumberField.Input />
-                </NumberField.Group>
-                {/* Unter jedem der drei Felder steht eine Zeile, auch wo es
-                    wenig zu sagen gibt: sonst stehen die Felder auf drei
-                    verschiedenen Höhen und die Reihe franst aus. */}
-                <Description>Gilt für die ganze Kampagne.</Description>
-              </NumberField>
+                // Astryx' NumberInput kennt keine formatOptions – die Währung
+                // steht als Einheit am Feld statt in der getippten Zahl
+                // (dieselbe Lücke wie in row-controls.tsx, Task 10a).
+                units="€"
+                description="Gilt für die ganze Kampagne."
+                width="100%"
+              />
 
-              {/* Leer heißt "kein Limit", nicht "0 €" – NumberField drückt das
-                  als NaN aus, der State als undefined. */}
-              <NumberField
-                value={state.spendCapEuros ?? Number.NaN}
-                onChange={(v) =>
-                  setState((s) => ({
-                    ...s,
-                    spendCapEuros: Number.isNaN(v) ? undefined : v,
-                  }))
-                }
-                minValue={100}
+              {/* Leer heißt "kein Limit", nicht "0 €". Astryx drückt das über
+                  hasClear aus: der Löschknopf setzt den Wert auf null, und null
+                  wird hier zu undefined – dieselbe Bedeutung wie vorher NaN,
+                  nur mit einem sichtbaren Weg dorthin. */}
+              <NumberInput
+                label="Ausgabenlimit"
+                value={state.spendCapEuros ?? null}
+                hasClear
+                onChange={(v) => setState((s) => ({ ...s, spendCapEuros: v ?? undefined }))}
+                min={100}
                 step={0.01}
-                formatOptions={{
-                  style: "currency",
-                  currency: "EUR",
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                }}
-                className="space-y-1.5"
-              >
-                <Label>Ausgabenlimit</Label>
-                <NumberField.Group>
-                  <NumberField.Input />
-                </NumberField.Group>
-                <Description>Optional, mindestens 100 €.</Description>
-              </NumberField>
+                units="€"
+                description="Optional, mindestens 100 €."
+                width="100%"
+              />
 
               <DatePicker
                 value={toCalendarDate(state.startDate)}
