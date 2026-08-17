@@ -16,7 +16,6 @@ import {
   Label,
   ListBox,
   SearchField,
-  Select,
 } from "@heroui/react";
 import {
   Badge,
@@ -27,6 +26,7 @@ import {
   Heading,
   NumberInput,
   ProgressBar,
+  Selector,
   Text,
   TextInput,
 } from "@astryxdesign/core";
@@ -856,28 +856,18 @@ function WizardSteps({
               {/* Gedeckelt: Ein Feld, in das zwei Buchstaben gehören, war über
                   die halbe Karte breit und sah aus, als fehle darin etwas. */}
               <div className="grid max-w-xl gap-4 sm:grid-cols-2">
-                <Select
-                  selectedKey={knownInitials.includes(state.initials) ? state.initials : null}
-                  onSelectionChange={(key) => setState((s) => ({ ...s, initials: String(key) }))}
+                {/* Astryx' Selector nimmt Optionen als Daten statt als
+                    ListBox-Kinder; blanke Strings sind ein gültiger
+                    Optionstyp, also bleibt knownInitials, wie es ist. */}
+                <Selector
+                  label="Kürzel im Namen"
+                  options={knownInitials}
+                  value={knownInitials.includes(state.initials) ? state.initials : undefined}
+                  onChange={(initials) => setState((s) => ({ ...s, initials }))}
                   placeholder="Kürzel wählen…"
-                  className="space-y-1.5"
-                >
-                  <Label>Kürzel im Namen</Label>
-                  <Select.Trigger>
-                    <Select.Value />
-                    <Select.Indicator />
-                  </Select.Trigger>
-                  <Select.Popover>
-                    <ListBox>
-                      {knownInitials.map((i) => (
-                        <ListBox.Item key={i} id={i} textValue={i}>
-                          {i}
-                        </ListBox.Item>
-                      ))}
-                    </ListBox>
-                  </Select.Popover>
-                  <Description>Steht am Ende des Namens.</Description>
-                </Select>
+                  description="Steht am Ende des Namens."
+                  width="100%"
+                />
                 <TextInput
                   label="Anderes Kürzel"
                   value={state.initials}
@@ -1101,26 +1091,15 @@ function WizardSteps({
             {previewSet && (
               <div className="space-y-2">
                 {state.adSets.length > 1 && (
-                  <Select
-                    aria-label="Standort für die Vorschau"
-                    selectedKey={previewSet.id}
-                    onSelectionChange={(key) => setPreviewSetId(String(key))}
+                  <Selector
+                    label="Standort für die Vorschau"
+                    isLabelHidden
+                    options={state.adSets.map((s) => ({ value: s.id, label: s.name }))}
+                    value={previewSet.id}
+                    onChange={setPreviewSetId}
                     className="max-w-xs"
-                  >
-                    <Select.Trigger>
-                      <Select.Value />
-                      <Select.Indicator />
-                    </Select.Trigger>
-                    <Select.Popover>
-                      <ListBox items={state.adSets}>
-                        {(s: WizardAdSet) => (
-                          <ListBox.Item id={s.id} textValue={s.name}>
-                            {s.name}
-                          </ListBox.Item>
-                        )}
-                      </ListBox>
-                    </Select.Popover>
-                  </Select>
+                    width="100%"
+                  />
                 )}
                 <div className="max-w-sm">
                   <Preview
