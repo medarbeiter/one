@@ -1,7 +1,7 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
-import { toast } from "@heroui/react";
+import { useEffect, useSyncExternalStore } from "react";
+import { useToast, type ShowToastFn } from "@astryxdesign/core";
 import { createConvoy, type Convoy } from "@/lib/convoy";
 import { createGate } from "@/lib/gate";
 import { orientationOf, type Orientation } from "@/lib/media";
@@ -107,7 +107,8 @@ type Batch = {
   total: number;
   done: number;
   failed: string[];
-  toastKey: string;
+  /** Schließt den laufenden Toast – null, solange keiner offen ist. */
+  dismiss: (() => void) | null;
   /** Der Sammelpunkt zwischen Umwandlung und Upload. */
   convoy: Convoy;
 };
@@ -158,8 +159,26 @@ function jobsFor(adSetId: string): UploadJob[] {
   return list;
 }
 
+/**
+ * Astryx' useToast ist ein Hook und lässt sich nur innerhalb einer Komponente
+ * aufrufen – start() und settle() aber laufen außerhalb jeder Komponente, im
+ * Modul-Zustand oben. useUploads() rendert bei jeder Anzeigengruppe, die
+ * gerade zu sehen ist, und genau eine solche Anzeigengruppe ist es auch, aus
+ * der heraus enqueue()/retryUploads() je angestoßen werden – "Datei wählen"
+ * und "Erneut versuchen" sitzen beide in ihr. Die Funktion ist also schon
+ * abgegriffen, bevor sie das erste Mal gebraucht wird, und bleibt gültig,
+ * auch wenn genau diese Anzeigengruppe später wieder aushängt: sie hängt am
+ * echten, dauerhaft im Layout stehenden Toast-Kontext, nicht an dieser
+ * Komponente.
+ */
+let showToast: ShowToastFn | null = null;
+
 /** Was für diese Anzeigengruppe gerade läuft – oder beim letzten Mal scheiterte. */
 export function useUploads(adSetId: string): UploadJob[] {
+  const toast = useToast();
+  useEffect(() => {
+    showToast = toast;
+  }, [toast]);
   return useSyncExternalStore(
     subscribe,
     () => jobsFor(adSetId),
@@ -268,7 +287,7 @@ function start(files: File[], target: Target, clearFailed: boolean): void {
     total: files.length,
     done: 0,
     failed: [],
-    toastKey: "",
+    dismiss: null,
     convoy: createConvoy(UPLOAD_GROUP, files.length),
   };
   batches.set(batch.id, batch);
@@ -294,12 +313,19 @@ function start(files: File[], target: Target, clearFailed: boolean): void {
   ];
   changed(target.adSetId);
 
-  batch.toastKey = toast(<BatchToast batchId={batch.id} />, {
-    isLoading: true,
-    // Kein Zeitablauf: der Toast ist der Fortschritt, nicht die Meldung darüber.
-    timeout: 0,
-    description: `„${target.adSetName}“ · Upload läuft.`,
-  });
+  // Kein automatisches Ausblenden: der Toast ist der Fortschritt, nicht die
+  // Meldung darüber. body trägt Überschrift und Zähler zusammen, denn Astryx
+  // kennt keine separate description mehr.
+  batch.dismiss =
+    showToast?.({
+      body: (
+        <>
+          <div>{`„${target.adSetName}“ · Upload läuft.`}</div>
+          <BatchToast batchId={batch.id} />
+        </>
+      ),
+      isAutoHide: false,
+    }) ?? null;
 
   for (const { file, job } of started) void run(job.id, file, batch);
 }
@@ -397,20 +423,41 @@ async function run(id: string, file: File, batch: Batch) {
 function settle(batch: Batch) {
   if (batch.done + batch.failed.length < batch.total) return;
   batches.delete(batch.id);
-  toast.close(batch.toastKey);
+  batch.dismiss?.();
 
+  // Astryx' Toast kennt nur "info" und "error" – kein eigenes "warning" oder
+  // "success" (siehe Bericht). Vollständiger Fehlschlag bekommt "error", jedes
+  // Ergebnis mit mindestens einer angekommenen Datei "info"; der Text selbst
+  // bleibt unverändert und trägt den Unterschied zwischen Erfolg und
+  // Teilerfolg weiterhin genau.
   const at = `„${batch.adSetName}“`;
   if (!batch.failed.length)
-    toast.success(`${count(batch.total)} hochgeladen`, {
-      description: `Bereit in ${at}.`,
+    showToast?.({
+      body: (
+        <>
+          <div>{`${count(batch.total)} hochgeladen`}</div>
+          <div>{`Bereit in ${at}.`}</div>
+        </>
+      ),
     });
   else if (batch.done)
-    toast.warning(`${batch.done} von ${count(batch.total)} hochgeladen`, {
-      description: `Nicht angekommen: ${batch.failed.join(", ")}`,
+    showToast?.({
+      body: (
+        <>
+          <div>{`${batch.done} von ${count(batch.total)} hochgeladen`}</div>
+          <div>{`Nicht angekommen: ${batch.failed.join(", ")}`}</div>
+        </>
+      ),
     });
   else
-    toast.danger(`${count(batch.total)} nicht hochgeladen`, {
-      description: `${at} · ${batch.failed.join(", ")}`,
+    showToast?.({
+      type: "error",
+      body: (
+        <>
+          <div>{`${count(batch.total)} nicht hochgeladen`}</div>
+          <div>{`${at} · ${batch.failed.join(", ")}`}</div>
+        </>
+      ),
     });
 
   // Ohne Anzeigengruppe: hier ändern sich keine Jobs, nur der Toast.
