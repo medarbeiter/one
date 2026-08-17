@@ -346,10 +346,7 @@ export function AdTile({
         )}
       </Stage>
 
-      <TextField value={ad.name} onChange={onRename} fullWidth>
-        <Label className="sr-only">Anzeigenname</Label>
-        <Input aria-label="Anzeigenname" />
-      </TextField>
+      <TextInput label="Anzeigenname" isLabelHidden value={ad.name} onChange={onRename} width="100%" />
 
       {note && <TileNote {...note} />}
 
