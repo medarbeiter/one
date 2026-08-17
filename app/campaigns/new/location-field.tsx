@@ -17,14 +17,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  ComboBox,
-  Description,
-  Input,
-  Label,
-  ListBox,
   Slider,
   Spinner,
-} from "@heroui/react";
+  Text,
+  Typeahead,
+  type SearchSource,
+  type SearchableItem,
+} from "@astryxdesign/core";
 import {
   fitRadius,
   formatReach,
@@ -45,11 +44,36 @@ export type LocationValue = {
 };
 
 /** Tippen ist schneller als das Netz – ohne Wartezeit ginge jeder Buchstabe als
- *  eigener Aufruf gegen Metas Limit. */
+ *  eigener Aufruf gegen Metas Limit. Der Typeahead debounct selbst damit. */
 const SEARCH_DELAY_MS = 250;
 /** Die Schätzung darf träger sein als die Vorschläge: sie ändert sich auch beim
  *  Ziehen am Radius, und dort will niemand zehn Zwischenstände sehen. */
 const REACH_DELAY_MS = 600;
+
+/** Ein Treffer aus Metas Ortsverzeichnis, verpackt für den Typeahead. */
+type PlaceItem = SearchableItem<GeoPlace> & { auxiliaryData: GeoPlace };
+
+const toPlaceItem = (place: GeoPlace): PlaceItem => ({
+  id: place.key,
+  label: placeTextValue(place),
+  auxiliaryData: place,
+});
+
+/**
+ * Ortssuche über Metas Verzeichnis. Der Typeahead ruft search() selbst
+ * verzögert auf – ein eigenes Debounce hier bräuchte es nicht mehr.
+ */
+const placeSearchSource: SearchSource<PlaceItem> = {
+  async search(query) {
+    const q = query.trim();
+    // Unter zwei Zeichen bringt Meta noch keine brauchbaren Treffer – und das
+    // schont das Limit gegenüber einem Aufruf pro Tastendruck.
+    if (q.length < 2) return [];
+    const found = await searchPlacesAction(q);
+    return found.map(toPlaceItem);
+  },
+  bootstrap: () => [],
+};
 
 /**
  * Ein verzögerter Wert – und ein Zähler, an dem sich veraltete Antworten
@@ -74,30 +98,6 @@ export function LocationField({
   onChange: (patch: Partial<LocationValue>) => void;
   adAccount: string;
 }) {
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<GeoPlace[]>([]);
-  const [searching, setSearching] = useState(false);
-  const debouncedQuery = useDebounced(query, SEARCH_DELAY_MS);
-
-  useEffect(() => {
-    const q = debouncedQuery.trim();
-    if (q.length < 2) {
-      setResults([]);
-      setSearching(false);
-      return;
-    }
-    let current = true;
-    setSearching(true);
-    searchPlacesAction(q).then((found) => {
-      if (!current) return;
-      setResults(found);
-      setSearching(false);
-    });
-    return () => {
-      current = false;
-    };
-  }, [debouncedQuery]);
-
   // Was im Feld steht, kommt aus dem Entwurf, nicht aus einem zweiten Zustand
   // hier: sonst zeigte das Feld nach dem Wiederherstellen einer gespeicherten
   // Kampagne den alten Text und der Entwurf den neuen.
@@ -109,68 +109,49 @@ export function LocationField({
   return (
     <div className="space-y-4">
       <div className="grid max-w-3xl gap-4 sm:grid-cols-2">
-        <ComboBox
-          allowsCustomValue
-          allowsEmptyCollection
-          // Gefiltert wird bei Meta, nicht hier: die Vorschläge sind bereits die
-          // Antwort auf genau diese Eingabe. Nochmal lokal zu filtern würde
-          // "20095" gegen den Ortsnamen "Hamburg" prüfen und ihn wegwerfen.
-          defaultFilter={() => true}
-          inputValue={inputValue}
-          onInputChange={(text) => {
-            setQuery(text);
+        <Typeahead
+          label="Standort"
+          isRequired
+          placeholder="Stadt, PLZ oder Musterstraße 1, 12345 Musterstadt"
+          searchSource={placeSearchSource}
+          debounceMs={SEARCH_DELAY_MS}
+          value={value.place ? toPlaceItem(value.place) : null}
+          onChange={(item) => {
+            if (item) {
+              const place = item.auxiliaryData;
+              onChange({
+                place,
+                addressString: placeTextValue(place),
+                radiusKm: fitRadius(value.radiusKm, place),
+              });
+              return;
+            }
+            // Explizites Leeren über das × am Token.
+            onChange({ place: undefined, addressString: "" });
+          }}
+          onChangeQuery={(text) => {
             // Der eingetippte Text ist wieder eine Adresse – der zuvor gewählte
             // Ort darf nicht still stehen bleiben, sonst zielt die Kampagne auf
-            // die Stadt, während im Feld eine Straße steht.
+            // die Stadt, während im Feld eine Straße steht. Beim Eintritt in den
+            // Bearbeiten-Modus meldet der Typeahead einmalig genau inputValue –
+            // das ist kein Tippen, sondern nur das Sichtbarmachen des Werts.
             if (text !== inputValue) onChange({ addressString: text, place: undefined });
           }}
-          onSelectionChange={(key) => {
-            const place = results.find((p) => p.key === String(key));
-            if (!place) return;
-            onChange({
-              place,
-              addressString: placeTextValue(place),
-              radiusKm: fitRadius(value.radiusKm, place),
-            });
+          emptySearchResultsText="Kein Ort bei Meta gefunden. Die Eingabe zählt dann als Adresse."
+          renderItem={(item) => {
+            const place = item.auxiliaryData;
+            return (
+              <div className="flex flex-col">
+                <Text type="label" as="div">
+                  {place.name}
+                </Text>
+                <Text type="supporting" as="div">
+                  {placeContext(place)}
+                </Text>
+              </div>
+            );
           }}
-          isRequired
-          className="space-y-1"
-        >
-          <Label>Standort</Label>
-          <ComboBox.InputGroup>
-            <Input placeholder="Stadt, PLZ oder Musterstraße 1, 12345 Musterstadt" />
-            <ComboBox.Trigger />
-          </ComboBox.InputGroup>
-          <ComboBox.Popover>
-            <ListBox
-              items={results}
-              renderEmptyState={() => (
-                <div className="text-ink-500 flex items-center gap-2 px-3 py-2 text-sm">
-                  {searching ? (
-                    <>
-                      <Spinner size="sm" />
-                      Orte werden gesucht…
-                    </>
-                  ) : query.trim().length < 2 ? (
-                    "Tippe eine Stadt, eine PLZ – oder gleich die ganze Adresse."
-                  ) : (
-                    "Kein Ort bei Meta gefunden. Die Eingabe zählt dann als Adresse."
-                  )}
-                </div>
-              )}
-            >
-              {(place: GeoPlace) => (
-                <ListBox.Item id={place.key} textValue={placeTextValue(place)}>
-                  <div className="flex flex-col">
-                    <Label>{place.name}</Label>
-                    <Description>{placeContext(place)}</Description>
-                  </div>
-                  <ListBox.ItemIndicator />
-                </ListBox.Item>
-              )}
-            </ListBox>
-          </ComboBox.Popover>
-        </ComboBox>
+        />
 
         {/* Ein Ort ohne Radius bekommt auch kein Radiusfeld. Meta verwirft den
             Wert bei einer PLZ still und liefert für einen Bezirk mit Radius gar
@@ -180,45 +161,35 @@ export function LocationField({
           // Ein Schieber statt eines Zahlenfelds: die Grenzen sind damit sichtbar,
           // statt erst beim Tippen aufzufallen, und ein Wert außerhalb lässt sich
           // gar nicht erst einstellen.
-          <div className="space-y-1">
-            <Slider
-              value={value.radiusKm}
-              // Nur weitergeben, was sich wirklich ändert: am Anschlag meldet der
-              // Schieber jeden Tastendruck erneut mit demselben Wert, und jede
-              // dieser Meldungen schriebe sonst den Entwurf neu. Gedrückt
-              // gehaltene Pfeiltaste am Rand hat React so schon in die
-              // Update-Tiefenbegrenzung getrieben.
-              onChange={(radiusKm) =>
-                Number(radiusKm) !== value.radiusKm && onChange({ radiusKm: Number(radiusKm) })
-              }
-              minValue={range.min}
-              maxValue={range.max}
-              step={1}
-              formatOptions={{ style: "unit", unit: "kilometer", unitDisplay: "short" }}
-            >
-              {/* Nur diese drei: der Schieber ist ein Raster mit den Feldern
-                  label/output/track, alles andere landete darin an einer
-                  beliebigen Stelle – der Hinweis stand dann neben dem Wert. */}
-              <Label>Radius</Label>
-              <Slider.Output />
-              <Slider.Track>
-                <Slider.Fill />
-                <Slider.Thumb />
-              </Slider.Track>
-            </Slider>
-            <Description className="block">
-              {value.place
+          <Slider
+            label="Radius"
+            value={value.radiusKm}
+            // Nur weitergeben, was sich wirklich ändert: am Anschlag meldet der
+            // Schieber jeden Tastendruck erneut mit demselben Wert, und jede
+            // dieser Meldungen schriebe sonst den Entwurf neu. Gedrückt
+            // gehaltene Pfeiltaste am Rand hat React so schon in die
+            // Update-Tiefenbegrenzung getrieben.
+            onChange={(radiusKm: number) => radiusKm !== value.radiusKm && onChange({ radiusKm })}
+            min={range.min}
+            max={range.max}
+            step={1}
+            formatValue={(km) => `${km} km`}
+            valueDisplay="text"
+            description={
+              value.place
                 ? `Meta erlaubt ${range.min} bis ${range.max} km um eine Stadt.`
-                : `Meta erlaubt ${range.min} bis ${range.max} km um die Adresse.`}
-            </Description>
-          </div>
+                : `Meta erlaubt ${range.min} bis ${range.max} km um die Adresse.`
+            }
+          />
         ) : (
           <div className="space-y-1">
-            <Label className="block">Radius</Label>
-            <Description>
+            <Text type="label" as="div">
+              Radius
+            </Text>
+            <Text type="supporting" as="div">
               Kein Umkreis: {value.place?.name} ist bei Meta ein fester Bereich, kein Punkt auf der
               Karte.
-            </Description>
+            </Text>
           </div>
         )}
       </div>
@@ -275,23 +246,28 @@ function ReachLine({ reach }: { reach: ReachState }) {
   if (!reach) return null;
   if (reach.loading)
     return (
-      <Description className="flex items-center gap-2">
+      <Text type="supporting" as="div" className="flex items-center gap-2">
         <Spinner size="sm" />
         Zielgruppe wird bei Meta geprüft…
-      </Description>
+      </Text>
     );
 
   const r = reach.reach;
-  if ("error" in r) return <Description className="text-danger-700">{r.error}</Description>;
+  if ("error" in r)
+    return (
+      <Text type="supporting" as="div" className="text-danger-700">
+        {r.error}
+      </Text>
+    );
   // Keine Zahl heißt bei Meta nicht "null Menschen", sondern "den Ort gibt es
   // so nicht". Genau das gehört hier hin – vor dem Start ist es ein Tippfehler,
   // nach dem Start eine Anzeigengruppe, die nie ausgeliefert wird.
   if (!r.ready)
     return (
-      <Description className="text-warning-700">
+      <Text type="supporting" as="div" className="text-warning-700">
         Meta findet zu dieser Angabe keine Zielgruppe. Prüfe die Schreibweise, oder wähle einen Ort
         aus der Liste.
-      </Description>
+      </Text>
     );
 
   // Eine Zahl allein sagt niemandem, ob sie reicht. Der Hinweis steht deshalb
@@ -300,12 +276,16 @@ function ReachLine({ reach }: { reach: ReachState }) {
 
   return (
     <div className="space-y-1">
-      <Description>
+      <Text type="supporting" as="div">
         Zielgruppe bei Meta:{" "}
         <strong className="text-ink-900">{formatReach(r.lower, r.upper)}</strong> monatlich aktive
         Menschen. Eine Spanne, keine Zusage — Meta rundet grob.
-      </Description>
-      {advice && <Description className="text-warning-700 block">{advice}</Description>}
+      </Text>
+      {advice && (
+        <Text type="supporting" as="div" className="text-warning-700">
+          {advice}
+        </Text>
+      )}
     </div>
   );
 }
