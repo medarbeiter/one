@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Autocomplete,
   Calendar,
@@ -12,7 +12,6 @@ import {
   Disclosure,
   DisclosureGroup,
   EmptyState,
-  Fieldset,
   Input,
   Kbd,
   Label,
@@ -794,98 +793,95 @@ function WizardSteps({
             {/* Der Name ist ein Ergebnis, keine Eingabe. Er steht deshalb als
                 Ergebnis oben – gerahmt wie ein Wert und nicht wie ein leeres
                 Feld – und darunter nur das, was ihn ändert. */}
-            <Fieldset>
-              <Fieldset.Legend>Name der Kampagne</Fieldset.Legend>
-              <Fieldset.Group>
-                {editingName || state.nameEdited ? (
-                  <TextField
-                    value={state.campaignName}
-                    onChange={(campaignNameValue) =>
-                      setState((s) => ({
-                        ...s,
-                        campaignName: campaignNameValue,
-                        nameEdited: true,
-                      }))
-                    }
-                    isRequired
-                    className="space-y-1.5"
-                  >
-                    <Label className="sr-only">Kampagnenname</Label>
-                    <Input aria-label="Kampagnenname" />
-                    <Description className="flex items-center justify-between gap-3">
-                      Von Hand geändert — der Name folgt den Feldern unten nicht mehr.
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        label="Automatisch benennen"
-                        onClick={() => {
-                          setEditingName(false);
-                          setState((s) => ({ ...s, nameEdited: false }));
-                        }}
-                      />
-                    </Description>
-                  </TextField>
-                ) : (
-                  <div className="border-line bg-surface-secondary flex items-center gap-3 rounded-xl border p-2 ps-3">
-                    {/* Text type="code" statt der Astryx-Komponente `Code`:
-                        die bringt eine eigene graue Fläche und Innenabstände
-                        mit, die hier – im schon getönten Kasten – vorher
-                        ausdrücklich weggenommen wurden (bg-transparent p-0),
-                        und Astryx' CSS-Layer steht hinter Tailwinds
-                        Utilities, ließe sich also nicht wegnehmen. */}
-                    <Text type="code" className="min-w-0 flex-1 truncate">
-                      {state.campaignName || "…"}
-                    </Text>
+            <FieldsetSection legend="Name der Kampagne">
+              {editingName || state.nameEdited ? (
+                <TextField
+                  value={state.campaignName}
+                  onChange={(campaignNameValue) =>
+                    setState((s) => ({
+                      ...s,
+                      campaignName: campaignNameValue,
+                      nameEdited: true,
+                    }))
+                  }
+                  isRequired
+                  className="space-y-1.5"
+                >
+                  <Label className="sr-only">Kampagnenname</Label>
+                  <Input aria-label="Kampagnenname" />
+                  <Description className="flex items-center justify-between gap-3">
+                    Von Hand geändert — der Name folgt den Feldern unten nicht mehr.
                     <Button
-                      variant="secondary"
+                      variant="ghost"
                       size="sm"
-                      label="Anpassen"
-                      onClick={() => setEditingName(true)}
+                      label="Automatisch benennen"
+                      onClick={() => {
+                        setEditingName(false);
+                        setState((s) => ({ ...s, nameEdited: false }));
+                      }}
                     />
-                  </div>
-                )}
-
-                {/* Das Kürzel speist nur den Namen – es gehört hierher, nicht
-                    zwischen Budget und Datum. Vorher standen Auswahl und Feld
-                    unbeschriftet nebeneinander in einer Toolbar: zwei Kästen,
-                    von denen keiner sagte, was er ist. */}
-                {/* Gedeckelt: Ein Feld, in das zwei Buchstaben gehören, war über
-                    die halbe Karte breit und sah aus, als fehle darin etwas. */}
-                <div className="grid max-w-xl gap-4 sm:grid-cols-2">
-                  <Select
-                    selectedKey={knownInitials.includes(state.initials) ? state.initials : null}
-                    onSelectionChange={(key) => setState((s) => ({ ...s, initials: String(key) }))}
-                    placeholder="Kürzel wählen…"
-                    className="space-y-1.5"
-                  >
-                    <Label>Kürzel im Namen</Label>
-                    <Select.Trigger>
-                      <Select.Value />
-                      <Select.Indicator />
-                    </Select.Trigger>
-                    <Select.Popover>
-                      <ListBox>
-                        {knownInitials.map((i) => (
-                          <ListBox.Item key={i} id={i} textValue={i}>
-                            {i}
-                          </ListBox.Item>
-                        ))}
-                      </ListBox>
-                    </Select.Popover>
-                    <Description>Steht am Ende des Namens.</Description>
-                  </Select>
-                  <TextField
-                    value={state.initials}
-                    onChange={(initials) => setState((s) => ({ ...s, initials }))}
-                    className="space-y-1.5"
-                  >
-                    <Label>Anderes Kürzel</Label>
-                    <Input placeholder="z. B. MW" />
-                    <Description>Für alle, die noch in keiner Kampagne stehen.</Description>
-                  </TextField>
+                  </Description>
+                </TextField>
+              ) : (
+                <div className="border-line bg-surface-secondary flex items-center gap-3 rounded-xl border p-2 ps-3">
+                  {/* Text type="code" statt der Astryx-Komponente `Code`:
+                      die bringt eine eigene graue Fläche und Innenabstände
+                      mit, die hier – im schon getönten Kasten – vorher
+                      ausdrücklich weggenommen wurden (bg-transparent p-0),
+                      und Astryx' CSS-Layer steht hinter Tailwinds
+                      Utilities, ließe sich also nicht wegnehmen. */}
+                  <Text type="code" className="min-w-0 flex-1 truncate">
+                    {state.campaignName || "…"}
+                  </Text>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    label="Anpassen"
+                    onClick={() => setEditingName(true)}
+                  />
                 </div>
-              </Fieldset.Group>
-            </Fieldset>
+              )}
+
+              {/* Das Kürzel speist nur den Namen – es gehört hierher, nicht
+                  zwischen Budget und Datum. Vorher standen Auswahl und Feld
+                  unbeschriftet nebeneinander in einer Toolbar: zwei Kästen,
+                  von denen keiner sagte, was er ist. */}
+              {/* Gedeckelt: Ein Feld, in das zwei Buchstaben gehören, war über
+                  die halbe Karte breit und sah aus, als fehle darin etwas. */}
+              <div className="grid max-w-xl gap-4 sm:grid-cols-2">
+                <Select
+                  selectedKey={knownInitials.includes(state.initials) ? state.initials : null}
+                  onSelectionChange={(key) => setState((s) => ({ ...s, initials: String(key) }))}
+                  placeholder="Kürzel wählen…"
+                  className="space-y-1.5"
+                >
+                  <Label>Kürzel im Namen</Label>
+                  <Select.Trigger>
+                    <Select.Value />
+                    <Select.Indicator />
+                  </Select.Trigger>
+                  <Select.Popover>
+                    <ListBox>
+                      {knownInitials.map((i) => (
+                        <ListBox.Item key={i} id={i} textValue={i}>
+                          {i}
+                        </ListBox.Item>
+                      ))}
+                    </ListBox>
+                  </Select.Popover>
+                  <Description>Steht am Ende des Namens.</Description>
+                </Select>
+                <TextField
+                  value={state.initials}
+                  onChange={(initials) => setState((s) => ({ ...s, initials }))}
+                  className="space-y-1.5"
+                >
+                  <Label>Anderes Kürzel</Label>
+                  <Input placeholder="z. B. MW" />
+                  <Description>Für alle, die noch in keiner Kampagne stehen.</Description>
+                </TextField>
+              </div>
+            </FieldsetSection>
 
             <Divider />
 
@@ -895,153 +891,150 @@ function WizardSteps({
             {/* Der Rahmen trägt nur den ref: hierher springt „Rollen wählen“
                 aus dem Überschriften-Generator einen Schritt weiter vorn. */}
             <div ref={rolesRef} className="scroll-mt-24">
-            <Fieldset>
-              <Fieldset.Legend>Gesuchte Rollen</Fieldset.Legend>
-              <Fieldset.Group>
-                <CheckboxGroup
-                  value={state.roles}
-                  onChange={(roles) => setState((s) => ({ ...s, roles }))}
-                  // HeroUI's .checkbox-group ist standardmäßig flex-col; flex-wrap
-                  // allein ändert daran nichts (andere CSS-Eigenschaft) – ohne
-                  // flex-row bleibt es eine lange einspaltige Liste.
-                  className="flex flex-row flex-wrap gap-x-5 gap-y-2.5"
-                  aria-label="Rollen"
-                >
-                  {ROLES.map((r) => (
-                    // Control muss in Content verschachtelt sein, nicht daneben: Content
-                    // rendert das <label>, das den (visuell versteckten) <input> enthält –
-                    // nur was darin liegt, ist per Klick erreichbar. Als Geschwister blieb
-                    // die Box tot und die Gruppe fiel in .checkbox' flex-col auseinander.
-                    <Checkbox key={r.code} value={r.code}>
-                      <Checkbox.Content>
-                        <Checkbox.Control>
-                          <Checkbox.Indicator />
-                        </Checkbox.Control>
-                        {r.label}
-                      </Checkbox.Content>
-                    </Checkbox>
-                  ))}
-                </CheckboxGroup>
+            <FieldsetSection legend="Gesuchte Rollen">
+              <CheckboxGroup
+                value={state.roles}
+                onChange={(roles) => setState((s) => ({ ...s, roles }))}
+                // HeroUI's .checkbox-group ist standardmäßig flex-col; flex-wrap
+                // allein ändert daran nichts (andere CSS-Eigenschaft) – ohne
+                // flex-row bleibt es eine lange einspaltige Liste.
+                className="flex flex-row flex-wrap gap-x-5 gap-y-2.5"
+                aria-label="Rollen"
+              >
+                {ROLES.map((r) => (
+                  // Control muss in Content verschachtelt sein, nicht daneben: Content
+                  // rendert das <label>, das den (visuell versteckten) <input> enthält –
+                  // nur was darin liegt, ist per Klick erreichbar. Als Geschwister blieb
+                  // die Box tot und die Gruppe fiel in .checkbox' flex-col auseinander.
+                  <Checkbox key={r.code} value={r.code}>
+                    <Checkbox.Content>
+                      <Checkbox.Control>
+                        <Checkbox.Indicator />
+                      </Checkbox.Control>
+                      {r.label}
+                    </Checkbox.Content>
+                  </Checkbox>
+                ))}
+              </CheckboxGroup>
 
-                <TextField
-                  value={state.roleFreeText}
-                  onChange={(roleFreeText) => setState((s) => ({ ...s, roleFreeText }))}
-                  className="max-w-sm space-y-1.5"
-                >
-                  <Label>Weitere Rolle</Label>
-                  <Input placeholder="z. B. Koch" />
-                  <Description>
-                    Für Einzelfälle, die in kein Kürzel passen — landet unverändert im Namen.
-                  </Description>
-                </TextField>
-              </Fieldset.Group>
-            </Fieldset>
+              <TextField
+                value={state.roleFreeText}
+                onChange={(roleFreeText) => setState((s) => ({ ...s, roleFreeText }))}
+                className="max-w-sm space-y-1.5"
+              >
+                <Label>Weitere Rolle</Label>
+                <Input placeholder="z. B. Koch" />
+                <Description>
+                  Für Einzelfälle, die in kein Kürzel passen — landet unverändert im Namen.
+                </Description>
+              </TextField>
+            </FieldsetSection>
             </div>
 
             <Divider />
 
-            <Fieldset>
-              <Fieldset.Legend>Budget und Start</Fieldset.Legend>
-              <Fieldset.Group className="grid max-w-3xl gap-4 sm:grid-cols-3 sm:space-y-0">
-                <NumberField
-                  value={state.dailyBudgetEuros}
-                  onChange={(dailyBudgetEuros) => setState((s) => ({ ...s, dailyBudgetEuros }))}
-                  minValue={1}
-                  // Meta rechnet in Cent, also muss auch die Eingabe in Cent gehen.
-                  // Mit step={1} rastete das Feld beim Verlassen auf ganze Euro ein
-                  // und machte aus 30,05 wieder 30,00.
-                  step={0.01}
-                  formatOptions={{
-                    style: "currency",
-                    currency: "EUR",
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  }}
-                  className="space-y-1.5"
-                >
-                  <Label>Tagesbudget</Label>
-                  <NumberField.Group>
-                    <NumberField.Input />
-                  </NumberField.Group>
-                  {/* Unter jedem der drei Felder steht eine Zeile, auch wo es
-                      wenig zu sagen gibt: sonst stehen die Felder auf drei
-                      verschiedenen Höhen und die Reihe franst aus. */}
-                  <Description>Gilt für die ganze Kampagne.</Description>
-                </NumberField>
+            <FieldsetSection
+              legend="Budget und Start"
+              groupClassName="grid max-w-3xl gap-4 sm:grid-cols-3"
+            >
+              <NumberField
+                value={state.dailyBudgetEuros}
+                onChange={(dailyBudgetEuros) => setState((s) => ({ ...s, dailyBudgetEuros }))}
+                minValue={1}
+                // Meta rechnet in Cent, also muss auch die Eingabe in Cent gehen.
+                // Mit step={1} rastete das Feld beim Verlassen auf ganze Euro ein
+                // und machte aus 30,05 wieder 30,00.
+                step={0.01}
+                formatOptions={{
+                  style: "currency",
+                  currency: "EUR",
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                }}
+                className="space-y-1.5"
+              >
+                <Label>Tagesbudget</Label>
+                <NumberField.Group>
+                  <NumberField.Input />
+                </NumberField.Group>
+                {/* Unter jedem der drei Felder steht eine Zeile, auch wo es
+                    wenig zu sagen gibt: sonst stehen die Felder auf drei
+                    verschiedenen Höhen und die Reihe franst aus. */}
+                <Description>Gilt für die ganze Kampagne.</Description>
+              </NumberField>
 
-                {/* Leer heißt "kein Limit", nicht "0 €" – NumberField drückt das
-                    als NaN aus, der State als undefined. */}
-                <NumberField
-                  value={state.spendCapEuros ?? Number.NaN}
-                  onChange={(v) =>
-                    setState((s) => ({
-                      ...s,
-                      spendCapEuros: Number.isNaN(v) ? undefined : v,
-                    }))
-                  }
-                  minValue={100}
-                  step={0.01}
-                  formatOptions={{
-                    style: "currency",
-                    currency: "EUR",
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  }}
-                  className="space-y-1.5"
-                >
-                  <Label>Ausgabenlimit</Label>
-                  <NumberField.Group>
-                    <NumberField.Input />
-                  </NumberField.Group>
-                  <Description>Optional, mindestens 100 €.</Description>
-                </NumberField>
+              {/* Leer heißt "kein Limit", nicht "0 €" – NumberField drückt das
+                  als NaN aus, der State als undefined. */}
+              <NumberField
+                value={state.spendCapEuros ?? Number.NaN}
+                onChange={(v) =>
+                  setState((s) => ({
+                    ...s,
+                    spendCapEuros: Number.isNaN(v) ? undefined : v,
+                  }))
+                }
+                minValue={100}
+                step={0.01}
+                formatOptions={{
+                  style: "currency",
+                  currency: "EUR",
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                }}
+                className="space-y-1.5"
+              >
+                <Label>Ausgabenlimit</Label>
+                <NumberField.Group>
+                  <NumberField.Input />
+                </NumberField.Group>
+                <Description>Optional, mindestens 100 €.</Description>
+              </NumberField>
 
-                <DatePicker
-                  value={toCalendarDate(state.startDate)}
-                  onChange={(date) =>
-                    date && setState((s) => ({ ...s, startDate: date.toString() }))
-                  }
-                  className="space-y-1.5"
-                >
-                  <Label>Startdatum</Label>
-                  <DateField.Group fullWidth>
-                    <DateField.Input>
-                      {(segment) => <DateField.Segment segment={segment} />}
-                    </DateField.Input>
-                    <DateField.Suffix>
-                      <DatePicker.Trigger>
-                        <DatePicker.TriggerIndicator />
-                      </DatePicker.Trigger>
-                    </DateField.Suffix>
-                  </DateField.Group>
-                  <DatePicker.Popover>
-                    <Calendar aria-label="Startdatum">
-                      <Calendar.Header>
-                        <Calendar.YearPickerTrigger>
-                          <Calendar.YearPickerTriggerHeading />
-                          <Calendar.YearPickerTriggerIndicator />
-                        </Calendar.YearPickerTrigger>
-                        <Calendar.NavButton slot="previous" />
-                        <Calendar.NavButton slot="next" />
-                      </Calendar.Header>
-                      <Calendar.Grid>
-                        <Calendar.GridHeader>
-                          {(day) => <Calendar.HeaderCell>{day}</Calendar.HeaderCell>}
-                        </Calendar.GridHeader>
-                        <Calendar.GridBody>
-                          {(date) => <Calendar.Cell date={date} />}
-                        </Calendar.GridBody>
-                      </Calendar.Grid>
-                      <Calendar.YearPickerGrid>
-                        <Calendar.YearPickerGridBody>
-                          {({ year }) => <Calendar.YearPickerCell year={year} />}
-                        </Calendar.YearPickerGridBody>
-                      </Calendar.YearPickerGrid>
-                    </Calendar>
-                  </DatePicker.Popover>
-                </DatePicker>
-              </Fieldset.Group>
-            </Fieldset>
+              <DatePicker
+                value={toCalendarDate(state.startDate)}
+                onChange={(date) =>
+                  date && setState((s) => ({ ...s, startDate: date.toString() }))
+                }
+                className="space-y-1.5"
+              >
+                <Label>Startdatum</Label>
+                <DateField.Group fullWidth>
+                  <DateField.Input>
+                    {(segment) => <DateField.Segment segment={segment} />}
+                  </DateField.Input>
+                  <DateField.Suffix>
+                    <DatePicker.Trigger>
+                      <DatePicker.TriggerIndicator />
+                    </DatePicker.Trigger>
+                  </DateField.Suffix>
+                </DateField.Group>
+                <DatePicker.Popover>
+                  <Calendar aria-label="Startdatum">
+                    <Calendar.Header>
+                      <Calendar.YearPickerTrigger>
+                        <Calendar.YearPickerTriggerHeading />
+                        <Calendar.YearPickerTriggerIndicator />
+                      </Calendar.YearPickerTrigger>
+                      <Calendar.NavButton slot="previous" />
+                      <Calendar.NavButton slot="next" />
+                    </Calendar.Header>
+                    <Calendar.Grid>
+                      <Calendar.GridHeader>
+                        {(day) => <Calendar.HeaderCell>{day}</Calendar.HeaderCell>}
+                      </Calendar.GridHeader>
+                      <Calendar.GridBody>
+                        {(date) => <Calendar.Cell date={date} />}
+                      </Calendar.GridBody>
+                    </Calendar.Grid>
+                    <Calendar.YearPickerGrid>
+                      <Calendar.YearPickerGridBody>
+                        {({ year }) => <Calendar.YearPickerCell year={year} />}
+                      </Calendar.YearPickerGridBody>
+                    </Calendar.YearPickerGrid>
+                  </Calendar>
+                </DatePicker.Popover>
+              </DatePicker>
+            </FieldsetSection>
 
             <Disclosure>
               <Disclosure.Heading>
@@ -1232,5 +1225,36 @@ function WizardSteps({
         </div>
       </Card>
     </div>
+  );
+}
+
+/**
+ * Astryx kennt kein Fieldset. Ein Abschnitt mit Beschriftung ist deshalb
+ * natives <fieldset>/<legend> plus Astryx-Typografie – dieselbe Lösung wie in
+ * ad-set-block.tsx. Tailwinds Preflight räumt die Browser-Chrome (Rahmen,
+ * Einkerbung) schon weg, ein CSS-Override braucht es nicht.
+ *
+ * `groupClassName` sitzt am inneren div, das den Platz von Fieldset.Group
+ * einnimmt: die Felder darin stehen je nach Abschnitt untereinander oder
+ * nebeneinander im Raster.
+ */
+function FieldsetSection({
+  legend,
+  groupClassName = "space-y-4",
+  children,
+}: {
+  legend: ReactNode;
+  groupClassName?: string;
+  children: ReactNode;
+}) {
+  return (
+    <fieldset className="flex flex-col gap-4">
+      <legend className="w-full">
+        <Text type="large" weight="medium" as="span">
+          {legend}
+        </Text>
+      </legend>
+      <div className={groupClassName}>{children}</div>
+    </fieldset>
   );
 }
