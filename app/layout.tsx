@@ -1,3 +1,7 @@
+// Muss vor allem stehen, was ein Datum formatiert: legt Deutsch als Vorgabe
+// für Intl.DateTimeFormat fest (Begründung in der Datei).
+import "@/lib/intl-de";
+
 import type { Metadata } from "next";
 import { Figtree, Poppins } from "next/font/google";
 import { Suspense } from "react";
@@ -8,6 +12,7 @@ import brandIcon from "@/assets/logo-square.png";
 import { ensureAssigned } from "@/lib/assign";
 import { listCustomers } from "@/lib/customers";
 import { openSession, SESSION_COOKIE, sessionSecret } from "@/lib/session";
+import { IntlDeutschImBrowser } from "@/components/intl-de-client";
 import { Providers } from "./providers";
 import { NewCampaign } from "./shell/new-campaign";
 import { ScopeSwitcher } from "./shell/scope-switcher";
@@ -65,6 +70,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       {/* Die Leiste steht, gescrollt wird nur der Inhalt – bei 200 Kunden ist
           der Kunden-Scope nie weggescrollt. */}
       <body className="bg-canvas text-ink-700 flex h-full overflow-hidden">
+        <IntlDeutschImBrowser />
         <Providers>
           <Suspense fallback={<div className="border-line w-60 shrink-0 border-r" />}>
             <Sidebar
