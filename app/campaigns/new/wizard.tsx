@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Autocomplete,
   Calendar,
-  Card,
   Checkbox,
   CheckboxGroup,
   DateField,
@@ -27,7 +26,9 @@ import {
   Badge,
   Banner,
   Button,
+  Card,
   Divider,
+  Heading,
   ProgressBar,
   Text,
 } from "@astryxdesign/core";
@@ -527,7 +528,7 @@ function WizardSteps({
       {/* Die Karte legt ihre eigenen 16 px ab: Die Schrittleiste soll bis an
           beide Kanten reichen, und die Abschnitte darunter tragen mit 24 px
           mehr Rand, als eine Karte von sich aus gibt. */}
-      <Card className="gap-0 overflow-hidden p-0">
+      <Card padding={0}>
         {/* Der Zähler steht am Schritt, nicht erst am Ende: sonst erfährt man
             vom fehlenden Formular nach acht Uploads. Gesperrt, solange kein
             Kunde gewählt ist – siehe `locked`. */}
@@ -612,20 +613,16 @@ function WizardSteps({
                 dabei ist, sind drei Antworten – vorher standen sie als ein Satz
                 mit Mittelpunkt da und mussten gelesen statt überflogen werden. */}
             {client ? (
-              <Card variant="secondary" className="max-w-xl">
-                <Card.Header>
-                  <Card.Title>Das steckt hinter dieser Wahl</Card.Title>
-                </Card.Header>
-                <Card.Content>
-                  <Facts
-                    columns={1}
-                    rows={[
-                      ["Seite (veröffentlicht)", client.pageName],
-                      ["Werbekonto (zahlt)", account?.name ?? "—"],
-                      ["Instagram", instagramLabel ?? "nur Facebook-Seite"],
-                    ]}
-                  />
-                </Card.Content>
+              <Card variant="muted" className="max-w-xl space-y-3">
+                <Heading level={3}>Das steckt hinter dieser Wahl</Heading>
+                <Facts
+                  columns={1}
+                  rows={[
+                    ["Seite (veröffentlicht)", client.pageName],
+                    ["Werbekonto (zahlt)", account?.name ?? "—"],
+                    ["Instagram", instagramLabel ?? "nur Facebook-Seite"],
+                  ]}
+                />
               </Card>
             ) : (
               <Description>
@@ -1076,29 +1073,27 @@ function WizardSteps({
         {/* ------------------------------------------------ Schritt 4: Überprüfung */}
         {stepIndex === 3 && (
           <div className="space-y-4 p-6">
-            <Card variant="secondary">
-              <Card.Header>
-                <Card.Title className="text-base">{state.campaignName || "—"}</Card.Title>
-              </Card.Header>
-              <Card.Content>
-                <Facts
-                  rows={[
-                    ["Werbekonto (zahlt)", account?.name ?? "—"],
-                    ["Kunde (beworben)", state.business || "—"],
-                    ["Seite", client?.pageName ?? "—"],
-                    ["Instagram", instagramLabel ?? "nur Facebook-Seite"],
-                    ["Tagesbudget", money.format(state.dailyBudgetEuros)],
-                    [
-                      "Ausgabenlimit",
-                      state.spendCapEuros !== undefined
-                        ? money.format(state.spendCapEuros)
-                        : "keins",
-                    ],
-                    ["Start", new Date(state.startDate).toLocaleDateString("de-DE")],
-                    ["Anzeigen gesamt", String(state.adSets.reduce((n, s) => n + s.ads.length, 0))],
-                  ]}
-                />
-              </Card.Content>
+            {/* className="text-base" ist weggefallen: Astryx' Heading setzt
+                seine Schriftgröße selbst, und Astryx' CSS-Layer steht hinter
+                Tailwinds Utilities – die Klasse wäre wirkungslos gewesen.
+                Ebene 3 ist die Kartentitelgröße dieses Hauses. */}
+            <Card variant="muted" className="space-y-3">
+              <Heading level={3}>{state.campaignName || "—"}</Heading>
+              <Facts
+                rows={[
+                  ["Werbekonto (zahlt)", account?.name ?? "—"],
+                  ["Kunde (beworben)", state.business || "—"],
+                  ["Seite", client?.pageName ?? "—"],
+                  ["Instagram", instagramLabel ?? "nur Facebook-Seite"],
+                  ["Tagesbudget", money.format(state.dailyBudgetEuros)],
+                  [
+                    "Ausgabenlimit",
+                    state.spendCapEuros !== undefined ? money.format(state.spendCapEuros) : "keins",
+                  ],
+                  ["Start", new Date(state.startDate).toLocaleDateString("de-DE")],
+                  ["Anzeigen gesamt", String(state.adSets.reduce((n, s) => n + s.ads.length, 0))],
+                ]}
+              />
             </Card>
 
             {/* Ein Standort je Zeile, mit demselben Zähler wie in Schritt 2 –
@@ -1106,16 +1101,14 @@ function WizardSteps({
             <ul className="space-y-2">
               {issues.perSet.map(({ set, blockers }) => (
                 <li key={set.id}>
-                  <Card variant="secondary">
-                    <Card.Content className="flex flex-row items-center gap-3">
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium">{set.name}</span>
-                        <span className="text-ink-500 block truncate text-xs">
-                          {locationSummary(set)} · {plural(set.ads.length, "Anzeige", "Anzeigen")}
-                        </span>
+                  <Card variant="muted" className="flex flex-row items-center gap-3">
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium">{set.name}</span>
+                      <span className="text-ink-500 block truncate text-xs">
+                        {locationSummary(set)} · {plural(set.ads.length, "Anzeige", "Anzeigen")}
                       </span>
-                      <IssueChip count={blockers.length} />
-                    </Card.Content>
+                    </span>
+                    <IssueChip count={blockers.length} />
                   </Card>
                 </li>
               ))}
@@ -1200,7 +1193,10 @@ function WizardSteps({
         {/* Ein Weiter-Knopf, immer an derselben Stelle – im letzten Schritt wird
             er zum Anlegen-Knopf. Vorher war die Hauptaktion je nach Schritt an
             einem anderen Ort oder gar nicht vorhanden. */}
-        <Card.Footer className="border-line bg-surface-secondary justify-between gap-3 border-t px-6 py-4">
+        {/* Astryx' Card hat keine Unterteile – die Fußzeile ist deshalb ein
+            eigenes div und trägt ihr flex selbst, das vorher von
+            Card.Footer kam. */}
+        <div className="border-line bg-surface-secondary flex items-center justify-between gap-3 border-t px-6 py-4">
           <Button
             variant="secondary"
             label="Zurück"
@@ -1233,7 +1229,7 @@ function WizardSteps({
               />
             )}
           </div>
-        </Card.Footer>
+        </div>
       </Card>
     </div>
   );
