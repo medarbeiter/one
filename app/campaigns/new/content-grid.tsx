@@ -478,18 +478,9 @@ export const phaseLabel = (u: UploadJob) =>
  */
 const UploadIndicator = ({ upload }: { upload: UploadJob }) =>
   upload.progress === undefined ? null : (
-    <ProgressCircle
-      aria-label={phaseLabel(upload)}
-      size="sm"
-      value={upload.progress}
-      minValue={0}
-      maxValue={1}
-    >
-      <ProgressCircle.Track>
-        <ProgressCircle.TrackCircle />
-        <ProgressCircle.FillCircle />
-      </ProgressCircle.Track>
-    </ProgressCircle>
+    // Kein label: die Statuszeile unter der Kachel (TileNote) nennt dieselbe
+    // Phase bereits sichtbar — ein zweiter Name hier würde doppelt angesagt.
+    <ProgressRing value={upload.progress} />
   );
 
 /**
