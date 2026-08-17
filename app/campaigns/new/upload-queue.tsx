@@ -2,6 +2,7 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import { useToast, type ShowToastFn } from "@astryxdesign/core";
+import { ProgressRing } from "@/app/shell/progress-ring";
 import { createConvoy, type Convoy } from "@/lib/convoy";
 import { createGate } from "@/lib/gate";
 import { orientationOf, type Orientation } from "@/lib/media";
@@ -483,12 +484,18 @@ function BatchToast({ batchId }: { batchId: string }) {
   // Wer wartet, wartet auf andere – nicht auf die Leitung. Das steht dort, damit
   // ein stehender Fortschritt nicht nach Hänger aussieht.
   const bundling = mine.filter((job) => job.phase === "bundling").length;
+  const label = `${batch.done} von ${count(batch.total)} hochgeladen`;
   return (
-    <>
-      {`${batch.done} von ${count(batch.total)} hochgeladen`}
-      {converting > 0 && ` · ${converting} in Umwandlung`}
-      {bundling > 0 && ` · ${bundling} im Schwung bereit`}
-    </>
+    <div className="flex items-center gap-2">
+      {/* batch.total ist nie 0 (start() bricht bei leerer Auswahl vorher ab),
+          der Anteil bleibt also immer eine gültige Zahl zwischen 0 und 1. */}
+      <ProgressRing value={batch.done / batch.total} label={label} />
+      <span>
+        {label}
+        {converting > 0 && ` · ${converting} in Umwandlung`}
+        {bundling > 0 && ` · ${bundling} im Schwung bereit`}
+      </span>
+    </div>
   );
 }
 
