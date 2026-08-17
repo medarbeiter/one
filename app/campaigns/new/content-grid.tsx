@@ -365,35 +365,18 @@ export function AdTile({
         />
       )}
 
-      <AlertDialog isOpen={confirming} onOpenChange={setConfirming}>
-        <AlertDialog.Backdrop>
-          <AlertDialog.Container>
-            <AlertDialog.Dialog>
-              <AlertDialog.Header>
-                <AlertDialog.Icon />
-                <AlertDialog.Heading>Anzeige wird woanders verwendet</AlertDialog.Heading>
-              </AlertDialog.Header>
-              <AlertDialog.Body>
-                &bdquo;{ad.name}&ldquo; ist auch in {borrowers.join(", ")} im Einsatz. Dort
-                verschwindet der Inhalt mit.
-              </AlertDialog.Body>
-              <AlertDialog.Footer>
-                <Button variant="outline" onPress={() => setConfirming(false)}>
-                  Abbrechen
-                </Button>
-                <Button
-                  onPress={() => {
-                    setConfirming(false);
-                    onRemove();
-                  }}
-                >
-                  Trotzdem entfernen
-                </Button>
-              </AlertDialog.Footer>
-            </AlertDialog.Dialog>
-          </AlertDialog.Container>
-        </AlertDialog.Backdrop>
-      </AlertDialog>
+      <AlertDialog
+        isOpen={confirming}
+        onOpenChange={setConfirming}
+        title="Anzeige wird woanders verwendet"
+        description={`„${ad.name}“ ist auch in ${borrowers.join(", ")} im Einsatz. Dort verschwindet der Inhalt mit.`}
+        cancelLabel="Abbrechen"
+        actionLabel="Trotzdem entfernen"
+        onAction={() => {
+          setConfirming(false);
+          onRemove();
+        }}
+      />
     </Tile>
   );
 }
