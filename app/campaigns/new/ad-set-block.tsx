@@ -532,18 +532,17 @@ export function AdSetBlock({
       {/* Dieselben offenen Punkte, die die Kopfzeile als Zahl trägt – hier
           ausgeschrieben, damit man nicht raten muss, welche gemeint sind. */}
       {blockers.length > 0 && (
-        <Alert status="warning">
-          <Alert.Content>
-            <Alert.Title>Hier fehlt noch etwas</Alert.Title>
-            <Alert.Description>
-              <ul className="list-disc space-y-1 pl-5">
-                {blockers.map((b) => (
-                  <li key={b}>{b}</li>
-                ))}
-              </ul>
-            </Alert.Description>
-          </Alert.Content>
-        </Alert>
+        <Banner
+          status="warning"
+          title="Hier fehlt noch etwas"
+          description={
+            <ul className="list-disc space-y-1 pl-5">
+              {blockers.map((b) => (
+                <li key={b}>{b}</li>
+              ))}
+            </ul>
+          }
+        />
       )}
 
       <Fieldset>
@@ -565,19 +564,11 @@ export function AdSetBlock({
             blockiert, bis jede Datei einen Partner hatte. Ein Bild darf aber
             einzeln laufen – also ein Hinweis mit drei Wegen statt einer Sperre. */}
         {value.loose.length > 0 && (
-          <Alert status="default">
-            <Alert.Content>
-              <Alert.Title>
-                {plural(value.loose.length, "Datei gehört", "Dateien gehören")} noch zu keiner
-                Anzeige
-              </Alert.Title>
-              <Alert.Description>
-                Unten gestrichelt umrandet: als einzelne Anzeige verwenden, auf eine andere Datei
-                ziehen (ergibt ein Paar) oder auf eine bestehende Anzeige ziehen, um ihr ein
-                zweites Format zu geben.
-              </Alert.Description>
-            </Alert.Content>
-          </Alert>
+          <Banner
+            status="info"
+            title={`${plural(value.loose.length, "Datei gehört", "Dateien gehören")} noch zu keiner Anzeige`}
+            description="Unten gestrichelt umrandet: als einzelne Anzeige verwenden, auf eine andere Datei ziehen (ergibt ein Paar) oder auf eine bestehende Anzeige ziehen, um ihr ein zweites Format zu geben."
+          />
         )}
 
         {/* Anzeigen, laufende Uploads und liegengebliebene Dateien in einem
@@ -629,28 +620,20 @@ export function AdSetBlock({
         )}
 
         {uploads.some((u) => u.error) && (
-          <Alert status="danger">
-            <Alert.Content>
-              <Alert.Title>Einige Uploads sind fehlgeschlagen</Alert.Title>
-              <Alert.Description>
-                {uploads
-                  .filter((u) => u.error)
-                  .map((u) => `${u.name}: ${u.error}`)
-                  .join(" · ")}
-              </Alert.Description>
-              {/* Fast immer die Leitung oder ein Wackler bei Meta – die Dateien
-                  liegen noch hier, also braucht es dafür keinen zweiten Gang
-                  durch den Dateidialog. */}
-              <Button
-                className="mt-3"
-                size="sm"
-                variant="tertiary"
-                onPress={() => retryUploads(value.id)}
-              >
-                Fehlgeschlagene erneut versuchen
-              </Button>
-            </Alert.Content>
-          </Alert>
+          <Banner
+            status="error"
+            title="Einige Uploads sind fehlgeschlagen"
+            description={uploads
+              .filter((u) => u.error)
+              .map((u) => `${u.name}: ${u.error}`)
+              .join(" · ")}
+            // Fast immer die Leitung oder ein Wackler bei Meta – die Dateien
+            // liegen noch hier, also braucht es dafür keinen zweiten Gang
+            // durch den Dateidialog.
+            endContent={
+              <Button size="sm" variant="ghost" label="Fehlgeschlagene erneut versuchen" onClick={() => retryUploads(value.id)} />
+            }
+          />
         )}
         </Fieldset.Group>
 
@@ -752,12 +735,7 @@ export function AdSetBlock({
           </ComboBox.Popover>
         </ComboBox>
         {formsError && (
-          <Alert status="danger">
-            <Alert.Content>
-              <Alert.Title>Lead-Formulare konnten nicht geladen werden</Alert.Title>
-              <Alert.Description>{formsError}</Alert.Description>
-            </Alert.Content>
-          </Alert>
+          <Banner status="error" title="Lead-Formulare konnten nicht geladen werden" description={formsError} />
         )}
         {/* Kein Fehler, aber auch keine Auswahl: die Seite hat schlicht noch
             kein Formular. Ohne diesen Hinweis wirkt das leere Feld wie ein Bug. */}
@@ -843,15 +821,11 @@ export function AdSetBlock({
           {/* Meta lehnt eine UGC-Anzeige ab, bei der jedes Textfeld nur einen
               Eintrag hat – lieber hier sagen als mitten im Anlegen. */}
           {secondTextMissing && (
-            <Alert status="warning">
-              <Alert.Content>
-                <Alert.Title>Zweiten Primärtext oder zweite Überschrift hinzufügen</Alert.Title>
-                <Alert.Description>
-                  Meta lehnt eine UGC-Anzeige ab, die von jedem nur einen hat. Split-Anzeigen sind
-                  davon nicht betroffen.
-                </Alert.Description>
-              </Alert.Content>
-            </Alert>
+            <Banner
+              status="warning"
+              title="Zweiten Primärtext oder zweite Überschrift hinzufügen"
+              description="Meta lehnt eine UGC-Anzeige ab, die von jedem nur einen hat. Split-Anzeigen sind davon nicht betroffen."
+            />
           )}
 
           <TextListField
