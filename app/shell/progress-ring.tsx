@@ -18,7 +18,11 @@ export function ProgressRing({
   label: string;
   size?: number;
 }) {
-  const share = Math.max(0, Math.min(1, value));
+  // A NaN or otherwise non-finite value (e.g. a progress fraction derived
+  // from division by a total not yet known) must not reach the geometry
+  // below — Math.min/Math.max would propagate the NaN into
+  // strokeDashoffset. Treat it as "no progress yet" instead.
+  const share = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
   const centre = size / 2;
   const radius = centre - 2;
   const circumference = 2 * Math.PI * radius;
