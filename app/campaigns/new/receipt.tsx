@@ -1,6 +1,6 @@
 "use client";
 
-import { Alert, Button, Link } from "@heroui/react";
+import { Banner, Button, Link } from "@astryxdesign/core";
 import { label, plural } from "@/lib/labels";
 import type { Receipt } from "@/lib/launch";
 import type { LaunchState, WizardSubmission } from "../actions";
@@ -97,42 +97,41 @@ export function ReceiptPanel({
           siehe app/campaigns/actions.ts) – ohne diese Unterscheidung würde "Could
           not create" die Person zu einer zweiten, doppelten Kampagne verleiten. */}
       {error && !receipt && (
-        <Alert status="danger">
-          <Alert.Content>
-            <Alert.Title>Kampagne konnte nicht erstellt werden</Alert.Title>
-            <Alert.Description>{label(error)}</Alert.Description>
-          </Alert.Content>
-        </Alert>
+        <Banner status="error" title="Kampagne konnte nicht erstellt werden" description={label(error)} />
       )}
       {error && receipt && (
-        <Alert status="warning">
-          <Alert.Content>
-            <Alert.Title>Kampagne erstellt, konnte aber nicht überprüft werden</Alert.Title>
-            <Alert.Description>
+        <Banner
+          status="warning"
+          title="Kampagne erstellt, konnte aber nicht überprüft werden"
+          description={
+            <>
               Die Kampagne und die Anzeigen unten wurden bei Meta erstellt — nur die
               anschließende automatische Prüfung ist fehlgeschlagen: {label(error)}
-            </Alert.Description>
-          </Alert.Content>
-        </Alert>
+            </>
+          }
+        />
       )}
 
       {receipt && (
         <>
-          <Alert status={receipt.failed.length > 0 || error ? "warning" : "success"}>
-            <Alert.Content>
-              <Alert.Title>
+          <Banner
+            status={receipt.failed.length > 0 || error ? "warning" : "success"}
+            title={
+              <>
                 Kampagne {receipt.campaignId ?? "erstellt"} — {receipt.adSets.length}{" "}
                 Anzeigengruppe(n)
-              </Alert.Title>
-              <Alert.Description>
+              </>
+            }
+            description={
+              <>
                 {receipt.adSets
                   .map((s) => `${s.name}: ${plural(s.adIds.length, "Anzeige", "Anzeigen")}`)
                   .join(", ")}
                 {receipt.failed.length > 0 &&
                   ` — ${plural(receipt.failed.length, "Anzeige", "Anzeigen")} fehlgeschlagen`}
-              </Alert.Description>
-            </Alert.Content>
-          </Alert>
+              </>
+            }
+          />
 
           <div className="space-y-1 text-sm">
             <p>
@@ -181,7 +180,7 @@ export function ReceiptPanel({
               </li>
             ))}
           </ul>
-          <Button onPress={retry}>Fehlgeschlagene Anzeigen erneut versuchen</Button>
+          <Button label="Fehlgeschlagene Anzeigen erneut versuchen" onClick={retry} />
         </div>
       )}
     </div>
