@@ -559,9 +559,10 @@ export function UploadTile({ upload }: { upload: UploadJob }) {
  * Schatten am Rand sagt, dass da noch etwas ist.
  */
 export function ContentGrid({ children }: { children: ReactNode }) {
+  // .scroll-fade ersetzt HeroUIs ScrollShadow (app/globals.css).
   return (
-    <ScrollShadow className="max-h-[34rem] px-0.5 py-1" size={48}>
+    <div className="scroll-fade max-h-[34rem] px-0.5 py-1">
       <ul className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3">{children}</ul>
-    </ScrollShadow>
+    </div>
   );
 }
