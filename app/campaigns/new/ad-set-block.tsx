@@ -298,6 +298,27 @@ function TextListField({
   );
 }
 
+/**
+ * Astryx hat kein Fieldset — HeroUIs Fieldset war selbst nur benanntes,
+ * gruppierendes Markup ohne eigenes Verhalten (kein Popover, kein Fokus-Trap),
+ * also reicht natives <fieldset>/<legend>. Tailwinds Preflight nullt beide
+ * Elemente ohnehin (kein Browser-Rand, keine Standardschrift), deshalb kein
+ * CSS-Override nötig. Die Maße (flex-Spalte mit gap-6, Legende in
+ * text-base/medium) sind aus fieldset.styles.ts übernommen.
+ */
+function FieldsetSection({ legend, children }: { legend: ReactNode; children: ReactNode }) {
+  return (
+    <fieldset className="flex shrink grow basis-0 flex-col gap-6">
+      <legend className="w-full">
+        <Text type="large" weight="medium" as="span">
+          {legend}
+        </Text>
+      </legend>
+      {children}
+    </fieldset>
+  );
+}
+
 export function AdSetBlock({
   value,
   pageId,
@@ -545,17 +566,16 @@ export function AdSetBlock({
         />
       )}
 
-      <Fieldset>
-        <Fieldset.Legend>Inhalt</Fieldset.Legend>
+      <FieldsetSection legend="Inhalt">
         {/* Rein informativ – die Auswahl passiert nicht hier, sondern folgt aus
             der Seite des Kunden (siehe wizard.tsx). Fehlt das Instagram-Konto,
             ist das kein Fehler: die Anzeige läuft dann nur über die Seite. */}
-        <Description>
+        <Text type="supporting" as="div">
           {instagramUserId
             ? `Wird auf Instagram als ${instagramLabel ?? `Instagram-ID ${instagramUserId}`} veröffentlicht`
             : "Nur Facebook-Seite — kein Instagram-Konto verbunden"}
-        </Description>
-        <Fieldset.Group>
+        </Text>
+        <div className="w-full space-y-4">
         {/* Nicht gesperrt, solange etwas läuft: nachgelegte Dateien reihen sich
             ein. Wer zehn Videos hat, soll sie nicht in Schüben abpassen müssen. */}
         <FilePicker onFiles={onFiles} />
@@ -635,37 +655,26 @@ export function AdSetBlock({
             }
           />
         )}
-        </Fieldset.Group>
+        </div>
 
         {linkable.length > 0 && (
-          <Fieldset.Actions>
+          <div className="flex items-center gap-2 pt-1">
             {/* Das ist eine Aktion, kein Wert: nach dem Klick ist der Inhalt
                 übernommen und es gibt nichts, was das Feld weiter anzeigen
                 könnte. Als <select> musste es sich nach jeder Wahl selbst
                 zurücksetzen. */}
-            <Dropdown>
-              <Dropdown.Trigger className={buttonVariants({ variant: "outline", size: "sm" })}>
-                Inhalt übernehmen von…
-              </Dropdown.Trigger>
-              <Dropdown.Popover>
-                <Dropdown.Menu items={linkable} onAction={(key) => linkFrom(String(key))}>
-                  {(s: { id: string; name: string }) => (
-                    <Dropdown.Item id={s.id} textValue={s.name}>
-                      {s.name}
-                    </Dropdown.Item>
-                  )}
-                </Dropdown.Menu>
-              </Dropdown.Popover>
-            </Dropdown>
-          </Fieldset.Actions>
+            <DropdownMenu
+              button={{ label: "Inhalt übernehmen von…", variant: "secondary", size: "sm" }}
+              items={linkable.map((s) => ({ label: s.name, onClick: () => linkFrom(s.id) }))}
+            />
+          </div>
         )}
-      </Fieldset>
+      </FieldsetSection>
 
       <Divider />
 
-      <Fieldset>
-        <Fieldset.Legend>Standort und Umkreis</Fieldset.Legend>
-        <Fieldset.Group>
+      <FieldsetSection legend="Standort und Umkreis">
+        <div className="w-full space-y-4">
           <TextField
             value={value.name}
             onChange={(name) => onChange({ name })}
@@ -681,19 +690,22 @@ export function AdSetBlock({
             onChange={onChange}
             adAccount={adAccount}
           />
-        </Fieldset.Group>
-      </Fieldset>
+        </div>
+      </FieldsetSection>
 
       <Divider />
 
-      <Fieldset>
-        {/* Wessen Formulare das sind, steht in der Überschrift – ohne den
-            Seitennamen sah die Liste des falschen Kunden genauso aus wie die
-            richtige. */}
-        <Fieldset.Legend>
-          Lead-Formular {pageName && <span className="text-ink-500">· {pageName}</span>}
-        </Fieldset.Legend>
-        <Fieldset.Group>
+      {/* Wessen Formulare das sind, steht in der Überschrift – ohne den
+          Seitennamen sah die Liste des falschen Kunden genauso aus wie die
+          richtige. */}
+      <FieldsetSection
+        legend={
+          <>
+            Lead-Formular {pageName && <span className="text-ink-500">· {pageName}</span>}
+          </>
+        }
+      >
+        <div className="w-full space-y-4">
         {/* ComboBox statt Select: eine Seite hat schnell dreißig Formulare mit
             fast gleichem Namen ("PDL Kampagne 03/26"), und die scrollt niemand
             durch. Gefiltert wird über Name und ID – die ID steht in Meta neben
@@ -778,9 +790,9 @@ export function AdSetBlock({
             {pulling ? "Wird geholt…" : "Formular holen"}
           </Button>
         </div>
-        </Fieldset.Group>
+        </div>
 
-        <Fieldset.Actions>
+        <div className="flex items-center gap-2 pt-1">
           {/* Ohne asset_id landet der Baukasten auf der Seite, die im Business
               Manager zuletzt offen war – in der Praxis MedArbeiter statt des
               Kunden. Lieber gar nicht anbieten als auf die falsche Seite. */}
@@ -800,14 +812,13 @@ export function AdSetBlock({
           >
             {formsLoading ? "Wird aktualisiert…" : "Aktualisieren"}
           </Button>
-        </Fieldset.Actions>
-      </Fieldset>
+        </div>
+      </FieldsetSection>
 
       <Divider />
 
-      <Fieldset>
-        <Fieldset.Legend>Texte</Fieldset.Legend>
-        <Fieldset.Group>
+      <FieldsetSection legend="Texte">
+        <div className="w-full space-y-4">
           <TextListField
             label="Primärtexte"
             singular="Primärtext"
@@ -870,18 +881,19 @@ export function AdSetBlock({
             <TextArea rows={6} maxLength={DESCRIPTION_LIMIT} />
           </TextField>
           <CopyNotices notices={notices} field="description" />
-        </Fieldset.Group>
-      </Fieldset>
+        </div>
+      </FieldsetSection>
 
       <Divider />
 
       {/* Ganz unten und nur als Umriss: das Entfernen ist die seltenste Aktion
           hier und stand vorher als erstes in der Kopfzeile. */}
-      <Toolbar aria-label="Anzeigengruppe">
-        <Button variant="outline" onPress={onRemove} isDisabled={!canRemove}>
-          Standort entfernen
-        </Button>
-      </Toolbar>
+      <Toolbar
+        label="Anzeigengruppe"
+        startContent={
+          <Button variant="secondary" label="Standort entfernen" onClick={onRemove} isDisabled={!canRemove} />
+        }
+      />
     </div>
   );
 }
