@@ -8,7 +8,6 @@ import {
   Card,
   Checkbox,
   CheckboxGroup,
-  Chip,
   DateField,
   DatePicker,
   Description,
@@ -742,9 +741,14 @@ function WizardSteps({
                           {locationSummary(set)}
                         </span>
                       </span>
-                      <Chip size="sm" variant="soft" className="tabular-nums">
-                        {plural(set.ads.length, "Anzeige", "Anzeigen")}
-                      </Chip>
+                      {/* Anders als IssueChip trägt dieser Zähler keine
+                          Bewertung – er sagt nur, wie viele Anzeigen im Block
+                          stecken. Deshalb neutral statt error/success. */}
+                      <Badge
+                        variant="neutral"
+                        className="tabular-nums"
+                        label={plural(set.ads.length, "Anzeige", "Anzeigen")}
+                      />
                       <IssueChip count={blockers.length} />
                       <Disclosure.Indicator />
                     </Disclosure.Trigger>
