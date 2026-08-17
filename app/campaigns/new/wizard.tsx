@@ -21,14 +21,13 @@ import {
   NumberField,
   SearchField,
   Select,
-  Separator,
   TextField,
-  Typography,
 } from "@heroui/react";
 import {
   Badge,
   Banner,
   Button,
+  Divider,
   ProgressBar,
   Text,
 } from "@astryxdesign/core";
@@ -831,9 +830,15 @@ function WizardSteps({
                   </TextField>
                 ) : (
                   <div className="border-line bg-surface-secondary flex items-center gap-3 rounded-xl border p-2 ps-3">
-                    <Typography.Code className="min-w-0 flex-1 truncate bg-transparent p-0 text-sm">
+                    {/* Text type="code" statt der Astryx-Komponente `Code`:
+                        die bringt eine eigene graue Fläche und Innenabstände
+                        mit, die hier – im schon getönten Kasten – vorher
+                        ausdrücklich weggenommen wurden (bg-transparent p-0),
+                        und Astryx' CSS-Layer steht hinter Tailwinds
+                        Utilities, ließe sich also nicht wegnehmen. */}
+                    <Text type="code" className="min-w-0 flex-1 truncate">
                       {state.campaignName || "…"}
-                    </Typography.Code>
+                    </Text>
                     <Button
                       variant="secondary"
                       size="sm"
@@ -885,7 +890,7 @@ function WizardSteps({
               </Fieldset.Group>
             </Fieldset>
 
-            <Separator />
+            <Divider />
 
             {/* Eigener Abschnitt statt einer Zeile Kleingedrucktem über den
                 Kästchen: die Rollen sind eine Frage für sich, auch wenn ihre
@@ -936,7 +941,7 @@ function WizardSteps({
             </Fieldset>
             </div>
 
-            <Separator />
+            <Divider />
 
             <Fieldset>
               <Fieldset.Legend>Budget und Start</Fieldset.Legend>
