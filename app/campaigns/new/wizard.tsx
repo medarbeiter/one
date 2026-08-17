@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Autocomplete,
-  Button,
   Calendar,
   Card,
   Checkbox,
@@ -29,7 +28,7 @@ import {
 import {
   Badge,
   Banner,
-  Button as AstryxButton,
+  Button,
   ProgressBar,
   Text,
 } from "@astryxdesign/core";
@@ -210,7 +209,7 @@ function LeadgenTosAlert({ client }: { client: WizardClient }) {
         // target="_blank": der Entwurf liegt im sessionStorage dieses Tabs, und
         // wer ihn zum Annehmen verlässt, käme sonst auf einen leeren Assistenten
         // zurück.
-        <AstryxButton
+        <Button
           label="Bei Meta annehmen"
           href={leadgenTosUrl(client.pageId)}
           target="_blank"
@@ -521,9 +520,7 @@ function WizardSteps({
           title="Entwurf wiederhergestellt"
           description="Die Eingaben stammen aus einer früheren Sitzung in diesem Tab."
           endContent={
-            <Button variant="outline" size="sm" onPress={discard}>
-              Neu beginnen
-            </Button>
+            <Button variant="secondary" size="sm" onClick={discard} label="Neu beginnen" />
           }
         />
       )}
@@ -602,9 +599,12 @@ function WizardSteps({
 
               {/* Absichtlich noch ohne Aktion: der Einstieg ist sichtbar, ohne
                   eine Kundenanlage vorzutäuschen, die es im Backend nicht gibt. */}
-              <Button isIconOnly variant="secondary" aria-label="Kunde hinzufügen">
-                <UserPlusIcon aria-hidden size={20} weight="bold" />
-              </Button>
+              <Button
+                isIconOnly
+                variant="secondary"
+                label="Kunde hinzufügen"
+                icon={<UserPlusIcon aria-hidden size={20} weight="bold" />}
+              />
             </div>
 
             {client?.needsLeadgenTos && <LeadgenTosAlert client={client} />}
@@ -784,9 +784,7 @@ function WizardSteps({
               ))}
             </DisclosureGroup>
 
-            <Button variant="outline" onPress={addLocation}>
-              Standort hinzufügen
-            </Button>
+            <Button variant="secondary" onClick={addLocation} label="Standort hinzufügen" />
           </div>
         )}
 
@@ -823,13 +821,12 @@ function WizardSteps({
                       <Button
                         variant="ghost"
                         size="sm"
-                        onPress={() => {
+                        label="Automatisch benennen"
+                        onClick={() => {
                           setEditingName(false);
                           setState((s) => ({ ...s, nameEdited: false }));
                         }}
-                      >
-                        Automatisch benennen
-                      </Button>
+                      />
                     </Description>
                   </TextField>
                 ) : (
@@ -837,9 +834,12 @@ function WizardSteps({
                     <Typography.Code className="min-w-0 flex-1 truncate bg-transparent p-0 text-sm">
                       {state.campaignName || "…"}
                     </Typography.Code>
-                    <Button variant="outline" size="sm" onPress={() => setEditingName(true)}>
-                      Anpassen
-                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      label="Anpassen"
+                      onClick={() => setEditingName(true)}
+                    />
                   </div>
                 )}
 
@@ -1197,12 +1197,11 @@ function WizardSteps({
             einem anderen Ort oder gar nicht vorhanden. */}
         <Card.Footer className="border-line bg-surface-secondary justify-between gap-3 border-t px-6 py-4">
           <Button
-            variant="outline"
+            variant="secondary"
+            label="Zurück"
             isDisabled={stepIndex === 0 || pending}
-            onPress={() => setStep(String(stepIndex - 1))}
-          >
-            Zurück
-          </Button>
+            onClick={() => setStep(String(stepIndex - 1))}
+          />
 
           <div className="flex items-center gap-3">
             {stepIndex < STEPS.length - 1 ? (
@@ -1214,14 +1213,19 @@ function WizardSteps({
                       : `${stepIssues[stepIndex]} offene Punkte — du kannst sie später klären.`}
                   </Description>
                 )}
-                <Button isDisabled={locked} onPress={() => setStep(String(stepIndex + 1))}>
-                  Weiter: {STEPS[stepIndex + 1]}
-                </Button>
+                <Button
+                  isDisabled={locked}
+                  label={`Weiter: ${STEPS[stepIndex + 1]}`}
+                  onClick={() => setStep(String(stepIndex + 1))}
+                />
               </>
             ) : (
-              <Button onPress={onCreate} isPending={pending} isDisabled={pending || blocked}>
-                {pending ? "Wird erstellt…" : "Erstellen (pausiert)"}
-              </Button>
+              <Button
+                onClick={onCreate}
+                isLoading={pending}
+                isDisabled={pending || blocked}
+                label={pending ? "Wird erstellt…" : "Erstellen (pausiert)"}
+              />
             )}
           </div>
         </Card.Footer>
