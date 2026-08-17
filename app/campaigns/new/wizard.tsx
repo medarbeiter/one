@@ -3,9 +3,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Autocomplete,
-  Calendar,
-  DateField,
-  DatePicker,
   Description,
   Disclosure,
   DisclosureGroup,
@@ -22,6 +19,7 @@ import {
   Card,
   CheckboxList,
   CheckboxListItem,
+  DateInput,
   Divider,
   Heading,
   NumberInput,
@@ -29,6 +27,7 @@ import {
   Selector,
   Text,
   TextInput,
+  type ISODateString,
 } from "@astryxdesign/core";
 import { CaretRightIcon, UserPlusIcon } from "@phosphor-icons/react";
 // React.Key kennt bigint, react-aria nicht – Collections rechnen mit dem
@@ -958,50 +957,17 @@ function WizardSteps({
                 width="100%"
               />
 
-              <DatePicker
-                value={toCalendarDate(state.startDate)}
-                onChange={(date) =>
-                  date && setState((s) => ({ ...s, startDate: date.toString() }))
-                }
-                className="space-y-1.5"
-              >
-                <Label>Startdatum</Label>
-                <DateField.Group fullWidth>
-                  <DateField.Input>
-                    {(segment) => <DateField.Segment segment={segment} />}
-                  </DateField.Input>
-                  <DateField.Suffix>
-                    <DatePicker.Trigger>
-                      <DatePicker.TriggerIndicator />
-                    </DatePicker.Trigger>
-                  </DateField.Suffix>
-                </DateField.Group>
-                <DatePicker.Popover>
-                  <Calendar aria-label="Startdatum">
-                    <Calendar.Header>
-                      <Calendar.YearPickerTrigger>
-                        <Calendar.YearPickerTriggerHeading />
-                        <Calendar.YearPickerTriggerIndicator />
-                      </Calendar.YearPickerTrigger>
-                      <Calendar.NavButton slot="previous" />
-                      <Calendar.NavButton slot="next" />
-                    </Calendar.Header>
-                    <Calendar.Grid>
-                      <Calendar.GridHeader>
-                        {(day) => <Calendar.HeaderCell>{day}</Calendar.HeaderCell>}
-                      </Calendar.GridHeader>
-                      <Calendar.GridBody>
-                        {(date) => <Calendar.Cell date={date} />}
-                      </Calendar.GridBody>
-                    </Calendar.Grid>
-                    <Calendar.YearPickerGrid>
-                      <Calendar.YearPickerGridBody>
-                        {({ year }) => <Calendar.YearPickerCell year={year} />}
-                      </Calendar.YearPickerGridBody>
-                    </Calendar.YearPickerGrid>
-                  </Calendar>
-                </DatePicker.Popover>
-              </DatePicker>
+              {/* Astryx bündelt Feld, Aufklapper und Kalender in einer
+                  Komponente – aus DatePicker + DateField + Calendar samt
+                  Kopfzeile, Navigation, Raster und Jahrwähler wird ein
+                  DateInput. Gerechnet wird in ISO-Strings (yyyy-mm-dd), genau
+                  dem Format, in dem das Startdatum ohnehin im State liegt. */}
+              <DateInput
+                label="Startdatum"
+                value={toIsoDate(state.startDate)}
+                onChange={(date) => date && setState((s) => ({ ...s, startDate: date }))}
+                width="100%"
+              />
             </FieldsetSection>
 
             <Disclosure>
@@ -1184,6 +1150,12 @@ function WizardSteps({
     </div>
   );
 }
+
+// Astryx' DateInput rechnet in ISO-Strings statt in CalendarDate. Die
+// Absicherung gegen einen kaputten sessionStorage-Eintrag bleibt bei
+// toCalendarDate; CalendarDate.toString() liefert immer yyyy-mm-dd, was
+// TypeScript einem string nicht ansieht – daher die eine Zusicherung hier.
+const toIsoDate = (iso: string) => toCalendarDate(iso).toString() as ISODateString;
 
 // Steht zweimal im Baum – einmal sichtbar, einmal als `description` fürs
 // Vorlesen. Eine Konstante, damit die beiden nie auseinanderlaufen.
