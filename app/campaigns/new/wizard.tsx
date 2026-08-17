@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Alert,
   Autocomplete,
   Button,
   Calendar,
@@ -518,17 +517,16 @@ function WizardSteps({
       {/* Ein wiederhergestellter Entwurf sieht aus wie ein frisch ausgefüllter –
           ohne diesen Hinweis baut jemand auf den Zahlen von gestern weiter. */}
       {restored && (
-        <Alert status="warning">
-          <Alert.Content>
-            <Alert.Title>Entwurf wiederhergestellt</Alert.Title>
-            <Alert.Description>
-              Die Eingaben stammen aus einer früheren Sitzung in diesem Tab.
-            </Alert.Description>
-          </Alert.Content>
-          <Button variant="outline" size="sm" onPress={discard}>
-            Neu beginnen
-          </Button>
-        </Alert>
+        <Banner
+          status="warning"
+          title="Entwurf wiederhergestellt"
+          description="Die Eingaben stammen aus einer früheren Sitzung in diesem Tab."
+          endContent={
+            <Button variant="outline" size="sm" onPress={discard}>
+              Neu beginnen
+            </Button>
+          }
+        />
       )}
 
       {/* Die Karte legt ihre eigenen 16 px ab: Die Schrittleiste soll bis an
@@ -1155,33 +1153,31 @@ function WizardSteps({
             {/* Was Meta ohnehin ablehnen würde – hier kostet es einen Klick, dort
                 einen halb angelegten Kampagnenbaum. */}
             {blocked && (
-              <Alert status="warning">
-                <Alert.Content>
-                  <Alert.Title>Noch nicht bereit zum Erstellen</Alert.Title>
-                  <Alert.Description>
-                    <ul className="list-disc space-y-1 pl-5">
-                      {allIssues.map((b) => (
-                        <li key={b}>{b}</li>
-                      ))}
-                    </ul>
-                  </Alert.Description>
-                </Alert.Content>
-              </Alert>
+              <Banner
+                status="warning"
+                title="Noch nicht bereit zum Erstellen"
+                description={
+                  <ul className="list-disc space-y-1 pl-5">
+                    {allIssues.map((b) => (
+                      <li key={b}>{b}</li>
+                    ))}
+                  </ul>
+                }
+              />
             )}
 
             {overlaps.length > 0 && (
-              <Alert status="warning">
-                <Alert.Content>
-                  <Alert.Title>Zwei Anzeigengruppen am selben Ort</Alert.Title>
-                  <Alert.Description>
-                    <ul className="list-disc space-y-1 pl-5">
-                      {overlaps.map((o) => (
-                        <li key={o}>{o}</li>
-                      ))}
-                    </ul>
-                  </Alert.Description>
-                </Alert.Content>
-              </Alert>
+              <Banner
+                status="warning"
+                title="Zwei Anzeigengruppen am selben Ort"
+                description={
+                  <ul className="list-disc space-y-1 pl-5">
+                    {overlaps.map((o) => (
+                      <li key={o}>{o}</li>
+                    ))}
+                  </ul>
+                }
+              />
             )}
 
             {progress && <LaunchProgressBar progress={progress} />}
