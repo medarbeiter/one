@@ -321,8 +321,8 @@ function start(files: File[], target: Target, clearFailed: boolean): void {
     showToast?.({
       body: (
         <>
-          <div>{`„${target.adSetName}“ · Upload läuft.`}</div>
           <BatchToast batchId={batch.id} />
+          <div>{`„${target.adSetName}“ · Upload läuft.`}</div>
         </>
       ),
       isAutoHide: false,
@@ -427,10 +427,12 @@ function settle(batch: Batch) {
   batch.dismiss?.();
 
   // Astryx' Toast kennt nur "info" und "error" – kein eigenes "warning" oder
-  // "success" (siehe Bericht). Vollständiger Fehlschlag bekommt "error", jedes
-  // Ergebnis mit mindestens einer angekommenen Datei "info"; der Text selbst
-  // bleibt unverändert und trägt den Unterschied zwischen Erfolg und
-  // Teilerfolg weiterhin genau.
+  // "success" (siehe Bericht). Nur der reine Erfolg bekommt "info" mit
+  // automatischem Ausblenden; Teilerfolg bekommt ebenfalls "error", denn hier
+  // fehlt etwas und ein zweiter Versuch ist nötig – bei gleicher Textlänge
+  // wie beim Erfolg wäre das sonst nicht mehr auf den ersten Blick zu
+  // unterscheiden. "error" bringt außerdem automatisch kein Ausblenden mit,
+  // der Toast bleibt also stehen, bis die Datei erneut versucht wurde.
   const at = `„${batch.adSetName}“`;
   if (!batch.failed.length)
     showToast?.({
@@ -443,6 +445,7 @@ function settle(batch: Batch) {
     });
   else if (batch.done)
     showToast?.({
+      type: "error",
       body: (
         <>
           <div>{`${batch.done} von ${count(batch.total)} hochgeladen`}</div>
