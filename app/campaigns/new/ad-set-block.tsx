@@ -750,6 +750,14 @@ export function AdSetBlock({
           isLabelHidden
           searchSource={formSearchSource}
           debounceMs={0}
+          // HeroUIs ComboBox.Trigger öffnete die volle Liste ohne Tippen —
+          // genau dafür ist dieses Feld gedacht (dreißig ähnlich benannte
+          // Formulare durchklicken statt den Namen erst zu kennen). Ohne
+          // hasEntriesOnFocus bliebe das Feld beim Fokussieren leer, bis
+          // ein Zeichen getippt wird. maxMenuItems hoch genug für den
+          // typischen Bestand, ohne unbegrenzt zu scrollen.
+          hasEntriesOnFocus
+          maxMenuItems={50}
           value={selectedForm ? toFormItem(selectedForm) : null}
           onChange={(item) => onChange({ formId: item ? item.id : "" })}
           isDisabled={!pageId}
