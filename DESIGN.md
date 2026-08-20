@@ -137,8 +137,7 @@ deliberately pushed away from the brand hue. Every hex below lives once, in
 - **Skeleton Wash** (#ece2c9): loading placeholders. It is deliberately *not*
   the gold wash — a screenful of full-strength gold bars would announce that
   something meaningful is there before anything has loaded. #ece2c9 sits at
-  1.21:1 on the paper ground, the same loudness as Astryx's own #ebebeb
-  (1.24:1) at the house temperature.
+  1.21:1 on the paper ground — quiet, not silent.
 
 ### Status (never gold)
 - **Warning Orange** (#dd7200 filled, #6e3500 text, #fad0b5 wash): warnings
@@ -203,8 +202,10 @@ wash alike. The boundary carries the contrast, not the fill.
 fails the object floor, and that the hairline clears it on every ground.
 
 **Contrast floors are law.** 4.5:1 for text, 3:1 for any non-text surface that
-carries meaning. `lib/contrast.test.ts` computes every pairing the UI actually
-ships (23 tests) and fails the build if a token drifts. Two floors are
+carries meaning. `lib/contrast.test.ts` computes the pairings the house rules
+turn on (23 tests) and fails the build if a token drifts — not yet every
+pairing the UI ships; the destructive button's own error-text-on-error-wash
+pairing (quoted below) isn't among them. Two floors are
 deliberately *not* applied, each with its reason written down: the gold wash
 and the header gradient (they carry no meaning) and the skeleton fill (it is
 `aria-hidden` and states nothing).
@@ -242,8 +243,12 @@ budget, an open-points chip, an upload count — carries `tabular-nums`. Numbers
 never wiggle as they tick.
 
 **The German Voice Rule.** UI is German-only; code is English. Identifiers,
-file names, comments and this document are English; every user-visible string
-is German (`lang="de"` in `app/layout.tsx`). Astryx's own built-in strings are
+file names and this document are English; every user-visible string is German
+(`lang="de"` in `app/layout.tsx`). Comments follow the file's audience rather
+than a single rule: German in application code (`app/`), English in the
+design-system layer (`theme/`, `lib/palette.ts`, `lib/contrast.test.ts`,
+`app/shell/ui.tsx`) — this document is written from that second audience, not
+a house-wide comment convention. Astryx's own built-in strings are
 covered by a catalog in `locales/de.json`, supplied through
 `InternationalizationProvider locale="de"` in `app/providers.tsx` — without
 it, Astryx falls back to its bundled English and the search field's clear
@@ -383,8 +388,11 @@ layer order in the built stylesheet is
 properties, theme, base, components, utilities, reset, astryx-base, astryx-theme
 ```
 
-There is no `@layer` ordering statement, so order is first-appearance — which
-puts **`astryx-base` after Tailwind's `utilities`**. Combined with StyleX's
+Tailwind declares its own `@layer theme, base, components, utilities;`, but
+nothing orders those layers against Astryx's `reset` / `astryx-base` /
+`astryx-theme`, so the two groups interleave by first appearance in
+`app/globals.css`'s import order — which puts **`astryx-base` after
+Tailwind's `utilities`**. Combined with StyleX's
 `:not(#\#)` specificity boosting, **an Astryx declaration beats the equivalent
 Tailwind utility.** Tailwind only wins where Astryx emits no declaration for
 that property. `<Card className="p-0">` does nothing; `<Card padding={0}>` is
@@ -454,8 +462,10 @@ not by who wrote the class last.
 ### Inputs and fields
 Astryx defaults on white; status borders and icons ride the global
 success/error/warning tokens, all combinations verified against the 3:1
-non-text floor. `FieldsetSection` is a small local markup helper, not an
-Astryx component — Astryx has no `Fieldset`.
+non-text floor. `FieldsetSection` is a small markup helper, not an
+Astryx component — Astryx has no `Fieldset`. It is currently defined
+separately in `wizard.tsx` and `ad-set-block.tsx` rather than shared from one
+place.
 
 `TextInput` has no built-in character counter, and the `description` prop is
 not a substitute: `isLabelHidden` hides the description along with the label,
@@ -497,8 +507,8 @@ cell of each row carries `scope="row"`.
 many calls are coming, because a bar sitting at 0% looks like a hang and that
 is exactly when someone creates the same campaign twice.
 
-`ProgressRing` (`app/shell/progress-ring.tsx`) is one of the two components
-this app draws itself, because Astryx ships no circular progress and an upload
+`ProgressRing` (`app/shell/progress-ring.tsx`) is hand-drawn SVG, because
+Astryx ships no circular progress and an upload
 row needs a figure that does not claim a full row. Its geometry is SVG's own
 measure; its colours are tokens. The arc is `--color-icon-accent`, never the
 gold fill — the arc carries meaning, so it takes the gold that clears 3:1.
@@ -518,7 +528,7 @@ Everything that sits on that surface is declared explicitly in the theme's
 does not.** Astryx's `MediaTheme` flips `color-scheme` and every `light-dark()`
 pair is meant to follow, but a custom property resolves where it is *declared*
 (at `:root`, i.e. light), not where it is used. Left alone, the ink surface
-would carry stone #67625a at 2.8:1 and bronze #7c5f05 at 2.0:1 — unreadable,
+would carry stone #67625a at 2.89:1 and bronze #7c5f05 at 2.91:1 — unreadable,
 and exactly the class of bug the contrast test exists to catch.
 
 `useToast` also needs its `ToastContext` as an ancestor. A bare viewport

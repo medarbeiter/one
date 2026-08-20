@@ -166,16 +166,12 @@ export const houseTheme = defineTheme({
     "--color-border-emphasized": [PALETTE.borderEmphasized, "#57534e"],
 
     // Effects
-    // A placeholder carries this house's paper, not Astryx's cool grey
-    // #ebebeb.
-    //
     // A placeholder carries no meaning, so it must not look like work. Full
     // gold (--color-accent-muted) would have claimed exactly that — a
     // screen full of gold bars says "work has happened here" before
     // anything has loaded. So only a hint of it: #ece2c9 sits at 1.21:1 on
-    // the paper ground #faf8f3, the same loudness as Astryx's own #ebebeb
-    // (1.24:1) — same volume, different temperature. A placeholder carries
-    // no meaning (aria-hidden), so it does not fall under the 3:1 floor.
+    // the paper ground #faf8f3 — quiet, not silent. A placeholder carries no
+    // meaning (aria-hidden), so it does not fall under the 3:1 floor.
     "--color-skeleton": ["#ece2c9", "#3a3529"],
     "--color-shadow": ["#0000001A", "#0000004D"],
     "--color-tint-hover": ["black", "white"],
@@ -504,8 +500,8 @@ export const houseTheme = defineTheme({
   // every `light-dark()` pair is meant to flip to its dark half on its own.
   // Measured in the browser, it does not — a custom property resolves where
   // it is declared (at `:root`, i.e. light), not where it is used. On the
-  // ink surface that would leave stone #67625a (2.8:1) and bronze #7c5f05
-  // (2.0:1): unreadable, exactly the class of bug lib/contrast.test.ts
+  // ink surface that would leave stone #67625a (2.89:1) and bronze #7c5f05
+  // (2.91:1): unreadable, exactly the class of bug lib/contrast.test.ts
   // guards against.
   //
   // So this states explicitly what the inverted surface needs, rather than
