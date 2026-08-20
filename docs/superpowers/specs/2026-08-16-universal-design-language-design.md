@@ -306,3 +306,58 @@ scoped as its own change for that reason.
 - Restructuring either repository into a monorepo.
 - Dark mode. Hub forces `mode="light"`; dark token slots stay dormant
   inheritance, not a supported mode.
+
+## Phase 1 inputs (recorded 2026-08-20, Task 17)
+
+Both applications' full suites are clean on `design/house-language-phase-1`:
+One 318 pass / 0 fail (31 files), clean `tsc`, clean build (12 routes). Hub
+634 pass / 0 fail (29 files), clean `tsc`, clean build (routes including
+`/login` and `/new/login`). `grep heroui` on both `package.json`s returns no
+output — HeroUI is fully gone from both.
+
+**The live side-by-side comparison this section was meant to record could
+not be run.** Every route in One requires an OAuth session via Hub — `/` and
+every page redirect through `/anmelden`, a `route.ts` handler, not an
+inspectable page (confirmed already at Task 4, Ruling 9). The no-login
+constraint governing this entire migration run means no session could be
+established to render One at all, so there is no "side by side" to look at
+even though Hub's own `/login` route is reachable unauthenticated. **This is
+the one piece of Task 17 that needs the user's eyes, not a substitute** —
+recorded here rather than silently skipped.
+
+In its place, a static comparison of both apps' compiled theme output
+(`theme/house.css` in One, `theme/medarbeiter.css` in Hub — both generated
+by `astryx theme build` from theme source files that both trace back to the
+same design language) stands in as the best available evidence:
+
+- **Ground colour, accent, radius ladder, shadow ladder, font stack:**
+  byte-identical between the two compiled files at every token checked —
+  `--color-accent`/`--color-accent-muted` (`light-dark(#e1b025, #e5bc44)` /
+  `light-dark(#f7edd2, #3a3012)`), `--radius-element`/`--radius-container`
+  (`0.75rem`/`1rem`), `--shadow-low`/`-med`/`-high`, `--font-family-heading`/
+  `-body` (Poppins/Figtree). No drift found.
+- **Primary button, field chrome, focus ring:** both apps render through the
+  same installed `@astryxdesign/core` build with no component-level style
+  overrides for these in either theme file, so they are identical by
+  construction rather than by coincidence — there is nothing app-specific to
+  diverge yet.
+- **The only two token-level differences found are both pre-existing and
+  already documented, not new:** `.astryx-progressbar.accent`/
+  `.astryx-statusdot.accent` exist only in Hub's compiled output, matching
+  Ruling 7 in the SDD ledger (Hub binds progress/status colour to worked
+  time; One has no such concept and correctly has no such call site).
+- **Icons:** both apps pin `@phosphor-icons/react` at the same range
+  (`^2.1.10`) and both render every glyph through the same `weight`-prop
+  mechanism (Task 5 for One, Task 15 for Hub), so any shared meaning name
+  renders the pixel-identical SVG in both apps by construction.
+- **One dependency-pinning inconsistency worth carrying into Phase 2:** this
+  spec's own Risks section claims Astryx is "Pinned exact in both
+  applications." That is true for One (`"@astryxdesign/core": "0.2.0"`) but
+  not for Hub (`"@astryxdesign/core": "^0.2.0"`, a caret range). Worth
+  reconciling once a shared package makes the two `package.json`s converge.
+
+**Net finding:** nothing surfaced that looks like a bug. The static evidence
+suggests the two applications are already token-identical everywhere Phase 1
+touched. Phase 2's shared package can proceed on that basis, but the visual
+side-by-side remains formally unconfirmed and should be the first thing a
+human does before treating Phase 1 as fully closed.
