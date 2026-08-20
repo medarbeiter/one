@@ -12,7 +12,7 @@ export default function Loading() {
       <UI.TypographyHeading level={1} className="font-display text-xl">
         Neue Kampagne
       </UI.TypographyHeading>
-      <Card>
+      <Card elevation="low">
         <UI.CardContent
           className="flex flex-col gap-4"
           aria-label="Kunden und Werbekonten werden geladen"

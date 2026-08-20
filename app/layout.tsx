@@ -83,7 +83,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
             />
           </Suspense>
           <div className="flex min-w-0 flex-1 flex-col">
-            <header className="border-line flex h-16 shrink-0 items-center gap-3 border-b px-6">
+            <header className="header-band flex h-16 shrink-0 items-center gap-3 px-6">
               <Suspense fallback={<div className="h-9 w-72 shrink-0" />}>
                 <ScopeSwitcher customers={customers.map((c) => ({ id: c.id, name: c.name }))} />
               </Suspense>

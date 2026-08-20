@@ -51,6 +51,31 @@
   --shadow-surface: var(--shadow-low);
 }
 
+/* The gold wash is the brand register: it carries no meaning, so no contrast
+ * floor applies to it and it is free to be atmosphere. Anything
+ * meaning-carrying that stands ON it brings its own hairline. */
+.header-band {
+  background: linear-gradient(
+    180deg,
+    var(--color-accent-muted) 0%,
+    color-mix(in srgb, var(--color-accent-muted) 30%, var(--color-background-body)) 62%,
+    var(--color-background-body) 100%
+  );
+  border-block-end: 1px solid var(--color-border);
+}
+
+/* Content arrives from below. Transform only — an opacity animation that
+   never ticks (a background tab does exactly this) would strand a wizard step
+   invisible. Worst case here is a step sitting 12px low. */
+@keyframes step-enter {
+  from {
+    transform: translate3d(0, 12px, 0);
+  }
+}
+.step-enter {
+  animation: step-enter var(--beat-draw) var(--ease-in) both;
+}
+
 /* Ersetzt HeroUIs ScrollShadow: ein Verlauf an Ober- und Unterkante zeigt,
  * dass eine Liste weiterscrollt, ohne einen eigenen Wrapper-Komponenten zu
  * brauchen. */

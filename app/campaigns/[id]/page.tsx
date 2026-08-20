@@ -44,7 +44,7 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
         <span className="text-ink-500 text-xs">{c.objective}</span>
       </div>
 
-      <Card>
+      <Card elevation="low">
         <UI.CardContent className="flex flex-col gap-4">
           <Metrics insights={insights} />
         </UI.CardContent>
@@ -77,7 +77,7 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
                     <li key={ad.id}>
                       {/* Jede Anzeige ist eine Karte – dieselbe Fläche, die auch
                           die Kennzahlen darüber trägt. */}
-                      <Card variant="muted">
+                      <Card elevation="low" variant="muted">
                         <UI.CardContent className="flex items-start gap-3">
                           {ad.creative?.thumbnail_url && (
                             // eslint-disable-next-line @next/next/no-img-element

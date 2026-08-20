@@ -69,7 +69,7 @@ export function Preview({
   return (
     // Astryx' Card hat keine Unterteile (Header/Content) mehr – Titel und
     // Inhalt teilen sich denselben space-y-Block.
-    <Card className="h-fit">
+    <Card elevation="low" className="h-fit">
       <div className="space-y-2 text-sm">
         <Heading level={3} className="text-base">
           Vorschau

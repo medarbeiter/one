@@ -548,7 +548,7 @@ function WizardSteps({
       {/* Die Karte legt ihre eigenen 16 px ab: Die Schrittleiste soll bis an
           beide Kanten reichen, und die Abschnitte darunter tragen mit 24 px
           mehr Rand, als eine Karte von sich aus gibt. */}
-      <Card padding={0}>
+      <Card elevation="low" padding={0}>
         {/* Der Zähler steht am Schritt, nicht erst am Ende: sonst erfährt man
             vom fehlenden Formular nach acht Uploads. Gesperrt, solange kein
             Kunde gewählt ist – siehe `locked`. */}
@@ -561,7 +561,7 @@ function WizardSteps({
 
         {/* ------------------------------------------------ Schritt 1: Kunde */}
         {stepIndex === 0 && (
-          <div className="space-y-6 p-6">
+          <div className="space-y-6 p-6 step-enter">
             {/* Ein Feld, zwei Wirkungen: die Seite des Kunden trägt Anzeigen und
                 Lead-Formulare, sein Name baut den Kampagnennamen. Die Suche ist
                 lokal und sofort; beim Laden der Meta-Liste deckt loading.tsx
@@ -612,7 +612,7 @@ function WizardSteps({
                 dabei ist, sind drei Antworten – vorher standen sie als ein Satz
                 mit Mittelpunkt da und mussten gelesen statt überflogen werden. */}
             {client ? (
-              <Card variant="muted" className="max-w-xl space-y-3">
+              <Card elevation="low" variant="muted" className="max-w-xl space-y-3">
                 <Heading level={3}>Das steckt hinter dieser Wahl</Heading>
                 <Facts
                   columns={1}
@@ -673,7 +673,7 @@ function WizardSteps({
 
         {/* ------------------------------------------------ Schritt 2: Anzeigen */}
         {stepIndex === 1 && (
-          <div className="space-y-4 p-6">
+          <div className="space-y-4 p-6 step-enter">
             {/* Ein Standort je Zeile, aufgeklappt nur der, an dem gearbeitet
                 wird. Die Kopfzeile trägt, was sonst erst im Block steht:
                 Adresse, Zahl der Anzeigen, offene Punkte. */}
@@ -752,7 +752,7 @@ function WizardSteps({
 
         {/* ------------------------------------------------ Schritt 3: Details */}
         {stepIndex === 2 && (
-          <div className="space-y-8 p-6">
+          <div className="space-y-8 p-6 step-enter">
             {/* Der Name ist ein Ergebnis, keine Eingabe: er setzt sich aus Kunde,
                 Rollen, Datum und Initialen zusammen. Deshalb steht er oben als
                 Ergebnis, darunter das, was ihn füttert – das Feld erscheint nur,
@@ -957,12 +957,12 @@ function WizardSteps({
 
         {/* ------------------------------------------------ Schritt 4: Überprüfung */}
         {stepIndex === 3 && (
-          <div className="space-y-4 p-6">
+          <div className="space-y-4 p-6 step-enter">
             {/* className="text-base" ist weggefallen: Astryx' Heading setzt
                 seine Schriftgröße selbst, und Astryx' CSS-Layer steht hinter
                 Tailwinds Utilities – die Klasse wäre wirkungslos gewesen.
                 Ebene 3 ist die Kartentitelgröße dieses Hauses. */}
-            <Card variant="muted" className="space-y-3">
+            <Card elevation="low" variant="muted" className="space-y-3">
               <Heading level={3}>{state.campaignName || "—"}</Heading>
               <Facts
                 rows={[
@@ -986,7 +986,7 @@ function WizardSteps({
             <ul className="space-y-2">
               {issues.perSet.map(({ set, blockers }) => (
                 <li key={set.id}>
-                  <Card variant="muted" className="flex flex-row items-center gap-3">
+                  <Card elevation="low" variant="muted" className="flex flex-row items-center gap-3">
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium">{set.name}</span>
                       <span className="text-ink-500 block truncate text-xs">

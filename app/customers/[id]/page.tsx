@@ -83,7 +83,7 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
         />
       </div>
 
-      <Card>
+      <Card elevation="low">
         <UI.CardHeader className="flex items-center justify-between">
           <UI.CardTitle>Assets</UI.CardTitle>
         </UI.CardHeader>
