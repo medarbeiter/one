@@ -1,10 +1,4 @@
 @import "tailwindcss";
-/* TEMPORARY — HeroUI's own component stylesheet. Still imported everywhere
- * in app/ (19 files pending conversion) and provides their structural CSS
- * (padding, layout, control chrome). Astryx is imported after it so Astryx
- * wins where the two collide. Removed in Task 12, once no file imports
- * HeroUI any more. */
-@import "@heroui/react/styles" source("../");
 @import "@astryxdesign/core/reset.css";
 @import "@astryxdesign/core/astryx.css";
 @import "../theme/house.css";
