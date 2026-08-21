@@ -15,6 +15,7 @@ import { reconcile } from "@/lib/inbox-ingest";
 import { countUnanswered, openDb } from "@/lib/inbox-store";
 import { listCustomers } from "@/lib/customers";
 import { openSession, SESSION_COOKIE, sessionSecret } from "@/lib/session";
+import { ensureWebhooksOnce } from "@/lib/webhook-subscribe";
 import { IntlDeutschImBrowser } from "@/components/intl-de-client";
 import { Providers } from "./providers";
 import { Leiste } from "./shell/leiste";
@@ -52,6 +53,9 @@ const poppins = Poppins({
 });
 const figtree = Figtree({ subsets: ["latin"], variable: "--font-figtree", display: "swap" });
 
+/** Schon geloggte Abgleich-Fehler; lebt so lange wie der Serverprozess. */
+const gemeldet = new Set<string>();
+
 export default async function RootLayout({ children }: LayoutProps<"/">) {
   // Wer arbeitet hier? Der Proxy lässt ohne gültige Sitzung niemanden bis
   // hierher – null gibt es trotzdem, etwa wenn die Sitzung zwischen Proxy und
@@ -66,6 +70,10 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   // Neue Kunden weisen sich selbst zu. after() läuft nach der Antwort: der
   // Abgleich hält keine Seite auf, und sein Fehlschlag zerlegt kein Rendering.
   after(ensureAssigned);
+  // Und melden sich selbst beim Webhook an – einmal je Prozess, nicht je
+  // Rendering (Begründung in der Datei). Ohne das kam bisher alles über den
+  // Abgleich, also frühestens beim nächsten Seitenaufruf.
+  after(() => ensureWebhooksOnce(customers.filter((c) => c.page).map((c) => ({ id: c.page!.id, name: c.name }))));
   // Derselbe Rhythmus wie ensureAssigned: läuft nach der Antwort, ein
   // Graph-Aussetzer darf die Seite nicht zerlegen. Läuft für jedes
   // Rendering – bun:sqlite ist ein warmer, lokaler Prozess, keine Kosten wie
@@ -75,7 +83,15 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
     if (process.env.NEXT_PHASE === "phase-production-build") return;
     try {
       const { failed } = await reconcile(openDb(), customers);
-      for (const f of failed) console.error(`[inbox] Abgleich fehlgeschlagen für ${f.customerId}: ${f.message}`);
+      for (const f of failed) {
+        // Eine gesperrte DM-Edge meldet sich bei jedem Rendering neu. Einmal
+        // pro Prozess genügt – sonst begräbt dieselbe Handvoll dauerhafter
+        // Sperren jede andere Zeile im Log.
+        const line = `[inbox] Abgleich fehlgeschlagen für ${f.customerId}: ${f.message}`;
+        if (gemeldet.has(line)) continue;
+        gemeldet.add(line);
+        console.error(line);
+      }
     } catch (e) {
       console.error(`[inbox] Abgleich nicht möglich: ${(e as Error).message}`);
     }

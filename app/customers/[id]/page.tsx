@@ -1,5 +1,4 @@
 import * as UI from "@/app/shell/ui";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Badge, Banner, Button, Card, Separator } from "@/app/shell/ui";
 import {
@@ -57,9 +56,8 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
         }
         werkzeuge={
           <>
-            <Button as={Link} href={`/inbox?customer=${c.id}`} label="Inbox öffnen" />
+            <Button href={`/inbox?customer=${c.id}`} label="Inbox öffnen" />
             <Button
-              as={Link}
               href={`/campaigns?customer=${c.id}`}
               variant="secondary"
               label="Kampagnen"

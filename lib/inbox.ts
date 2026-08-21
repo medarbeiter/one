@@ -16,7 +16,7 @@ export type InboxItem = {
   author: { id: string; name: string; avatar?: string };
   text: string;
   createdAt: string;
-  context?: { label: string; thumbnail?: string; adId?: string };
+  context?: { label: string; thumbnail?: string; adId?: string; permalink?: string };
   /** Nur DMs: createdAt + 24h. Danach nimmt Meta keine Antwort mehr an. */
   expiresAt?: string;
   /** Abgeleitet: hat die Seite in diesem Thread geantwortet? */
@@ -25,11 +25,14 @@ export type InboxItem = {
   postId?: string;
 };
 
+/** Metas Bild-Unterfeld – bei Facebook-Kommentaren zu haben, bei IG und Messenger nicht (siehe inbox-ingest.ts). */
+export type RawFrom = { id: string; name?: string; picture?: { data?: { url?: string } } };
+
 export type RawComment = {
   id: string;
   message?: string;
   created_time: string;
-  from?: { id: string; name?: string };
+  from?: RawFrom;
   comments?: { data: { from?: { id: string }; created_time: string }[] };
 };
 
@@ -37,6 +40,8 @@ export type RawPost = {
   id: string;
   message?: string;
   full_picture?: string;
+  /** Der Beitrag bei Meta selbst. IG liefert ihn als `permalink`, FB als `permalink_url`. */
+  permalink_url?: string;
   comments?: { data: RawComment[] };
 };
 
@@ -44,17 +49,24 @@ export type RawConversation = {
   id: string;
   updated_time: string;
   unread_count?: number;
-  participants?: { data: { id: string; name?: string }[] };
-  messages?: {
-    data: { id: string; message?: string; created_time: string; from?: { id: string; name?: string } }[];
-  };
+  // picture kommt nicht von Meta mit, sondern wird in inbox-ingest.ts
+  // nachgetragen (lib/avatars.ts) – normalize() liest es wie bei Kommentaren.
+  participants?: { data: RawFrom[] };
+  messages?: { data: { id: string; message?: string; created_time: string; from?: RawFrom }[] };
 };
 
 export type Source = {
   customerId: string;
   channel: Channel;
-  /** Seiten- bzw. IG-Konto-ID – "wir" in jedem Thread. */
+  /** Die Seite, mit deren Token gehandelt wird – auch bei Instagram. */
   selfId: string;
+  /**
+   * Wer "wir" in den Inhalten sind, wenn das nicht die Seite ist: unter einem
+   * Instagram-Beitrag trägt die eigene Antwort die Id des IG-Kontos, nicht die
+   * der verknüpften Seite. Ohne diese zweite Id gälte jede eigene
+   * IG-Antwort als fremd – und der Thread ewig als unbeantwortet.
+   */
+  selfAuthorId?: string;
   posts: RawPost[];
   conversations: RawConversation[];
 };
@@ -74,6 +86,7 @@ export function normalize(sources: Source[]): InboxItem[] {
   const items: InboxItem[] = [];
 
   for (const s of sources) {
+    const istWir = (id?: string) => id !== undefined && (id === s.selfId || id === s.selfAuthorId);
     for (const post of s.posts) {
       for (const c of post.comments?.data ?? []) {
         items.push({
@@ -81,12 +94,12 @@ export function normalize(sources: Source[]): InboxItem[] {
           kind: "comment",
           channel: s.channel,
           customerId: s.customerId,
-          author: { id: c.from?.id ?? "", name: c.from?.name ?? "Unknown" },
+          author: { id: c.from?.id ?? "", name: c.from?.name ?? "Unknown", avatar: c.from?.picture?.data?.url },
           text: c.message ?? "",
           createdAt: new Date(c.created_time).toISOString(),
-          context: { label: label(post.message), thumbnail: post.full_picture },
+          context: { label: label(post.message), thumbnail: post.full_picture, permalink: post.permalink_url },
           // Kein Graph-Feld für "erledigt" – deshalb abgeleitet aus den Antworten.
-          answered: (c.comments?.data ?? []).some((r) => r.from?.id === s.selfId),
+          answered: (c.comments?.data ?? []).some((r) => istWir(r.from?.id)),
           postId: post.id,
         });
       }
@@ -94,18 +107,18 @@ export function normalize(sources: Source[]): InboxItem[] {
 
     for (const t of s.conversations) {
       const last = t.messages?.data?.[0];
-      const other = (t.participants?.data ?? []).find((p) => p.id !== s.selfId);
+      const other = (t.participants?.data ?? []).find((p) => !istWir(p.id));
       const created = new Date(last?.created_time ?? t.updated_time).toISOString();
       items.push({
         id: t.id,
         kind: "dm",
         channel: s.channel,
         customerId: s.customerId,
-        author: { id: other?.id ?? "", name: other?.name ?? "Unknown" },
+        author: { id: other?.id ?? "", name: other?.name ?? "Unknown", avatar: other?.picture?.data?.url },
         text: last?.message ?? "",
         createdAt: created,
         expiresAt: expiresAt(created),
-        answered: last?.from?.id === s.selfId,
+        answered: istWir(last?.from?.id),
       });
     }
   }

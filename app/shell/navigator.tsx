@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import type { ReactNode } from "react";
 import { Tab, TabList } from "@astryxdesign/core";
 import { Sign, type Meaning } from "@/theme/icons";
@@ -42,7 +41,6 @@ export function Navigator({
             value={t.value}
             label={t.label}
             href={t.href}
-            as={Link}
             icon={<Sign meaning={t.meaning} form="outline" size={14} />}
             selectedIcon={<Sign meaning={t.meaning} form="solid" size={14} />}
           />

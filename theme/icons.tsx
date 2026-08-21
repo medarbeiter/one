@@ -3,8 +3,8 @@
 import {
   ArrowClockwise, Calendar, CaretLeft, CaretLineLeft, CaretLineRight,
   CaretRight, ChatCircleText, ChartLine, Check, Copy, DotsThree, EnvelopeSimple, Eye, FacebookLogo, Funnel, Gear, GridNine,
-  House, ImageSquare, InstagramLogo, Link as LinkIcon, MagnifyingGlass, MapPin, Megaphone,
-  PaperPlaneTilt, Pause, PencilSimple, Play, Plus, Rocket, SignOut, Sun, Trash, Tray,
+  Heart, House, ImageSquare, InstagramLogo, Link as LinkIcon, MagnifyingGlass, MapPin, Megaphone,
+  PaperPlaneTilt, Pause, PencilSimple, Play, Plus, Prohibit, Rocket, SignOut, Sun, Trash, Tray,
   UploadSimple, User, Users, UsersThree, VideoCamera, Warning, X,
   type Icon as PhosphorIcon,
 } from '@phosphor-icons/react';
@@ -71,6 +71,12 @@ export const MEANINGS = {
   facebook: { solid: FacebookLogo, outline: FacebookLogo },
   instagram: { solid: InstagramLogo, outline: InstagramLogo },
   send: { solid: PaperPlaneTilt, outline: PaperPlaneTilt },
+  /* Gefüllt heißt geliked – dieselbe Achse, die überall sonst „gewählt"
+     trägt, hier für eine Reaktion, die man auch wieder zurücknimmt. */
+  like: { solid: Heart, outline: Heart },
+  /* Blockieren ist nicht Löschen: `remove` nimmt einen Inhalt weg, `block`
+     nimmt einer Person das Weiterschreiben. Zwei Folgen, zwei Zeichen. */
+  block: { solid: Prohibit, outline: Prohibit },
   /* A caret against a line, not the bare caret `previous`/`next` use — the
      rail toggle and pagination are different actions and shouldn't render
      as the same glyph (see the vocabulary test below). Hub's `einklappen`/

@@ -5,9 +5,10 @@
  * lib/inbox.ts – das bleibt die einzige Stelle, die die vier Graph-Formen
  * kennt.
  */
-import { graph, GraphError } from "./graph";
+import { batch, graph, GraphError } from "./graph";
+import { dmAvatars, igAvatars } from "./avatars";
 import type { Customer } from "./customers";
-import { normalize, type RawComment, type RawConversation, type RawPost, type Source } from "./inbox";
+import { normalize, type RawComment, type RawConversation, type RawFrom, type RawPost, type Source } from "./inbox";
 import { insertMessage, upsertThread, type Message } from "./inbox-store";
 import { Database } from "bun:sqlite";
 
@@ -15,50 +16,134 @@ const DAYS_90 = 90 * 24 * 60 * 60 * 1000;
 export const reconcileWindow = (now = Date.now()) => new Date(now - DAYS_90).toISOString();
 
 /** Reply-Text kommt zwar mit, aber nicht in RawComment's Typ – siehe Erklärung oben in der Aufgabe. */
-type RawReplyWithText = { id: string; message?: string; created_time: string; from?: { id: string; name?: string } };
+type RawReplyWithText = { id: string; message?: string; created_time: string; from?: RawFrom; parent?: { id: string } };
 type RawPostWithReplyText = Omit<RawPost, "comments"> & {
   comments?: { data: (Omit<RawComment, "comments"> & { comments?: { data: RawReplyWithText[] } })[] };
 };
 
-const toMessage = (threadId: string, r: RawReplyWithText, selfId: string): Message => ({
+/**
+ * Edges, die zu bleiben, bis jemand außerhalb dieses Programms etwas ändert:
+ * der gesperrte DM-Zugriff (#200, nur der Kontoinhaber in Instagram selbst)
+ * und der Timeout "zu viele Unterhaltungen mit Nutzern ohne App-Rolle" (die
+ * App hat für instagram_manage_messages nur Standard-Zugriff; Meta siebt
+ * dafür jeden Thread durch und läuft in die Zeitgrenze – zu heilen einmalig
+ * im App-Review, nicht pro Kunde).
+ *
+ * Beide kosten bei jedem Rendering einen langsamen Fehlversuch, den graph()
+ * obendrein wiederholt. Also: einmal gescheitert, für diesen Prozess
+ * übersprungen. Ein Neustart – und jeder Deploy nach dem App-Review – probiert
+ * von vorn.
+ */
+const closedEdges = new Map<string, string>();
+
+// Beide kommen als "permission" aus mapGraphError – der Timeout ausdrücklich,
+// siehe die Begründung dort.
+const closedForever = (e: GraphError) => e.kind === "permission";
+
+/**
+ * Eine Edge, die ausfallen darf. Ein gesperrter DM-Zugriff oder ein
+ * Graph-Aussetzer betrifft genau eine Edge – ohne diesen Fang reißt er über
+ * Promise.all die übrigen Quellen desselben Kunden mit, und ein Kunde mit
+ * gesperrten Instagram-DMs verlöre auch seine Facebook-Kommentare.
+ */
+async function edge<T>(key: string, call: () => Promise<{ data: T[] }>, failures: string[]): Promise<T[]> {
+  const closed = closedEdges.get(key);
+  if (closed) {
+    failures.push(closed); // weiter gemeldet, nur nicht mehr erfragt.
+    return [];
+  }
+  try {
+    return (await call()).data;
+  } catch (e) {
+    const err = e as GraphError;
+    if (closedForever(err)) closedEdges.set(key, err.message);
+    failures.push(err.message);
+    return [];
+  }
+}
+
+/**
+ * `parentId` ist nicht überall zu haben: Facebook liefert `parent` und meint
+ * damit die tatsächlich beantwortete Nachricht, auch zwei Ebenen tief.
+ * Instagram kennt kein solches Feld – dort hängt jede Antwort am obersten
+ * Kommentar, und genau den setzt der Aufrufer als Rückfallwert.
+ */
+const toMessage = (
+  threadId: string,
+  r: RawReplyWithText,
+  // Zwei Ids, wo Instagram im Spiel ist: die Seite handelt, aber unter einem
+  // IG-Beitrag trägt unsere eigene Antwort die Id des IG-Kontos.
+  selfId: string | string[],
+  parentId?: string,
+): Message => ({
   id: r.id,
   threadId,
   authorId: r.from?.id ?? "",
   authorName: r.from?.name ?? "Unknown",
+  // Metas Bild-Adressen sind signiert und laufen ab; der nächste Abgleich
+  // schreibt die frische darüber, und bis dahin fällt Avatar auf die
+  // Initialen zurück.
+  authorAvatar: r.from?.picture?.data?.url,
   text: r.message ?? "",
-  fromSelf: r.from?.id === selfId,
+  fromSelf: typeof selfId === "string" ? r.from?.id === selfId : selfId.includes(r.from?.id ?? "\u0000"),
   createdAt: new Date(r.created_time).toISOString(),
+  parentId,
 });
 
+// Verschachtelte Grenzen ausdrücklich: über 90 Tage antwortet Graph bei
+// betriebsamen Seiten sonst mit "Please reduce the amount of data you're
+// asking for" – und liefert dann gar nichts statt zu viel.
+// ponytail: kein Paging, die ältesten Kommentare eines vollen Beitrags fehlen.
+// Erst nachziehen, wenn im Posteingang tatsächlich Threads vermisst werden.
+const EDGE_LIMIT = 25;
+// `from{...picture{url}}` gibt es bei Facebook-Kommentaren, sonst nirgends:
+// Instagram kennt zu einem Kommentar nur den Benutzernamen, und bei
+// Messenger lässt Meta das Unterfeld stillschweigend weg (geprüft gegen die
+// laufende API). Wo kein Bild kommt, zeigt Avatar die Initialen.
 const FB_POST_FIELDS =
-  "id,message,full_picture,comments.summary(false){id,message,created_time,from,comments{id,message,created_time,from}}";
-const FB_CONVO_FIELDS = "id,updated_time,participants,messages{id,message,created_time,from}";
+  "id,message,full_picture,permalink_url,comments.summary(false).limit(25){id,message,created_time,from{id,name,picture{url}},comments.limit(10){id,message,created_time,from{id,name,picture{url}},parent{id}}}";
+const FB_CONVO_FIELDS = "id,updated_time,participants,messages.limit(25){id,message,created_time,from}";
 
 export async function fetchFacebookSource(
   customer: Customer,
   page: { id: string },
   sinceIso: string,
-): Promise<{ source: Source; messages: Message[] }> {
+): Promise<{ source: Source; messages: Message[]; failures: string[] }> {
   const since = Math.floor(Date.parse(sinceIso) / 1000);
+  const failures: string[] = [];
   const [posts, conversations] = await Promise.all([
-    graph<{ data: RawPostWithReplyText[] }>(`${page.id}/posts`, {
-      asPage: page.id,
-      params: { fields: FB_POST_FIELDS, since, limit: 50 },
-    }),
-    graph<{ data: RawConversation[] }>(`${page.id}/conversations`, {
-      asPage: page.id,
-      params: { fields: FB_CONVO_FIELDS, limit: 50 },
-    }),
+    edge(
+      `${page.id}/posts`,
+      () =>
+        graph<{ data: RawPostWithReplyText[] }>(`${page.id}/posts`, {
+          asPage: page.id,
+          params: { fields: FB_POST_FIELDS, since, limit: EDGE_LIMIT },
+        }),
+      failures,
+    ),
+    edge(
+      `${page.id}/conversations`,
+      () =>
+        graph<{ data: RawConversation[] }>(`${page.id}/conversations`, {
+          asPage: page.id,
+          params: { fields: FB_CONVO_FIELDS, limit: EDGE_LIMIT },
+        }),
+      failures,
+    ),
   ]);
 
+  const recentConvos = conversations.filter((c) => Date.parse(c.updated_time) >= Date.parse(sinceIso));
+  // Kommentare bringen ihr Bild selbst mit; in Unterhaltungen fehlt es und
+  // muss nachgeschlagen werden, bevor daraus Zeilen werden.
+  dmBilderEintragen(recentConvos, await dmAvatars(page.id, dmGegenueber(recentConvos, [page.id]), failures));
+
   const messages: Message[] = [];
-  for (const post of posts.data)
+  for (const post of posts)
     for (const c of post.comments?.data ?? []) {
       // Der Kommentar selbst ist die erste Nachricht des Threads, nicht nur seine Antworten.
       messages.push(toMessage(c.id, c, page.id));
-      for (const r of c.comments?.data ?? []) messages.push(toMessage(c.id, r, page.id));
+      for (const r of c.comments?.data ?? []) messages.push(toMessage(c.id, r, page.id, r.parent?.id ?? c.id));
     }
-  const recentConvos = conversations.data.filter((c) => Date.parse(c.updated_time) >= Date.parse(sinceIso));
   for (const convo of recentConvos)
     for (const m of convo.messages?.data ?? []) messages.push(toMessage(convo.id, m, page.id));
   // Kein globales Sortieren: Kommentar+Antworten kommen durch die Verschachtelung
@@ -70,66 +155,172 @@ export async function fetchFacebookSource(
       customerId: customer.id,
       channel: "facebook",
       selfId: page.id,
-      posts: posts.data,
+      posts,
       conversations: recentConvos,
     },
     messages,
+    failures,
   };
 }
 
-const IG_MEDIA_FIELDS =
-  "id,caption,media_url,comments{id,text,timestamp,from,replies{id,text,timestamp,from}}";
+// Nur die Ids: was unter dem Beitrag steht, holt der zweite Schritt.
+const IG_MEDIA_FIELDS = "id,caption,media_url,thumbnail_url,permalink,comments.limit(25){id}";
+/**
+ * Als Unterfeld von media lässt Meta bei Kommentaren `from{id}` und
+ * `parent_id` stillschweigend weg – der Benutzername kommt an, sonst nichts
+ * (geprüft gegen die laufende API, unter jedem Namen den die Doku kennt).
+ * Über die comments-Edge desselben Beitrags kommen beide. Ohne from.id wäre
+ * keine Antwort des Kunden als seine erkennbar (jeder IG-Thread stünde ewig
+ * offen), ohne parent_id gäbe es bei Instagram keinen Antwortbaum.
+ */
+const IG_COMMENT_FIELDS =
+  "id,text,timestamp,from{id,username},parent_id,replies.limit(10){id,text,timestamp,from{id,username},parent_id}";
 // IG-DMs laufen über dieselbe Conversations-API wie Messenger, nur mit
 // platform=instagram – deshalb hier dieselben Feldnamen wie bei Facebook,
 // anders als bei Kommentaren (dort ist media/comments eine eigene, ältere
 // IG-Edge mit eigenen Feldnamen: text/timestamp statt message/created_time).
 const IG_CONVO_FIELDS = FB_CONVO_FIELDS;
 
-type RawIgComment = { id: string; text?: string; timestamp: string; from?: { id: string; username?: string }; replies?: { data: RawIgComment[] } };
-type RawIgMedia = { id: string; caption?: string; media_url?: string; comments?: { data: RawIgComment[] } };
+type RawIgComment = { id: string; text?: string; timestamp: string; from?: { id: string; username?: string }; parent_id?: string; replies?: { data: RawIgComment[] } };
+type RawIgMedia = { id: string; caption?: string; media_url?: string; thumbnail_url?: string; permalink?: string; comments?: { data: { id: string }[] } };
 
-const igToRawPost = (m: RawIgMedia): RawPostWithReplyText => ({
+/** Metas IG-Form auf die FB-Feldnamen, mit den nachgeschlagenen Bildern. */
+const igToRawPost = (m: RawIgMedia, comments: RawIgComment[], bilder: Map<string, string>): RawPostWithReplyText => {
+  const von = (f?: { id: string; username?: string }): RawFrom | undefined => {
+    if (!f) return undefined;
+    const url = bilder.get(f.username ?? f.id);
+    return { id: f.id, name: f.username, picture: url ? { data: { url } } : undefined };
+  };
+  return ({
   id: m.id,
   message: m.caption,
-  full_picture: m.media_url,
+  // Bei Videos ist media_url die Videodatei selbst; thumbnail_url ist das
+  // Standbild, das die Liste als Vorschau braucht.
+  full_picture: m.thumbnail_url ?? m.media_url,
+  permalink_url: m.permalink,
   comments: {
-    data: (m.comments?.data ?? []).map((c) => ({
+    data: comments.map((c) => ({
       id: c.id,
       message: c.text,
       created_time: c.timestamp,
-      from: c.from ? { id: c.from.id, name: c.from.username } : undefined,
-      comments: { data: (c.replies?.data ?? []).map((r) => ({ id: r.id, message: r.text, created_time: r.timestamp, from: r.from ? { id: r.from.id, name: r.from.username } : undefined })) },
+      from: von(c.from),
+      comments: {
+        data: (c.replies?.data ?? []).map((r) => ({
+          id: r.id,
+          message: r.text,
+          created_time: r.timestamp,
+          from: von(r.from),
+          // Antwort auf eine Antwort: parent_id zeigt dann auf die Antwort,
+          // nicht auf den obersten Kommentar.
+          parent: r.parent_id ? { id: r.parent_id } : undefined,
+        })),
+      },
     })),
   },
 });
+};
+
+/**
+ * Die Bilder der DM-Gegenüber tragen wir dort nach, wo normalize() sie bei
+ * Kommentaren ohnehin erwartet – Meta schickt sie in Unterhaltungen nicht mit.
+ */
+function dmBilderEintragen(convos: RawConversation[], bilder: Map<string, string>): void {
+  for (const c of convos) {
+    for (const p of c.participants?.data ?? []) {
+      const url = bilder.get(p.id);
+      if (url) p.picture = { data: { url } };
+    }
+    for (const m of c.messages?.data ?? []) {
+      const url = m.from ? bilder.get(m.from.id) : undefined;
+      if (url && m.from) m.from.picture = { data: { url } };
+    }
+  }
+}
+
+/** Wer in diesen Unterhaltungen ein Bild bekommen soll: alle außer uns. */
+const dmGegenueber = (convos: RawConversation[], wir: string[]): string[] =>
+  [
+    ...new Set(
+      convos.flatMap((c) => [
+        ...(c.participants?.data ?? []).map((p) => p.id),
+        ...(c.messages?.data ?? []).map((m) => m.from?.id ?? ""),
+      ]),
+    ),
+  ].filter((id) => id && !wir.includes(id));
 
 export async function fetchInstagramSource(
   customer: Customer,
   page: { id: string; instagram: { id: string } },
   sinceIso: string,
-): Promise<{ source: Source; messages: Message[] }> {
+): Promise<{ source: Source; messages: Message[]; failures: string[] }> {
   const since = Math.floor(Date.parse(sinceIso) / 1000);
+  const failures: string[] = [];
   const [media, conversations] = await Promise.all([
-    graph<{ data: RawIgMedia[] }>(`${page.instagram.id}/media`, {
-      asPage: page.id, // IG hat kein eigenes Token – es reitet auf dem der verknüpften Seite.
-      params: { fields: IG_MEDIA_FIELDS, since, limit: 50 },
-    }),
-    graph<{ data: RawConversation[] }>(`${page.id}/conversations`, {
-      asPage: page.id,
-      params: { fields: IG_CONVO_FIELDS, platform: "instagram", limit: 50 },
-    }),
+    edge(
+      `${page.instagram.id}/media`,
+      () =>
+        graph<{ data: RawIgMedia[] }>(`${page.instagram.id}/media`, {
+          asPage: page.id, // IG hat kein eigenes Token – es reitet auf dem der verknüpften Seite.
+          params: { fields: IG_MEDIA_FIELDS, since, limit: EDGE_LIMIT },
+        }),
+      failures,
+    ),
+    // Die Edge, an der beide dauerhaften Fehler hängen (siehe closedEdges).
+    // Die Kommentare oben bleiben davon unberührt.
+    edge(
+      `${page.id}/conversations?instagram`,
+      () =>
+        graph<{ data: RawConversation[] }>(`${page.id}/conversations`, {
+          asPage: page.id,
+          params: { fields: IG_CONVO_FIELDS, platform: "instagram", limit: EDGE_LIMIT },
+        }),
+      failures,
+    ),
   ]);
 
-  const posts = media.data.map(igToRawPost);
+  // Zweiter Schritt: die Kommentare je Beitrag über ihre eigene Edge, gebündelt
+  // in einem POST. Beiträge ohne Kommentar fragen wir gar nicht erst.
+  const mitKommentaren = media.filter((m) => (m.comments?.data.length ?? 0) > 0);
+  const kommentare = new Map<string, RawIgComment[]>();
+  if (mitKommentaren.length > 0) {
+    try {
+      const settled = await batch<{ data: RawIgComment[] }>(
+        mitKommentaren.map((m) => ({
+          relative_url: `${m.id}/comments?fields=${encodeURIComponent(IG_COMMENT_FIELDS)}&limit=${EDGE_LIMIT}`,
+        })),
+        { asPage: page.id },
+      );
+      settled.forEach((r, i) => {
+        if (r.status === "fulfilled") kommentare.set(mitKommentaren[i].id, r.value?.data ?? []);
+        else failures.push((r.reason as GraphError).message);
+      });
+    } catch (e) {
+      failures.push((e as GraphError).message);
+    }
+  }
+
+  // Alle, die unter den Beiträgen sprechen – Kommentare wie Antworten.
+  const personen = [...kommentare.values()]
+    .flat()
+    .flatMap((c) => [c.from, ...(c.replies?.data ?? []).map((r) => r.from)])
+    .filter((f): f is { id: string; username?: string } => !!f && f.id !== page.instagram.id);
+  const bilder = await igAvatars({ pageId: page.id, igUserId: page.instagram.id }, personen, failures);
+
+  const posts = media.map((m) => igToRawPost(m, kommentare.get(m.id) ?? [], bilder));
+  // Unter einem IG-Beitrag sind "wir" das IG-Konto, nicht die Seite – in den
+  // Unterhaltungen ebenso. Beide Ids gelten, damit keine der zwei Formen
+  // durchfällt.
+  const wir = [page.id, page.instagram.id];
   const messages: Message[] = [];
   for (const post of posts)
     for (const c of post.comments?.data ?? []) {
-      messages.push(toMessage(c.id, c, page.id));
-      for (const r of c.comments?.data ?? []) messages.push(toMessage(c.id, r, page.id));
+      messages.push(toMessage(c.id, c, wir));
+      for (const r of c.comments?.data ?? []) messages.push(toMessage(c.id, r, wir, r.parent?.id ?? c.id));
     }
-  const recentConvos = conversations.data.filter((c) => Date.parse(c.updated_time) >= Date.parse(sinceIso));
+  const recentConvos = conversations.filter((c) => Date.parse(c.updated_time) >= Date.parse(sinceIso));
+  dmBilderEintragen(recentConvos, await dmAvatars(page.id, dmGegenueber(recentConvos, wir), failures));
   for (const convo of recentConvos)
-    for (const m of convo.messages?.data ?? []) messages.push(toMessage(convo.id, m, page.id));
+    for (const m of convo.messages?.data ?? []) messages.push(toMessage(convo.id, m, wir));
   // Kein globales Sortieren: siehe Begründung bei fetchFacebookSource oben.
 
   return {
@@ -137,10 +328,12 @@ export async function fetchInstagramSource(
       customerId: customer.id,
       channel: "instagram",
       selfId: page.id,
+      selfAuthorId: page.instagram.id,
       posts: posts as unknown as RawPost[],
       conversations: recentConvos,
     },
     messages,
+    failures,
   };
 }
 
@@ -155,9 +348,10 @@ function store(db: Database, source: Source, messages: Message[]): void {
       selfId: source.selfId,
       authorId: item.author.id,
       authorName: item.author.name,
-      authorAvatar: undefined,
+      authorAvatar: item.author.avatar,
       contextLabel: item.context?.label,
       contextThumbnail: item.context?.thumbnail,
+      contextPermalink: item.context?.permalink,
       contextAdId: item.context?.adId,
       postId: item.postId,
       answered: item.answered,
@@ -168,9 +362,10 @@ function store(db: Database, source: Source, messages: Message[]): void {
   for (const m of messages) insertMessage(db, m);
 }
 
-export async function reconcileCustomer(db: Database, customer: Customer, sinceIso: string): Promise<void> {
+/** Gibt die Meldungen der ausgefallenen Edges zurück; was ankam, ist trotzdem gespeichert. */
+export async function reconcileCustomer(db: Database, customer: Customer, sinceIso: string): Promise<string[]> {
   const page = customer.page;
-  if (!page) return; // kein Auftritt, kein Posteingang – z. B. reine Zahlkonten.
+  if (!page) return []; // kein Auftritt, kein Posteingang – z. B. reine Zahlkonten.
 
   const [fb, ig] = await Promise.all([
     fetchFacebookSource(customer, { id: page.id }, sinceIso),
@@ -178,6 +373,7 @@ export async function reconcileCustomer(db: Database, customer: Customer, sinceI
   ]);
   store(db, fb.source, fb.messages);
   if (ig) store(db, ig.source, ig.messages);
+  return [...fb.failures, ...(ig?.failures ?? [])];
 }
 
 /** Auslöser für app/layout.tsx. Läuft für jeden Kunden mit Seite; einer scheitert nie für alle. */
@@ -189,8 +385,11 @@ export async function reconcile(db: Database, customers: Customer[]): Promise<{ 
   const failed: { customerId: string; message: string }[] = [];
   let ok = 0;
   settled.forEach((r, i) => {
-    if (r.status === "fulfilled") ok++;
-    else failed.push({ customerId: targets[i].id, message: (r.reason as GraphError).message });
+    // Ein toter Seiten-Token lässt jede Edge desselben Kunden mit derselben
+    // Meldung ausfallen – gemeldet wird sie einmal, nicht viermal.
+    const messages = r.status === "fulfilled" ? new Set(r.value) : new Set([(r.reason as GraphError).message]);
+    if (messages.size === 0) ok++;
+    else for (const message of messages) failed.push({ customerId: targets[i].id, message });
   });
   return { ok, failed };
 }
@@ -201,11 +400,12 @@ export type WebhookEntry = {
   messaging?: { sender: { id: string }; recipient: { id: string }; timestamp: number; message?: { mid: string; text?: string } }[];
 };
 
-const FB_COMMENT_FIELDS = "id,message,created_time,from,comments{id,message,created_time,from}";
+const FB_COMMENT_FIELDS =
+  "id,message,created_time,from{id,name,picture{url}},parent{id},comments{id,message,created_time,from{id,name,picture{url}}}";
 const FB_POST_MINI_FIELDS = "id,message,full_picture";
 
 /** Der eine nachgeholte Kommentar, mit demselben Feldsatz wie in reconcile() – siehe Modulkommentar oben. */
-type RawFetchedComment = { id: string; message?: string; created_time: string; from?: { id: string; name?: string }; comments?: { data: RawReplyWithText[] } };
+type RawFetchedComment = { id: string; message?: string; created_time: string; from?: RawFrom; parent?: { id: string }; comments?: { data: RawReplyWithText[] } };
 
 async function ingestComment(db: Database, pageId: string, customer: Customer, commentId: string, postId: string, threadId: string): Promise<void> {
   const [comment, post] = await Promise.all([
@@ -213,22 +413,36 @@ async function ingestComment(db: Database, pageId: string, customer: Customer, c
     graph<{ id: string; message?: string; full_picture?: string }>(postId, { asPage: pageId, params: { fields: FB_POST_MINI_FIELDS } }).catch(() => ({ id: postId, message: undefined, full_picture: undefined })),
   ]);
 
+  const istInstagram = !!customer.instagram && postId.startsWith(customer.instagram.id);
   const source: Source = {
     customerId: customer.id,
-    channel: customer.instagram && postId.startsWith(customer.instagram.id) ? "instagram" : "facebook",
+    channel: istInstagram ? "instagram" : "facebook",
     selfId: pageId,
+    selfAuthorId: istInstagram ? customer.instagram!.id : undefined,
     posts: threadId === commentId
       ? [{ id: postId, message: post.message, full_picture: post.full_picture, comments: { data: [comment] } }]
       : [],
     conversations: [],
   };
 
+  // Bei Facebook bringt der Kommentar sein Bild mit; bei Instagram nicht –
+  // derselbe Weg wie im Abgleich, nur für diesen einen Menschen.
+  if (istInstagram && comment.from) {
+    const bilder = await igAvatars(
+      { pageId, igUserId: customer.instagram!.id },
+      [{ id: comment.from.id, username: comment.from.name }],
+      [],
+    );
+    const url = bilder.get(comment.from.name ?? comment.from.id);
+    if (url) comment.from.picture = { data: { url } };
+  }
+  const wir = istInstagram ? [pageId, customer.instagram!.id] : pageId;
   if (threadId === commentId) {
-    store(db, source, [toMessage(commentId, comment, pageId)]);
+    store(db, source, [toMessage(commentId, comment, wir)]);
   } else {
     // Antwort auf einen bestehenden Thread: kein neuer Thread, nur eine
     // weitere Nachricht plus "beantwortet", wenn wir selbst geschrieben haben.
-    const reply = toMessage(threadId, comment, pageId);
+    const reply = toMessage(threadId, comment, wir, comment.parent?.id ?? threadId);
     insertMessage(db, reply);
     if (reply.fromSelf) {
       const existing = db.query("SELECT customer_id FROM threads WHERE id = ?").get(threadId) as { customer_id: string } | undefined;
@@ -250,15 +464,22 @@ async function ingestMessage(db: Database, pageId: string, customer: Customer, s
   const fromSelf = false; // eingehende messaging-Events sind vom Gegenüber; ausgehende laufen über inbox-send.ts, nicht über den Webhook.
   const other = (convo.participants?.data ?? []).find((p) => p.id !== pageId);
   const createdAt = new Date(timestamp).toISOString();
+  const bild = (await dmAvatars(pageId, [senderId], [])).get(senderId);
 
   const source: Source = {
     customerId: customer.id,
     channel: "facebook",
     selfId: pageId,
     posts: [],
-    conversations: [{ ...convo, messages: { data: [{ id: mid, message: text, created_time: createdAt, from: { id: senderId, name: other?.name } }] } }],
+    conversations: [
+      {
+        ...convo,
+        participants: { data: (convo.participants?.data ?? []).map((p) => (p.id === senderId && bild ? { ...p, picture: { data: { url: bild } } } : p)) },
+        messages: { data: [{ id: mid, message: text, created_time: createdAt, from: { id: senderId, name: other?.name, picture: bild ? { data: { url: bild } } : undefined } }] },
+      },
+    ],
   };
-  store(db, source, [{ id: mid, threadId: convo.id, authorId: senderId, authorName: other?.name ?? "Unknown", text, fromSelf, createdAt }]);
+  store(db, source, [{ id: mid, threadId: convo.id, authorId: senderId, authorName: other?.name ?? "Unknown", authorAvatar: bild, text, fromSelf, createdAt }]);
 }
 
 export async function ingestWebhookEntry(db: Database, entry: WebhookEntry, customerFor: (pageId: string) => Customer | undefined): Promise<void> {

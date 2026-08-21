@@ -135,7 +135,6 @@ export function Sidebar({
         <SideNavItem
           label={heute.label}
           href={`${heute.href}${suffix}`}
-          as={Link}
           size="lg"
           isSelected={pathname === "/"}
           icon={<Sign meaning={heute.icon} form="outline" />}
@@ -151,7 +150,6 @@ export function Sidebar({
               key={n.href}
               label={n.label}
               href={`${n.href}${suffix}`}
-              as={Link}
               size="lg"
               isSelected={active}
               icon={<Sign meaning={n.icon} form="outline" />}
@@ -173,9 +171,9 @@ export function Sidebar({
           const active = pathname.startsWith(n.href);
           const item = (
             <SideNavItem
+              key={n.href}
               label={n.label}
               href={`${n.href}${suffix}`}
-              as={Link}
               size="lg"
               isSelected={active}
               icon={<Sign meaning={n.icon} form="outline" />}

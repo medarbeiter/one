@@ -155,7 +155,7 @@ export function ActiveFilters({
           </li>
         ))}
       </ul>
-      <Button href={scope || "?"} as={Link} variant="ghost" size="sm" label="Alle zurücksetzen" />
+      <Button href={scope || "?"} variant="ghost" size="sm" label="Alle zurücksetzen" />
     </div>
   );
 }

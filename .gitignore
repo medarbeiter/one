@@ -46,3 +46,7 @@ next-env.d.ts
 .impeccable/
 .codex/
 .claude/
+
+# local inbox database
+inbox.sqlite
+inbox.sqlite-*

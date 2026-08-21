@@ -104,6 +104,19 @@ export function mapGraphError(err: any, status = 0): GraphFailure {
   // sogar mit is_transient. Wiederholen ändert an einer Werbepräferenz nichts.
   if (code === LESS_PERSONALIZED_ADS || err?.error_subcode === LESS_PERSONALIZED_ADS)
     return { ...base, kind: "permission", retryable: false, code: LESS_PERSONALIZED_ADS };
+  // „Deine Anfrage ist abgelaufen, da du zu viele Unterhaltungen mit Nutzern
+  // hast, die keine Rolle in der App haben." Die App hat für
+  // instagram_manage_messages nur Standard-Zugriff; Meta siebt die Liste dann
+  // auf Nutzer mit App-Rolle herunter, geht dafür jeden Thread durch und läuft
+  // bei betriebsamen Konten in die Zeitgrenze. Kommt mit is_transient, ist es
+  // aber nicht: der zweite Versuch läuft in dieselbe Grenze. Aufgehoben wird
+  // das einmalig durch Advanced Access im App-Review, nicht pro Kunde.
+  //
+  // Auf den Berechtigungsnamen statt auf einen Code: welchen Meta hier
+  // schickt, ist nirgends zugesagt – der Name steht auch in der deutschen
+  // Fassung der Meldung wörtlich drin.
+  if (message.includes("instagram_manage_messages"))
+    return { ...base, kind: "permission", retryable: false };
   // is_transient setzt Meta selbst, wenn nur der Zeitpunkt schuld war: "Etwas
   // ist schiefgelaufen. Bitte versuche es später noch einmal." kommt mit 400
   // und fiele sonst als endgültig in die Quittung – obwohl derselbe Aufruf ein
@@ -235,7 +248,7 @@ export function unwrapBatchItem<T>(item: BatchItem): PromiseSettledResult<T> {
  */
 export async function batch<T = any>(
   reqs: BatchRequest[],
-  opts: { revalidate?: number; tags?: string[] } = {},
+  opts: { revalidate?: number; tags?: string[]; asPage?: string } = {},
 ): Promise<PromiseSettledResult<T>[]> {
   const out: PromiseSettledResult<T>[] = [];
   for (let i = 0; i < reqs.length; i += 50) {

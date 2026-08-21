@@ -1,6 +1,7 @@
 "use client";
 
-import { LayerProvider } from "@astryxdesign/core";
+import { LayerProvider, LinkProvider } from "@astryxdesign/core";
+import Link from "next/link";
 import { Theme } from "@astryxdesign/core/theme";
 import { InternationalizationProvider } from "@astryxdesign/core/i18n";
 import { houseTheme } from "@/theme/house";
@@ -23,12 +24,20 @@ import type { ReactNode } from "react";
  * eigene, losgelöste React-Wurzel neben dem `<body>` aus – ohne Katalog oder
  * Thema von oben. Ein Anbieter hier kostet nichts und behebt das, indem er
  * `children` tatsächlich umschließt.
+ *
+ * `LinkProvider` gibt Astryx ein für alle Mal `next/link` als Link-Element:
+ * jedes `href` an Button & Co. läuft dann über den Router statt über ein
+ * volles Neuladen. Vorher trug das jede Aufrufstelle als `as={Link}` — was
+ * aus einer Server-Komponente heraus gar nicht geht, weil eine Funktion
+ * nicht über die Client-Grenze passt. Hier steht es einmal, im Client.
  */
 export function Providers({ children }: { children: ReactNode }) {
   return (
     <InternationalizationProvider locale="de" messages={{ de }}>
       <Theme theme={houseTheme} mode="light">
-        <LayerProvider toast={{ position: "bottomEnd", maxVisible: 3 }}>{children}</LayerProvider>
+        <LayerProvider toast={{ position: "bottomEnd", maxVisible: 3 }}>
+          <LinkProvider component={Link}>{children}</LinkProvider>
+        </LayerProvider>
       </Theme>
     </InternationalizationProvider>
   );

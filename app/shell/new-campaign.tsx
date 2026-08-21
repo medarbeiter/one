@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@astryxdesign/core";
 import { Sign } from "@/theme/icons";
@@ -12,7 +11,6 @@ export function NewCampaign() {
   return (
     <Button
       href={`/campaigns/new${customer ? `?customer=${customer}` : ""}`}
-      as={Link}
       variant="primary"
       icon={<Sign meaning="add" />}
       label="Neue Kampagne"

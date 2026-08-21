@@ -38,7 +38,10 @@ bun test         # Checks für lib/meta.ts
    festlegen.
    `META_APP_SECRET` und `META_WEBHOOK_VERIFY_TOKEN` sind für `/inbox` nötig – das
    eine prüft die Signatur eingehender Webhook-Aufrufe, das andere bestätigt
-   Metas einmaligen Challenge-Aufruf. `INBOX_DB_PATH` ist optional, der Default
+   Metas einmaligen Challenge-Aufruf; `META_WEBHOOK_CALLBACK_URL`
+   (`https://<domain>/api/webhooks/meta`) schaltet den Echtzeitweg überhaupt
+   erst frei – nur mit ihr meldet die App das Abonnement beim Start selbst an.
+   `INBOX_DB_PATH` ist optional, der Default
    `/data/inbox.sqlite` steht schon in `compose.yaml`.
    Die Meta-Werte nicht als Build Variables markieren: Der Build braucht sie
    nicht, und so landen die Geheimnisse nicht in Image-Metadaten.
@@ -77,7 +80,16 @@ Kein OAuth-Login – ein System-User-Token reicht und läuft nicht ab.
 2. **Token generieren** → App „MedArbeiter One“ → Rechte:
    `ads_management`, `ads_read`, `business_management`, `pages_show_list`,
    `pages_manage_metadata`, `pages_read_engagement`, `pages_messaging`,
-   `instagram_basic`, `instagram_manage_comments`, `instagram_manage_messages`
+   `pages_manage_engagement`, `instagram_basic`, `instagram_manage_comments`,
+   `instagram_manage_messages`
+
+   `pages_manage_engagement` trägt die beiden wegnehmenden Handgriffe der
+   Inbox: einen Kommentar löschen und eine Person für die Seite blockieren.
+   Für `instagram_manage_messages` braucht die App außerdem **Advanced
+   Access** (App-Review). Mit dem Standard-Zugriff siebt Meta die
+   Unterhaltungsliste auf Nutzer mit App-Rolle herunter und läuft bei
+   betriebsamen Konten in einen Timeout – siehe die Begründung in
+   `lib/graph.ts`. Einmalig für die App, nicht pro Kunde.
 3. Token in `.env.local`, `META_AD_ACCOUNT_ID` ist nur die Vorauswahl:
    ```
    META_ACCESS_TOKEN=EAA...
@@ -116,15 +128,48 @@ Sie deaktiviert Alters-Targeting, das schickt die App dann gar nicht erst mit.
 - **/inbox** – Kommentare & DMs von Facebook/Instagram in zwei Spalten: links die
   Thread-Liste, rechts Konversation samt Composer. Filterbar nach Kanal, Art und
   Beantwortet-Status, alles als URL-State. Gefüttert wird die lokale
-  SQLite-Ablage über Metas Webhook (`/api/webhooks/meta`) – dafür einmalig im
-  App-Dashboard das Produkt „Webhooks“ auf `https://<domain>/api/webhooks/meta`
-  mit dem Verify-Token zeigen lassen und das Objekt **Page** mit den Feldern
-  `feed` und `messages` abonnieren (Instagram-Kommentare & -DMs reiten auf
-  derselben Page-Subscription mit, ein eigenes Instagram-Webhook gibt es nicht).
-  Das Abonnement je einzelner Seite ist dagegen kein manueller Schritt:
-  `ensureWebhookSubscribed()` (`lib/webhook-subscribe.ts`) läuft beim Start für
-  jede Seite im Portfolio, `bun run webhooks` liefert denselben Abgleich als
-  Bericht von Hand – bei 200+ Kunden ist Klicken pro Kunde keine Option.
+  SQLite-Ablage aus zwei Quellen: dem Abgleich `reconcile()` (läuft nach jeder
+  Antwort, holt 90 Tage zurück) und Metas Webhook (`/api/webhooks/meta`) für
+  den Echtzeitweg. Beide Abonnements setzt die App selbst, sobald
+  `META_WEBHOOK_CALLBACK_URL` gesetzt ist: das der App (`object=page`, Felder
+  `feed` und `messages`, Rückweg + Verify-Token) und das jeder einzelnen Seite –
+  einmal je Prozess, also bei jedem Deploy neu und damit auch für jede neu
+  hinzugekommene Seite. `bun run webhooks` macht denselben Abgleich von Hand
+  und berichtet, was scheitert – bei 200+ Kunden ist Klicken pro Kunde keine
+  Option. Instagram-Kommentare & -DMs reiten auf derselben Page-Subscription
+  mit, ein eigenes Instagram-Webhook gibt es nicht. Ohne
+  `META_WEBHOOK_CALLBACK_URL` (lokal der Normalfall) passiert beim Start gar
+  nichts und der Abgleich allein füttert die Liste.
+
+### Namen und Profilbilder
+
+Meta gibt beides nur heraus, wofür die App freigeschaltet ist. Der Code probiert
+alle Wege in dieser Reihenfolge und begnügt sich sonst mit Initialen
+(`lib/avatars.ts`):
+
+| Kanal | Weg | Stand |
+|---|---|---|
+| FB-Kommentare | `from{name,picture}` am Kommentar | nur für Seiten und App-Nutzer – **409 von 432** Threads haben deshalb keinen Namen |
+| FB-DMs | Name aus `participants`, Bild über `/{psid}?fields=profile_pic` | Bild braucht Advanced Access |
+| IG-Kommentare | `business_discovery` je Benutzername | ~27 %: nur Unternehmens- und Creator-Konten |
+| IG-Kommentare | `/{ig-id}?fields=profile_pic` | braucht Advanced Access, dann auch private Konten |
+| IG, letzte Stufe | Instagrams Web-Route (`IG_SCRAPE_AVATARS=1`) | außerhalb der API-Bedingungen, siehe unten |
+
+Drei Freigaben heben das Meiste, alle einmalig für die App, keine pro Kunde:
+**`pages_read_user_content`** (Advanced) für die Namen der FB-Kommentierenden,
+**Business Asset User Profile Access** für Bilder in Messenger-DMs,
+**`instagram_manage_messages`** (Advanced) für IG-Profile und IG-DMs überhaupt.
+Sobald eine davon durch ist, füllt sich der Posteingang beim nächsten Deploy von
+allein – die Aufrufe stehen schon im Code, werden bis dahin einmal je Prozess
+versucht und dann stillgelegt.
+
+`IG_SCRAPE_AVATARS=1` schaltet die letzte Stufe frei: dieselbe interne Route,
+die instagram.com im Browser benutzt. Sie liefert Bilder auch für private
+Konten, steht aber nicht in Metas Plattformbedingungen – das Pfand ist der
+Business Manager, an dem alle Kundenseiten und das Werbekonto hängen. Aus einem
+Rechenzentrum antwortet sie ohne `IG_SCRAPE_COOKIE` und ohne `IG_SCRAPE_PROXY`
+nach wenigen Aufrufen mit 401 oder 429; der erste Korb schaltet sie für den
+Prozess wieder ab. Höchstens `IG_SCRAPE_MAX` Abfragen je Stunde (Vorgabe 25).
 
 ## Nicht gebaut (bewusst)
 
