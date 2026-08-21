@@ -76,3 +76,121 @@ export async function fetchFacebookSource(
     messages,
   };
 }
+
+const IG_MEDIA_FIELDS =
+  "id,caption,media_url,comments{id,text,timestamp,from,replies{id,text,timestamp,from}}";
+// IG-DMs laufen über dieselbe Conversations-API wie Messenger, nur mit
+// platform=instagram – deshalb hier dieselben Feldnamen wie bei Facebook,
+// anders als bei Kommentaren (dort ist media/comments eine eigene, ältere
+// IG-Edge mit eigenen Feldnamen: text/timestamp statt message/created_time).
+const IG_CONVO_FIELDS = FB_CONVO_FIELDS;
+
+type RawIgComment = { id: string; text?: string; timestamp: string; from?: { id: string; username?: string }; replies?: { data: RawIgComment[] } };
+type RawIgMedia = { id: string; caption?: string; media_url?: string; comments?: { data: RawIgComment[] } };
+
+const igToRawPost = (m: RawIgMedia): RawPostWithReplyText => ({
+  id: m.id,
+  message: m.caption,
+  full_picture: m.media_url,
+  comments: {
+    data: (m.comments?.data ?? []).map((c) => ({
+      id: c.id,
+      message: c.text,
+      created_time: c.timestamp,
+      from: c.from ? { id: c.from.id, name: c.from.username } : undefined,
+      comments: { data: (c.replies?.data ?? []).map((r) => ({ id: r.id, message: r.text, created_time: r.timestamp, from: r.from ? { id: r.from.id, name: r.from.username } : undefined })) },
+    })),
+  },
+});
+
+export async function fetchInstagramSource(
+  customer: Customer,
+  page: { id: string; instagram: { id: string } },
+  sinceIso: string,
+): Promise<{ source: Source; messages: Message[] }> {
+  const since = Math.floor(Date.parse(sinceIso) / 1000);
+  const [media, conversations] = await Promise.all([
+    graph<{ data: RawIgMedia[] }>(`${page.instagram.id}/media`, {
+      asPage: page.id, // IG hat kein eigenes Token – es reitet auf dem der verknüpften Seite.
+      params: { fields: IG_MEDIA_FIELDS, since, limit: 50 },
+    }),
+    graph<{ data: RawConversation[] }>(`${page.id}/conversations`, {
+      asPage: page.id,
+      params: { fields: IG_CONVO_FIELDS, platform: "instagram", limit: 50 },
+    }),
+  ]);
+
+  const posts = media.data.map(igToRawPost);
+  const messages: Message[] = [];
+  for (const post of posts)
+    for (const c of post.comments?.data ?? []) {
+      messages.push(toMessage(c.id, c, page.id));
+      for (const r of c.comments?.data ?? []) messages.push(toMessage(c.id, r, page.id));
+    }
+  const recentConvos = conversations.data.filter((c) => Date.parse(c.updated_time) >= Date.parse(sinceIso));
+  for (const convo of recentConvos)
+    for (const m of convo.messages?.data ?? []) messages.push(toMessage(convo.id, m, page.id));
+  // Kein globales Sortieren: siehe Begründung bei fetchFacebookSource oben.
+
+  return {
+    source: {
+      customerId: customer.id,
+      channel: "instagram",
+      selfId: page.id,
+      posts: posts as unknown as RawPost[],
+      conversations: recentConvos,
+    },
+    messages,
+  };
+}
+
+function store(db: Database, source: Source, messages: Message[]): void {
+  const items = normalize([source]);
+  for (const item of items)
+    upsertThread(db, {
+      id: item.id,
+      kind: item.kind,
+      channel: item.channel,
+      customerId: item.customerId,
+      selfId: source.selfId,
+      authorId: item.author.id,
+      authorName: item.author.name,
+      authorAvatar: undefined,
+      contextLabel: item.context?.label,
+      contextThumbnail: item.context?.thumbnail,
+      contextAdId: item.context?.adId,
+      postId: item.postId,
+      answered: item.answered,
+      lastMessageAt: item.createdAt,
+      expiresAt: item.expiresAt,
+      updatedAt: new Date().toISOString(),
+    });
+  for (const m of messages) insertMessage(db, m);
+}
+
+export async function reconcileCustomer(db: Database, customer: Customer, sinceIso: string): Promise<void> {
+  const page = customer.page;
+  if (!page) return; // kein Auftritt, kein Posteingang – z. B. reine Zahlkonten.
+
+  const [fb, ig] = await Promise.all([
+    fetchFacebookSource(customer, { id: page.id }, sinceIso),
+    customer.instagram ? fetchInstagramSource(customer, { id: page.id, instagram: customer.instagram }, sinceIso) : undefined,
+  ]);
+  store(db, fb.source, fb.messages);
+  if (ig) store(db, ig.source, ig.messages);
+}
+
+/** Auslöser für app/layout.tsx. Läuft für jeden Kunden mit Seite; einer scheitert nie für alle. */
+export async function reconcile(db: Database, customers: Customer[]): Promise<{ ok: number; failed: { customerId: string; message: string }[] }> {
+  const since = reconcileWindow();
+  const targets = customers.filter((c) => c.page);
+  const settled = await Promise.allSettled(targets.map((c) => reconcileCustomer(db, c, since)));
+
+  const failed: { customerId: string; message: string }[] = [];
+  let ok = 0;
+  settled.forEach((r, i) => {
+    if (r.status === "fulfilled") ok++;
+    else failed.push({ customerId: targets[i].id, message: (r.reason as GraphError).message });
+  });
+  return { ok, failed };
+}

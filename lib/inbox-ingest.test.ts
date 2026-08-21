@@ -96,3 +96,76 @@ test("Unterhaltungen kommen vollständig mit, nicht nur die letzte Nachricht", a
   expect(source.conversations[0].id).toBe("t_1");
   expect(messages.map((m) => m.id)).toEqual(["m2", "m1"]);
 });
+
+const { fetchInstagramSource, reconcile } = await import("./inbox-ingest");
+
+test("Instagram-Kommentare werden auf die FB-Feldnamen abgebildet (text→message, timestamp→created_time)", async () => {
+  stub((url) => {
+    if (url.pathname.includes("/media")) {
+      return {
+        data: [
+          {
+            id: "media_1",
+            caption: "New opening in Dresden",
+            media_url: "https://x/photo.jpg",
+            comments: {
+              data: [
+                {
+                  id: "ic1",
+                  text: "Interessiert!",
+                  timestamp: "2026-08-20T09:00:00+0000",
+                  from: { id: "iu1", username: "anna_k" },
+                  replies: { data: [] },
+                },
+              ],
+            },
+          },
+        ],
+      };
+    }
+    return { data: [] }; // conversations
+  });
+
+  const { source, messages } = await fetchInstagramSource(
+    { id: "acme", name: "ACME" } as any,
+    { id: "page_1", instagram: { id: "ig_1" } } as any,
+    "2026-05-23T00:00:00.000Z",
+  );
+
+  expect(source.posts[0]).toMatchObject({ message: "New opening in Dresden", full_picture: "https://x/photo.jpg" });
+  expect(source.posts[0].comments?.data[0]).toMatchObject({ id: "ic1", message: "Interessiert!" });
+  expect(messages[0]).toMatchObject({ id: "ic1", authorName: "anna_k" });
+});
+
+test("reconcile() schreibt für jeden Kunden mit Seite Threads und Nachrichten in die Datenbank, ein Fehlschlag stoppt die anderen nicht", async () => {
+  const { Database } = await import("bun:sqlite");
+  const { initSchema, listThreads, listMessages } = await import("./inbox-store");
+  const db = new Database(":memory:");
+  initSchema(db);
+
+  let call = 0;
+  globalThis.fetch = (async (input: any) => {
+    call++;
+    const url = new URL(String(input));
+    if (url.pathname.endsWith("/broken_page")) return new Response(JSON.stringify({ error: { code: 200, message: "no perm" } }), { status: 403 });
+    if (!url.pathname.includes("/posts") && !url.pathname.includes("/conversations") && !url.pathname.includes("/media"))
+      return new Response(JSON.stringify({ access_token: "PAGE_TOKEN" }));
+    if (url.pathname.includes("/posts") && url.pathname.startsWith("/v")) {
+      return new Response(JSON.stringify({
+        data: [{ id: "post_1", message: "Hi", comments: { data: [{ id: "c1", message: "Hallo", created_time: "2026-08-20T09:00:00+0000", from: { id: "u1", name: "Anna" } }] } }],
+      }));
+    }
+    return new Response(JSON.stringify({ data: [] }));
+  }) as typeof fetch;
+
+  const customers = [
+    { id: "acme", name: "ACME", page: { id: "page_1" } } as any,
+    { id: "broken", name: "Broken", page: { id: "broken_page" } } as any,
+  ];
+  const result = await reconcile(db, customers);
+
+  expect(result.ok).toBe(1);
+  expect(result.failed).toEqual([{ customerId: "broken", message: expect.stringContaining("no perm") }]);
+  expect(listThreads(db, {})).toHaveLength(1);
+  expect(listMessages(db, "c1")).toHaveLength(1);
+});
