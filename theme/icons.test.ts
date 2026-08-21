@@ -19,4 +19,9 @@ describe('the icon vocabulary', () => {
       seen.set(key, meaning);
     }
   });
+
+  test('die Inbox-Bedeutungen sind eigene Glyphen, keine Wiederverwendung', () => {
+    for (const m of ['comment', 'dm', 'facebook', 'instagram', 'send'] as const)
+      expect(MEANINGS[m as Meaning]).toBeDefined();
+  });
 });

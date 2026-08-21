@@ -2,9 +2,9 @@
 
 import {
   ArrowClockwise, Calendar, CaretLeft, CaretLineLeft, CaretLineRight,
-  CaretRight, ChartLine, Check, Copy, DotsThree, Eye, Funnel, Gear, GridNine,
-  House, ImageSquare, Link as LinkIcon, MagnifyingGlass, MapPin, Megaphone,
-  Pause, PencilSimple, Play, Plus, Rocket, SignOut, Sun, Trash, Tray,
+  CaretRight, ChatCircleText, ChartLine, Check, Copy, DotsThree, EnvelopeSimple, Eye, FacebookLogo, Funnel, Gear, GridNine,
+  House, ImageSquare, InstagramLogo, Link as LinkIcon, MagnifyingGlass, MapPin, Megaphone,
+  PaperPlaneTilt, Pause, PencilSimple, Play, Plus, Rocket, SignOut, Sun, Trash, Tray,
   UploadSimple, User, Users, UsersThree, VideoCamera, Warning, X,
   type Icon as PhosphorIcon,
 } from '@phosphor-icons/react';
@@ -65,6 +65,12 @@ export const MEANINGS = {
   inbox: { solid: Tray, outline: Tray },
   customers: { solid: UsersThree, outline: UsersThree },
   filter: { solid: Funnel, outline: Funnel },
+
+  comment: { solid: ChatCircleText, outline: ChatCircleText },
+  dm: { solid: EnvelopeSimple, outline: EnvelopeSimple },
+  facebook: { solid: FacebookLogo, outline: FacebookLogo },
+  instagram: { solid: InstagramLogo, outline: InstagramLogo },
+  send: { solid: PaperPlaneTilt, outline: PaperPlaneTilt },
   /* A caret against a line, not the bare caret `previous`/`next` use — the
      rail toggle and pagination are different actions and shouldn't render
      as the same glyph (see the vocabulary test below). Hub's `einklappen`/
