@@ -58,8 +58,9 @@ export async function fetchFacebookSource(
       messages.push(toMessage(c.id, c, page.id));
       for (const r of c.comments?.data ?? []) messages.push(toMessage(c.id, r, page.id));
     }
-  for (const convo of conversations.data.filter((c) => Date.parse(c.updated_time) >= Date.parse(sinceIso)))
-    for (const m of convo.messages?.data ?? []) messages.push(toMessage(convo.id, m as any, page.id));
+  const recentConvos = conversations.data.filter((c) => Date.parse(c.updated_time) >= Date.parse(sinceIso));
+  for (const convo of recentConvos)
+    for (const m of convo.messages?.data ?? []) messages.push(toMessage(convo.id, m, page.id));
   // Kein globales Sortieren: Kommentar+Antworten kommen durch die Verschachtelung
   // schon in Zeitfolge, Konversationsnachrichten in Graphs eigener (neueste zuerst)
   // Reihenfolge – ein globaler Sort nach createdAt würde genau das durchmischen.
@@ -69,8 +70,8 @@ export async function fetchFacebookSource(
       customerId: customer.id,
       channel: "facebook",
       selfId: page.id,
-      posts: posts.data as unknown as RawPost[],
-      conversations: conversations.data.filter((c) => Date.parse(c.updated_time) >= Date.parse(sinceIso)),
+      posts: posts.data,
+      conversations: recentConvos,
     },
     messages,
   };
