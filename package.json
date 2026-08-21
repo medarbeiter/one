@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "node .next/standalone/server.js",
+    "start": "bun .next/standalone/server.js",
     "assign": "bun --env-file=.env.local scripts/assign-assets.ts",
     "customers": "bun --env-file=.env.local scripts/customers.ts",
     "theme": "astryx theme build theme/house.ts --out theme/house.css"

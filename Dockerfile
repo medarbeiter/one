@@ -14,7 +14,7 @@ COPY . .
 RUN --mount=type=cache,target=/app/.next/cache \
     bun run build
 
-FROM node:22-bookworm-slim AS runtime
+FROM oven/bun:1.3.14-slim AS runtime
 WORKDIR /app
 
 ENV NODE_ENV=production \
@@ -22,13 +22,13 @@ ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0 \
     PORT=3000
 
-COPY --from=build --chown=node:node /app/.next/standalone ./
-COPY --from=build --chown=node:node /app/.next/static ./.next/static
+COPY --from=build --chown=bun:bun /app/.next/standalone ./
+COPY --from=build --chown=bun:bun /app/.next/static ./.next/static
 
-USER node
+USER bun
 EXPOSE 3000
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=15s --retries=3 \
-  CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+  CMD ["bun", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
 
-CMD ["node", "server.js"]
+CMD ["bun", "server.js"]
