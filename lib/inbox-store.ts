@@ -9,7 +9,11 @@
  * dahinter – bei Kommentaren inklusive des ursprünglichen Kommentars selbst,
  * nicht nur seiner Antworten.
  */
-import { Database } from "bun:sqlite";
+import { createRequire } from "node:module";
+// Nur ein Typ-Import (wird beim Kompilieren entfernt) – next builds
+// Node-Worker werten dieses Modul aus, dürfen bun:sqlite aber nie laden.
+// Nur der Bun-Laufzeitpfad ruft openDb() unten wirklich auf.
+import type { Database as DatabaseType } from "bun:sqlite";
 import type { Channel } from "./inbox";
 
 export type Thread = {
@@ -51,7 +55,7 @@ export type ThreadFilter = {
   q?: string;
 };
 
-export function initSchema(db: Database): void {
+export function initSchema(db: DatabaseType): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS threads (
       id TEXT PRIMARY KEY,
@@ -88,11 +92,14 @@ export function initSchema(db: Database): void {
   `);
 }
 
-let singleton: Database | undefined;
+let singleton: DatabaseType | undefined;
 
 /** Ein Prozess, eine Verbindung – bun:sqlite ist synchron, ein zweites Handle brächte nichts. */
-export function openDb(path = process.env.INBOX_DB_PATH ?? "/data/inbox.sqlite"): Database {
+export function openDb(path = process.env.INBOX_DB_PATH ?? "/data/inbox.sqlite"): DatabaseType {
   if (singleton) return singleton;
+  // Erst hier, beim tatsächlichen Aufruf, wird bun:sqlite geladen – nie beim
+  // Modul-Import (siehe Kommentar oben).
+  const { Database } = createRequire(import.meta.url)("bun:sqlite") as typeof import("bun:sqlite");
   singleton = new Database(path, { create: true });
   initSchema(singleton);
   return singleton;
@@ -129,7 +136,7 @@ const toMessage = (r: any): Message => ({
   createdAt: r.created_at,
 });
 
-export function upsertThread(db: Database, t: Thread): void {
+export function upsertThread(db: DatabaseType, t: Thread): void {
   db.query(
     `INSERT INTO threads (
       id, kind, channel, customer_id, self_id, author_id, author_name, author_avatar,
@@ -154,7 +161,7 @@ export function upsertThread(db: Database, t: Thread): void {
   );
 }
 
-export function insertMessage(db: Database, m: Message): void {
+export function insertMessage(db: DatabaseType, m: Message): void {
   // OR IGNORE: derselbe Kommentar/dieselbe Nachricht kommt über Webhook und
   // Reconcile doppelt vorbei – die Id ist Metas eigene, ein zweiter Schreib-
   // versuch ist ein No-Op, kein Fehler.
@@ -164,7 +171,7 @@ export function insertMessage(db: Database, m: Message): void {
   ).run(m.id, m.threadId, m.authorId, m.authorName, m.text, m.fromSelf ? 1 : 0, m.createdAt);
 }
 
-export function listThreads(db: Database, f: ThreadFilter): Thread[] {
+export function listThreads(db: DatabaseType, f: ThreadFilter): Thread[] {
   const where: string[] = [];
   const params: unknown[] = [];
   if (f.customerId) { where.push("customer_id = ?"); params.push(f.customerId); }
@@ -179,15 +186,15 @@ export function listThreads(db: Database, f: ThreadFilter): Thread[] {
   return db.query(sql).all(...(params as any[])).map(toThread);
 }
 
-export const getThread = (db: Database, id: string): Thread | undefined => {
+export const getThread = (db: DatabaseType, id: string): Thread | undefined => {
   const row = db.query("SELECT * FROM threads WHERE id = ?").get(id);
   return row ? toThread(row) : undefined;
 };
 
-export const listMessages = (db: Database, threadId: string): Message[] =>
+export const listMessages = (db: DatabaseType, threadId: string): Message[] =>
   db.query("SELECT * FROM messages WHERE thread_id = ? ORDER BY created_at ASC").all(threadId).map(toMessage);
 
-export const countUnanswered = (db: Database, customerId?: string): number => {
+export const countUnanswered = (db: DatabaseType, customerId?: string): number => {
   if (customerId) {
     return (db.query(
       `SELECT COUNT(*) AS n FROM threads WHERE answered = 0 AND customer_id = ?`,
@@ -199,7 +206,7 @@ export const countUnanswered = (db: Database, customerId?: string): number => {
 };
 
 /** Schreibpfad einer gesendeten Antwort: Nachricht ablegen, Thread in einem Schritt beantworten. */
-export function recordSentMessage(db: Database, m: Message): void {
+export function recordSentMessage(db: DatabaseType, m: Message): void {
   insertMessage(db, m);
   db.query(
     "UPDATE threads SET answered = 1, last_message_at = ?, updated_at = ? WHERE id = ?",

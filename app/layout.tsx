@@ -101,7 +101,9 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
             sideNav={
               <Suspense fallback={<div className="h-full w-[260px] shrink-0" />}>
                 <Sidebar
-                  inboxCount={countUnanswered(openDb())}
+                  // Laufzeit ist Bun (Dockerfile); nur next builds Node-Worker
+                  // beim Prerender (z. B. /_not-found) kennen `Bun` nicht.
+                  inboxCount={typeof Bun !== "undefined" ? countUnanswered(openDb()) : 0}
                   footer={
                     // Der Verbindungsstatus ist vorerst ausgeblendet (Hub
                     // zeigt ihn an dieser Stelle nicht) – die Kontozeile
