@@ -194,3 +194,90 @@ export async function reconcile(db: Database, customers: Customer[]): Promise<{ 
   });
   return { ok, failed };
 }
+
+export type WebhookEntry = {
+  id: string; // Page- oder IG-Business-Id, je nach Objekt-Typ des Webhooks
+  changes?: { field: string; value: { item?: string; verb?: string; comment_id?: string; id?: string; post_id?: string; media?: { id: string }; parent_id?: string } }[];
+  messaging?: { sender: { id: string }; recipient: { id: string }; timestamp: number; message?: { mid: string; text?: string } }[];
+};
+
+const FB_COMMENT_FIELDS = "id,message,created_time,from,comments{id,message,created_time,from}";
+const FB_POST_MINI_FIELDS = "id,message,full_picture";
+
+/** Der eine nachgeholte Kommentar, mit demselben Feldsatz wie in reconcile() – siehe Modulkommentar oben. */
+type RawFetchedComment = { id: string; message?: string; created_time: string; from?: { id: string; name?: string }; comments?: { data: RawReplyWithText[] } };
+
+async function ingestComment(db: Database, pageId: string, customer: Customer, commentId: string, postId: string, threadId: string): Promise<void> {
+  const [comment, post] = await Promise.all([
+    graph<RawFetchedComment>(commentId, { asPage: pageId, params: { fields: FB_COMMENT_FIELDS } }),
+    graph<{ id: string; message?: string; full_picture?: string }>(postId, { asPage: pageId, params: { fields: FB_POST_MINI_FIELDS } }).catch(() => ({ id: postId, message: undefined, full_picture: undefined })),
+  ]);
+
+  const source: Source = {
+    customerId: customer.id,
+    channel: customer.instagram && postId.startsWith(customer.instagram.id) ? "instagram" : "facebook",
+    selfId: pageId,
+    posts: threadId === commentId
+      ? [{ id: postId, message: post.message, full_picture: post.full_picture, comments: { data: [comment] } }]
+      : [],
+    conversations: [],
+  };
+
+  if (threadId === commentId) {
+    store(db, source, [toMessage(commentId, comment, pageId)]);
+  } else {
+    // Antwort auf einen bestehenden Thread: kein neuer Thread, nur eine
+    // weitere Nachricht plus "beantwortet", wenn wir selbst geschrieben haben.
+    const reply = toMessage(threadId, comment, pageId);
+    insertMessage(db, reply);
+    if (reply.fromSelf) {
+      const existing = db.query("SELECT customer_id FROM threads WHERE id = ?").get(threadId) as { customer_id: string } | undefined;
+      if (existing) db.query("UPDATE threads SET answered = 1, last_message_at = ?, updated_at = ? WHERE id = ?").run(reply.createdAt, reply.createdAt, threadId);
+    }
+  }
+}
+
+async function ingestMessage(db: Database, pageId: string, customer: Customer, senderId: string, mid: string, text: string, timestamp: number): Promise<void> {
+  // Der Webhook trägt keine Unterhaltungs-Id – dieselbe, die reconcile() über
+  // die Conversations-Edge bekommt, kommt hier über deren user_id-Filter.
+  const { data } = await graph<{ data: RawConversation[] }>(`${pageId}/conversations`, {
+    asPage: pageId,
+    params: { fields: "id,updated_time,participants", user_id: senderId, limit: 1 },
+  });
+  const convo = data[0];
+  if (!convo) return; // Meta liefert die Konversation manchmal erst mit minimaler Verzögerung – reconcile() holt sie spätestens in 90 Tagen nach.
+
+  const fromSelf = false; // eingehende messaging-Events sind vom Gegenüber; ausgehende laufen über inbox-send.ts, nicht über den Webhook.
+  const other = (convo.participants?.data ?? []).find((p) => p.id !== pageId);
+  const createdAt = new Date(timestamp).toISOString();
+
+  const source: Source = {
+    customerId: customer.id,
+    channel: "facebook",
+    selfId: pageId,
+    posts: [],
+    conversations: [{ ...convo, messages: { data: [{ id: mid, message: text, created_time: createdAt, from: { id: senderId, name: other?.name } }] } }],
+  };
+  store(db, source, [{ id: mid, threadId: convo.id, authorId: senderId, authorName: other?.name ?? "Unknown", text, fromSelf, createdAt }]);
+}
+
+export async function ingestWebhookEntry(db: Database, entry: WebhookEntry, customerFor: (pageId: string) => Customer | undefined): Promise<void> {
+  const customer = customerFor(entry.id);
+  if (!customer) return; // Seite gehört keinem geführten Kunden (mehr) – nichts zu tun.
+
+  for (const change of entry.changes ?? []) {
+    if (change.field !== "feed" && change.field !== "comments") continue;
+    const v = change.value;
+    if (v.item !== "comment" || v.verb !== "add") continue;
+    const commentId = v.comment_id ?? v.id;
+    const postId = v.post_id ?? v.media?.id;
+    if (!commentId || !postId) continue;
+    const threadId = v.parent_id && v.parent_id !== postId ? v.parent_id : commentId;
+    await ingestComment(db, entry.id, customer, commentId, postId, threadId);
+  }
+
+  for (const m of entry.messaging ?? []) {
+    if (!m.message?.text) continue;
+    await ingestMessage(db, entry.id, customer, m.sender.id, m.message.mid, m.message.text, m.timestamp);
+  }
+}

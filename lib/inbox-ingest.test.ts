@@ -169,3 +169,76 @@ test("reconcile() schreibt für jeden Kunden mit Seite Threads und Nachrichten i
   expect(listThreads(db, {})).toHaveLength(1);
   expect(listMessages(db, "c1")).toHaveLength(1);
 });
+
+const { ingestWebhookEntry } = await import("./inbox-ingest");
+
+test("ein Kommentar-Webhook holt den Kommentar nach und legt Thread + Nachricht an", async () => {
+  const { Database } = await import("bun:sqlite");
+  const { initSchema, getThread, listMessages } = await import("./inbox-store");
+  const db = new Database(":memory:");
+  initSchema(db);
+
+  globalThis.fetch = (async (input: any) => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith("/page_1")) return new Response(JSON.stringify({ access_token: "PAGE_TOKEN" }));
+    if (url.pathname.includes("/c1")) return new Response(JSON.stringify({ id: "c1", message: "Frage!", created_time: "2026-08-21T09:00:00+0000", from: { id: "u1", name: "Anna" }, comments: { data: [] } }));
+    if (url.pathname.includes("/post_1")) return new Response(JSON.stringify({ id: "post_1", message: "Beitrag", full_picture: "https://x/p.jpg" }));
+    return new Response(JSON.stringify({ data: [] }));
+  }) as typeof fetch;
+
+  await ingestWebhookEntry(
+    db,
+    { id: "page_1", changes: [{ field: "feed", value: { item: "comment", verb: "add", comment_id: "c1", post_id: "post_1", parent_id: "post_1" } }] },
+    () => ({ id: "acme", name: "ACME", page: { id: "page_1" } }) as any,
+  );
+
+  expect(getThread(db, "c1")).toMatchObject({ authorName: "Anna", answered: false });
+  expect(listMessages(db, "c1")).toHaveLength(1);
+});
+
+test("eine Antwort auf einen bestehenden Kommentar hängt an dessen Thread, statt einen neuen zu eröffnen", async () => {
+  const { Database } = await import("bun:sqlite");
+  const { initSchema, upsertThread, getThread, listMessages } = await import("./inbox-store");
+  const db = new Database(":memory:");
+  initSchema(db);
+  upsertThread(db, { id: "c1", kind: "comment", channel: "facebook", customerId: "acme", selfId: "page_1", authorId: "u1", authorName: "Anna", answered: false, lastMessageAt: "2026-08-21T09:00:00.000Z", updatedAt: "2026-08-21T09:00:00.000Z" });
+
+  globalThis.fetch = (async (input: any) => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith("/page_1")) return new Response(JSON.stringify({ access_token: "PAGE_TOKEN" }));
+    if (url.pathname.includes("/r1")) return new Response(JSON.stringify({ id: "r1", message: "Schreib uns eine PN", created_time: "2026-08-21T09:05:00+0000", from: { id: "page_1", name: "ACME" } }));
+    return new Response(JSON.stringify({ data: [] }));
+  }) as typeof fetch;
+
+  await ingestWebhookEntry(
+    db,
+    { id: "page_1", changes: [{ field: "feed", value: { item: "comment", verb: "add", comment_id: "r1", post_id: "post_1", parent_id: "c1" } }] },
+    () => ({ id: "acme", name: "ACME", page: { id: "page_1" } }) as any,
+  );
+
+  expect(getThread(db, "c1")?.answered).toBe(true);
+  expect(listMessages(db, "c1").map((m) => m.id)).toEqual(["r1"]);
+});
+
+test("eine eingehende Nachricht sucht die Unterhaltung nach und hängt die Nachricht dort an", async () => {
+  const { Database } = await import("bun:sqlite");
+  const { initSchema, getThread, listMessages } = await import("./inbox-store");
+  const db = new Database(":memory:");
+  initSchema(db);
+
+  globalThis.fetch = (async (input: any) => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith("/page_1") && !url.pathname.includes("conversations")) return new Response(JSON.stringify({ access_token: "PAGE_TOKEN" }));
+    if (url.pathname.includes("/conversations")) return new Response(JSON.stringify({ data: [{ id: "t_1", updated_time: "2026-08-21T12:00:00+0000", participants: { data: [{ id: "page_1" }, { id: "u2", name: "Bruno" }] } }] }));
+    return new Response(JSON.stringify({ data: [] }));
+  }) as typeof fetch;
+
+  await ingestWebhookEntry(
+    db,
+    { id: "page_1", messaging: [{ sender: { id: "u2" }, recipient: { id: "page_1" }, timestamp: 1755777600000, message: { mid: "m1", text: "Ist der Job noch offen?" } }] },
+    () => ({ id: "acme", name: "ACME", page: { id: "page_1" } }) as any,
+  );
+
+  expect(getThread(db, "t_1")).toMatchObject({ answered: false, authorName: "Bruno" });
+  expect(listMessages(db, "t_1")[0]).toMatchObject({ id: "m1", text: "Ist der Job noch offen?" });
+});
