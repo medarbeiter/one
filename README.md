@@ -23,6 +23,8 @@ bun test         # Checks für lib/meta.ts
    META_ACCESS_TOKEN=EAA...
    META_BUSINESS_ID=...
    META_AD_ACCOUNT_ID=act_...
+   META_APP_SECRET=...
+   META_WEBHOOK_VERIFY_TOKEN=...
    MEDARBEITER_URL=https://hub.med-arbeiter.de
    MEDARBEITER_CLIENT_ID=...
    MEDARBEITER_CLIENT_SECRET=...
@@ -34,6 +36,10 @@ bun test         # Checks für lib/meta.ts
    `META_API_VERSION` die standardmäßig verwendete Version `v26.0` überschreiben
    und mit `META_SYSTEM_USER_ID` die sonst aus dem Token gelesene System-User-ID
    festlegen.
+   `META_APP_SECRET` und `META_WEBHOOK_VERIFY_TOKEN` sind für `/inbox` nötig – das
+   eine prüft die Signatur eingehender Webhook-Aufrufe, das andere bestätigt
+   Metas einmaligen Challenge-Aufruf. `INBOX_DB_PATH` ist optional, der Default
+   `/data/inbox.sqlite` steht schon in `compose.yaml`.
    Die Meta-Werte nicht als Build Variables markieren: Der Build braucht sie
    nicht, und so landen die Geheimnisse nicht in Image-Metadaten.
 4. Deployen. Coolify hängt den Service an sein verwaltetes Netzwerk und erzeugt
@@ -44,7 +50,8 @@ Der Docker-Healthcheck auf `/api/health` steuert den Rollout; eine zusätzliche
 Healthcheck-Konfiguration in Coolify ist nicht nötig. Das Image installiert
 exakt `bun.lock`, hält Bun- und Next-Build-Caches zwischen Deployments warm und
 enthält zur Laufzeit nur den Next.js-Standalone-Server. Der Container schreibt
-keine dauerhaften Anwendungsdaten; Volumes sind deshalb nicht nötig.
+ab der Inbox (`/inbox`) dauerhafte Daten – ein Docker-Volume unter `/data`
+hält den lokalen Nachrichten-Speicher warm (`compose.yaml`).
 
 Für einen lokalen Compose-Start alle Pflichtwerte in `.env` setzen und
 `docker compose up --build` ausführen.
@@ -106,11 +113,23 @@ solange hier keine Freigabe-Logik existiert.
 Sonderkategorie „Beschäftigung“ ist vorausgewählt – bei Stellenanzeigen Pflicht.
 Sie deaktiviert Alters-Targeting, das schickt die App dann gar nicht erst mit.
 
+- **/inbox** – Kommentare & DMs von Facebook/Instagram in zwei Spalten: links die
+  Thread-Liste, rechts Konversation samt Composer. Filterbar nach Kanal, Art und
+  Beantwortet-Status, alles als URL-State. Gefüttert wird die lokale
+  SQLite-Ablage über Metas Webhook (`/api/webhooks/meta`) – dafür einmalig im
+  App-Dashboard das Produkt „Webhooks“ auf `https://<domain>/api/webhooks/meta`
+  mit dem Verify-Token zeigen lassen und das Objekt **Page** mit den Feldern
+  `feed` und `messages` abonnieren (Instagram-Kommentare & -DMs reiten auf
+  derselben Page-Subscription mit, ein eigenes Instagram-Webhook gibt es nicht).
+  Das Abonnement je einzelner Seite ist dagegen kein manueller Schritt:
+  `ensureWebhookSubscribed()` (`lib/webhook-subscribe.ts`) läuft beim Start für
+  jede Seite im Portfolio, `bun run webhooks` liefert denselben Abgleich als
+  Bericht von Hand – bei 200+ Kunden ist Klicken pro Kunde keine Option.
+
 ## Nicht gebaut (bewusst)
 
 | Thema | Wann bauen |
 |---|---|
-| Kommentare & DMs (Business Suite) | Stage 2 – erst wenn die Meta-Inbox wirklich nicht reicht |
 | Seiten-Profil bearbeiten (Bild, Bio) | ändert sich 2× im Jahr, Aufwand > Nutzen |
 | Mehrere Formate in einem Creative | wenn Feed und Reels getrennt optimiert werden sollen |
 | Auth / Mehrbenutzer | wenn die App nicht mehr nur lokal läuft |
