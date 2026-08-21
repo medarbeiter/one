@@ -11,6 +11,8 @@ import { AppShell } from "@astryxdesign/core";
 import "./globals.css";
 import brandIcon from "@/assets/logo-square.png";
 import { ensureAssigned } from "@/lib/assign";
+import { reconcile } from "@/lib/inbox-ingest";
+import { countUnanswered, openDb } from "@/lib/inbox-store";
 import { listCustomers } from "@/lib/customers";
 import { openSession, SESSION_COOKIE, sessionSecret } from "@/lib/session";
 import { IntlDeutschImBrowser } from "@/components/intl-de-client";
@@ -64,6 +66,20 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   // Neue Kunden weisen sich selbst zu. after() läuft nach der Antwort: der
   // Abgleich hält keine Seite auf, und sein Fehlschlag zerlegt kein Rendering.
   after(ensureAssigned);
+  // Derselbe Rhythmus wie ensureAssigned: läuft nach der Antwort, ein
+  // Graph-Aussetzer darf die Seite nicht zerlegen. Läuft für jedes
+  // Rendering – bun:sqlite ist ein warmer, lokaler Prozess, keine Kosten wie
+  // bei einem entfernten Dienst; ein doppelter Lauf schreibt nur dieselben
+  // Zeilen erneut.
+  after(async () => {
+    if (process.env.NEXT_PHASE === "phase-production-build") return;
+    try {
+      const { failed } = await reconcile(openDb(), customers);
+      for (const f of failed) console.error(`[inbox] Abgleich fehlgeschlagen für ${f.customerId}: ${f.message}`);
+    } catch (e) {
+      console.error(`[inbox] Abgleich nicht möglich: ${(e as Error).message}`);
+    }
+  });
   // Ein toter Token macht alles unbrauchbar; fehlende Freigaben nur einzelne Kunden.
   const state = errors.some((e) => e.kind === "token")
     ? "dead"
@@ -85,6 +101,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
             sideNav={
               <Suspense fallback={<div className="h-full w-[260px] shrink-0" />}>
                 <Sidebar
+                  inboxCount={countUnanswered(openDb())}
                   footer={
                     // Der Verbindungsstatus ist vorerst ausgeblendet (Hub
                     // zeigt ihn an dieser Stelle nicht) – die Kontozeile
