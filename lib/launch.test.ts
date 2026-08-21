@@ -745,6 +745,57 @@ test("eine bestätigte Anzeige ohne lesbare Id kostet die Anzeige, nicht die Qui
   expect(r.adSets[0].adIds).not.toContain(undefined);
 });
 
+/**
+ * „Etwas ist schiefgelaufen. Bitte versuche es später noch einmal." – Meta
+ * markiert das selbst als vorübergehend (is_transient), und von Hand hat der
+ * Knopf „Erneut versuchen" die Anzeige danach angelegt. Im Batch stand der
+ * Fehler trotzdem als endgültig in der Quittung, weil hier nur der Sub-Request
+ * ausgewertet wird und nicht die Wiederholungsleiter aus graph() greift.
+ */
+test("ein vorübergehend abgelehnter Sub-Request wird einzeln nachgeholt", async () => {
+  let n = 0;
+  const b = async <T = any>(reqs: any[]): Promise<PromiseSettledResult<T>[]> =>
+    reqs.map(() => {
+      const i = n++;
+      // Das Creative geht durch, die Anzeige dahinter kippt vorübergehend.
+      return i === 1
+        ? {
+            status: "rejected" as const,
+            reason: new GraphError({
+              kind: "unknown",
+              message: "Etwas ist schiefgelaufen. Bitte versuche es später noch einmal.",
+              retryable: true,
+            }),
+          }
+        : { status: "fulfilled" as const, value: { id: `x-${i}` } as T };
+    });
+  const { g, calls } = fakeGraph();
+  const r = await launch(manyAds(9), { graph: g, batch: b });
+
+  // Nichts in der Quittung, und die Anzeige existiert – über den einzelnen Weg.
+  expect(r.failed).toEqual([]);
+  expect(r.adSets[0].adIds).toHaveLength(9);
+  expect(calls.filter((c) => c.path.endsWith("/ads"))).toHaveLength(1);
+});
+
+test("ohne Antwort wird nichts nachgeholt – der Sub-Request kann gelaufen sein", async () => {
+  // Ein fehlender Eintrag ist keine Absage. Würde er nachgeholt, entstünde die
+  // Anzeige womöglich ein zweites Mal, und das sieht in der Anzeigengruppe
+  // niemand als Fehler.
+  const b = async <T = any>(reqs: any[]): Promise<PromiseSettledResult<T>[]> =>
+    reqs.slice(0, -1).map((_, i) => ({ status: "fulfilled" as const, value: { id: `x-${i}` } as T }));
+  const { g, calls } = fakeGraph();
+  const r = await launch(manyAds(9), { graph: g, batch: b });
+
+  expect(calls.filter((c) => c.path.endsWith("/ads"))).toHaveLength(0);
+  // Neun Anzeigen sind zwei Aufrufe (5 + 4), und in beiden fehlt der letzte
+  // Eintrag – zwei Anzeigen ohne Auskunft, beide benannt statt nachgeholt.
+  expect(r.failed).toHaveLength(2);
+  // Die Meldung trägt zwar retryable, aber sie stammt aus unwrapBatchItem und
+  // nicht von Meta – genau deshalb hängt das Nachholen an "beantwortet".
+  for (const f of r.failed) expect(f.error).toContain("timed out");
+});
+
 test("ein Batch-Fehler von Meta wird einzeln nachgeholt", async () => {
   // Meta hat mit einem Fehler-Body geantwortet – dann ist kein Sub-Request
   // gelaufen und dieselben Anzeigen dürfen noch einmal los.

@@ -34,6 +34,20 @@
   --color-warning-700: var(--color-text-orange);
   --color-success-700: var(--color-text-green);
   --color-attention: var(--color-error-muted);
+  /* Der Rand einer fehlgeschlagenen Kachel (`border-danger`) und der Fokusring
+   * der Schrittleiste (`ring-focus`) standen im Markup, ohne dass ein Token
+   * dahinterlag — beide waren unsichtbar. Der Fokusring nimmt dieselbe Bronze
+   * wie `.kontozeile-profil:focus-visible` weiter unten. */
+  /* Nicht `--color-border-red` (#e6bab8): das ist Astryx' Rahmen FÜR eine rote
+   * Fläche und erreicht auf Weiß keine 1,5:1 — genau die unsichtbare Kante,
+   * die hier gemeint war und nie ankam. Die dunkle Fehlertinte trägt sie
+   * (lib/contrast.test.ts). */
+  --color-danger: var(--color-error);
+  --color-focus: var(--color-icon-accent);
+  /* Die zweite Fläche: getönte Streifen INNERHALB einer weißen Karte —
+   * Assistenten-Fußzeile, Namenskasten, Dateiwähler, Zeile unter dem Zeiger.
+   * Dieselbe Fläche, die Astryx' `Section variant="muted"` selbst füllt. */
+  --color-surface-secondary: var(--color-background-muted);
 
   --font-display: var(--font-family-heading);
   --font-sans: var(--font-family-body);
@@ -58,6 +72,141 @@
   border-block-end: 1px solid var(--color-border);
 }
 
+/* Das Blatt. Jedes Band ist vollflächig, damit die Goldwäsche des Kopfes und
+ * die Trennlinien der Zeilen die Fensterkanten erreichen — der Inhalt darin
+ * ist aber gedeckelt: über einen 1900px-Schirm gezogen hört eine dichte
+ * Tabelle auf, lesbar zu sein, und die Seite liest sich als unfertig statt als
+ * großzügig. 1:1 aus dem Hub übernommen (`.zeit-blatt` dort).
+ *
+ * `inline-size: 100%` ist nötig: ohne es ist der Kasten ein Flex-Element mit
+ * Inhaltsbreite und fällt auf seinen Inhalt zusammen, statt bis zum Deckel
+ * aufzugehen. Der doppelte Selektor hält die Regel über Astryx' eigener
+ * @layer astryx-base. */
+.blatt.blatt {
+  inline-size: 100%;
+  max-inline-size: 1180px;
+  margin-inline: auto;
+}
+
+/* Die Leiste — das oberste Stück des Kopfbands, klebend über dem scrollenden
+ * Blatt (app/shell/leiste.tsx). Sie trägt die volle Wäsche, aus der das
+ * Kopfband darunter ausblendet, und in Ruhe keine eigene Kante: Leiste und
+ * Kopf sind EINE Fläche. Vorher war sie das einzige vollflächige Weiß der
+ * Anwendung und zerschnitt genau dort, wo Suche, Kundenscope und die eine
+ * Handlung zusammengehören. 1:1 aus dem Hub übernommen (`.stempel-leiste`). */
+.leiste {
+  position: sticky;
+  top: 0;
+  /* Über Karten, Zeilen und Tabellenköpfen; Dialoge und Meldungen leben in der
+     obersten Ebene des Browsers und werden davon nicht berührt. */
+  z-index: 50;
+  background: var(--color-accent-muted);
+  /* 1px, nicht var(--border-width): dieses Haus baut sein Thema ohne
+     Rahmenbreiten-Token (theme/house.css), und `.header-band` oben schreibt
+     die Kante aus demselben Grund ebenfalls in Pixeln. */
+  border-block-end: 1px solid transparent;
+  transition:
+    border-color var(--beat-tap) var(--ease-in),
+    box-shadow var(--beat-tap) var(--ease-in);
+}
+
+/* Der Fühler: ein unsichtbares Element unmittelbar über der Leiste im Fluss.
+ * Steht es nicht mehr im Bild, klebt die Leiste über fremdem Inhalt. */
+.leiste-fuehler {
+  display: block;
+  block-size: 1px;
+  margin-block-end: -1px;
+  visibility: hidden;
+}
+
+/* Schwebend holt sich die Leiste ihre Abgrenzung zurück: Haarstrich und ein
+ * flacher Schatten tragen die Kante, die die Wäsche gegen das Papier allein
+ * nicht hergibt (≈1,1:1). Ein Zustandsübergang, keine zweite Bewegung. */
+.leiste[data-schwebt="true"] {
+  border-block-end-color: var(--color-border);
+  box-shadow: var(--shadow-low);
+}
+
+/* Trefferfläche: 44px ist der Boden für einen Knopf, der im Vorbeigehen mit
+ * einem Daumen getroffen wird. Gilt für jede Fenstergröße — eine Maus verliert
+ * nichts dabei. Der Druckpunkt quittiert den Klick, bevor der Server geantwortet
+ * hat: 3,5 % sind zu wenig zum Wackeln und genug, um gespürt zu werden. */
+.leiste button {
+  min-block-size: 44px;
+  transition: transform var(--beat-tap) var(--ease-in);
+}
+.leiste button:active {
+  transform: scale(0.965);
+}
+
+/* Die goldene Handlung auf der Goldwäsche: Füllung gegen Grund ≈1,7:1, also
+ * trägt die Kante — derselbe Bronze-Haarstrich, den die Gold-braucht-eine-Kante-
+ * Regel jeder bedeutungstragenden Goldfläche vorschreibt (DESIGN.md). Nur hier:
+ * auf Weiß steht ein Primärknopf wie überall ohne Linie. */
+.leiste .astryx-button[data-variant="primary"] {
+  box-shadow: inset 0 0 0 1px var(--color-icon-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .leiste,
+  .leiste button {
+    transition: none;
+  }
+  .leiste button:active {
+    transform: none;
+  }
+}
+
+/* Der Kopf auf dem Telefon. Titel, Zahl, Einheit, Standzeile und darunter der
+ * Navigator füllten auf einem 390×844 großen Gerät gut die halbe Höhe — man sah
+ * den Kopf und die erste Tabellenzeile, sonst nichts. Die Zahl bleibt die
+ * Hauptsache, aber sie muss nicht 48px hoch sein, wenn daneben kein Platz ist.
+ * Doppelter Selektor, weil die Textkomponente ihre Größe über eine eigene
+ * Klasse setzt. 1:1 aus dem Hub übernommen. */
+@media (max-width: 600px) {
+  .kopf-blatt.kopf-blatt {
+    padding-block: var(--spacing-3);
+    gap: var(--spacing-3);
+  }
+  .kopf-figur.kopf-figur > * {
+    font-size: var(--font-size-3xl);
+    line-height: 1.1;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Ein Wert, der sich ändert (app/shell/zahlwert.tsx).
+
+   Die eine Zahl im Kopfband steht nicht still: sie kippt beim Wechsel des
+   Zeitraums und schrumpft beim Filtern. Eine Zahl, die dabei einfach
+   ausgetauscht wird, blinzelt — man merkt, dass sich etwas geändert hat, aber
+   nicht was. Sie setzt sich deshalb von unten an ihren Platz und läuft ohne
+   Überschwingen aus: der Wert wird fortgeschrieben, nicht mit Impuls geworfen.
+
+   Kein Füllmodus, mit Absicht: der Ruhezustand ist der lesbare Zustand. Läuft
+   die Animation nie (Hintergrundtab), steht die Zahl scharf an ihrem Platz.
+   1:1 aus dem Hub übernommen (`.zahlwert` dort).
+   --------------------------------------------------------------------------- */
+.zahlwert {
+  display: inline-block;
+  animation: zahl-rollt var(--beat-step) var(--ease-in);
+}
+@keyframes zahl-rollt {
+  from {
+    transform: translateY(0.18em);
+    opacity: 0.65;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .zahlwert {
+    animation: none;
+  }
+}
+
 /* Content arrives from below. Transform only — an opacity animation that
    never ticks (a background tab does exactly this) would strand a wizard step
    invisible. Worst case here is a step sitting 12px low. */
@@ -76,6 +225,260 @@
 .scroll-fade {
   overflow-y: auto;
   mask-image: linear-gradient(to bottom, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
+}
+
+/* Die Breite der Leiste — 1:1 aus dem Hub übernommen (app/globals.css dort).
+ * Astryx' eigener Standard (260px) ist auf englische Beschriftungen
+ * geschnitten; deutsche Wörter mit Zusatz (z. B. "Kampagne erstellen")
+ * laufen darüber hinaus. Astryx' eingebautes `resizable` bleibt aus (siehe
+ * sidebar.tsx: kein `resizable`-Prop) — der Ziehgriff brach im Hub bei
+ * schmalen Fenstern in eine zweite horizontale Scrollleiste auf, eine feste
+ * Breite ist der einfachere Weg. Der doppelte Selektor hält jede Regel über
+ * Astryx' eigenem @layer astryx-base. */
+@media (prefers-reduced-motion: reduce) {
+  .astryx-side-nav.astryx-side-nav,
+  .astryx-side-nav.astryx-side-nav * {
+    transition: none;
+    animation: none;
+  }
+}
+.astryx-side-nav.astryx-side-nav {
+  border-inline-end: var(--border-width) solid var(--color-border);
+}
+.astryx-side-nav.astryx-side-nav {
+  inline-size: 288px;
+}
+.astryx-side-nav[data-eingeklappt="true"].astryx-side-nav[data-eingeklappt="true"] {
+  inline-size: var(--spacing-12);
+}
+.astryx-side-nav[data-bereit="false"],
+.astryx-side-nav[data-bereit="false"] * {
+  transition: none !important;
+}
+
+/* Der gewählte Eintrag spricht die Sprache des Hauses: Goldwäsche mit
+ * Bronzetinte statt Astryx' kühlem Grau (dessen `.selected` nur
+ * `--color-neutral` füllt) — derselbe Mechanismus wie im Hub
+ * (astryx-side-nav-item.selected dort), hier auf die eigenen Token
+ * (--color-accent-muted / --color-icon-accent / --color-text-accent)
+ * bezogen. Der doppelte Selektor hält die Regel über Astryx' eigenem
+ * @layer astryx-base, wie beim collapsible-wide-trigger unten. */
+.astryx-side-nav .astryx-side-nav-item.selected {
+  background: var(--color-accent-muted);
+  box-shadow: inset 0 0 0 1px var(--color-icon-accent);
+  color: var(--color-text-accent);
+}
+
+/* Kontozeile — 1:1 aus dem Hub übernommen (components/app-nav.tsx +
+ * app/globals.css dort), nur --takt-tupf/--schwung-an durch die eigenen
+ * Bewegungs-Token ersetzt (--beat-tap/--ease-in, theme/motion.css: dieselbe
+ * cubic-bezier). Die Trefferfläche des Profils: Zeichen, Text, drittes
+ * Zeichen als Raster, keine eigene Hinterlegung — die Hinterlegung trägt
+ * `.kontozeile` außen, damit Trefferfläche und Hinterlegung deckungsgleich
+ * bleiben. */
+.kontozeile-profil {
+  min-inline-size: 0;
+  flex: 1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--spacing-2);
+  color: inherit;
+  text-decoration: none;
+  border-radius: var(--radius-element);
+  outline: none;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  text-align: start;
+}
+.kontozeile-profil:hover {
+  color: var(--color-text-accent);
+}
+.kontozeile-profil:focus-visible {
+  outline: var(--border-width-emphasized) solid var(--color-icon-accent);
+  outline-offset: var(--spacing-1);
+}
+.kontozeile-profil-eng {
+  display: block;
+  flex: none;
+}
+
+/* Dieselbe Trefferfläche und dieselbe Hinterlegung wie ein Navigationseintrag,
+ * damit der Fuß nicht als Rest wirkt, der übrig blieb. Sie nimmt die Breite,
+ * die der Griff für die Schiene daneben übrig lässt. */
+.kontozeile {
+  flex: 1;
+  min-inline-size: 0;
+  border-radius: var(--radius-inner);
+  transition: background-color var(--beat-tap) var(--ease-in);
+}
+.kontozeile:hover {
+  background-color: var(--color-overlay-hover);
+}
+@media (prefers-reduced-motion: reduce) {
+  .kontozeile {
+    transition: none;
+  }
+}
+
+/* Die Marke im Kopf der Leiste (app/shell/sidebar.tsx, `Marke()`) — dieselben
+ * Maße wie Astryx' eigener `SideNavHeading` im "ganze Überschrift ist ein
+ * Verweis"-Zweig (spacing-2 Lücke und Innenabstand, spacing-8
+ * Mindesthöhe, radius-element, kein Rahmen, geerbte Farbe, kein
+ * Unterstrich), hier von Hand nachgebaut, weil `heading` dort nur reinen
+ * Text nimmt und den zweifarbigen Wortzug nicht tragen könnte. */
+.marke-kopf {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  min-height: var(--spacing-8);
+  padding-inline: var(--spacing-2);
+  box-sizing: border-box;
+  border-radius: var(--radius-element);
+  cursor: pointer;
+  color: inherit;
+  text-decoration: none;
+}
+.marke-kopf-eng {
+  display: inline-flex;
+}
+
+/* Die Hülle eines Navigationseintrags, der einen Ruf tragen kann — 1:1 aus
+ * dem Hub übernommen (components/app-nav.tsx / app/globals.css dort). */
+.nav-eintrag {
+  display: block;
+  position: relative;
+}
+
+/* Die Naht zwischen zwei Navigations-Gruppen mit verstecktem Titel (siehe
+ * SideNavSection isHeaderHidden in sidebar.tsx) — derselbe Haarstrich wie im
+ * Hub (dort `.verwaltung-trenner`), hier allgemein benannt: dieses Haus
+ * gruppiert nach Inhalt statt nach Verwaltungsebene, die Naht bleibt gleich. */
+.gruppen-trenner {
+  border-block-start: var(--border-width) solid var(--color-border);
+  margin-block-start: var(--spacing-1);
+  padding-block-start: var(--spacing-1);
+}
+
+/* Der Punkt in der eingeklappten Schiene, der einen Ruf meldet, wenn kein
+ * ausgeklappter Eintrag mehr Platz für eine Zahl hat. Warnorange wie die
+ * Marke selbst (derselbe Ton wie .astryx-statusdot.warning), mit einem Ring
+ * in der Leistenfarbe, damit der Punkt auch auf einem gewählten,
+ * goldgewaschenen Eintrag als eigenes Ding liest. */
+.astryx-side-nav[data-eingeklappt="true"] .nav-eintrag[data-ruft="true"]::after {
+  content: "";
+  position: absolute;
+  inset-block-start: 4px;
+  inset-inline-end: 8px;
+  inline-size: 8px;
+  block-size: 8px;
+  border-radius: var(--radius-full);
+  background: light-dark(#dd7200, #e2883e);
+  box-shadow: 0 0 0 2px var(--color-background-body);
+  pointer-events: none;
+}
+
+/* Der Faden eines aufgeklappten Eintrags — 1:1 aus dem Hub übernommen
+ * (components/app-nav.tsx / app/globals.css dort), nur --takt-zug/--schwung-zug
+ * durch die eigenen Bewegungs-Token ersetzt (--beat-draw/--ease-move,
+ * theme/motion.css: dieselbe cubic-bezier, "Moving without arriving or
+ * leaving"). Wie ein Diskussionsbaum: eine senkrechte Linie, von der aus ein
+ * kurzer Steg zu jedem Kind abgeht. */
+.nav-zweig {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  margin-inline-start: -8px;
+  padding-inline-start: 16px;
+}
+
+.nav-zweig > * {
+  position: relative;
+}
+
+.nav-zweig > *::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: -16px;
+  inset-block-start: calc(-1 * var(--spacing-2));
+  inset-block-end: 50%;
+  inline-size: 13px;
+  border-inline-start: 2px solid var(--color-border-emphasized);
+  border-block-end: 2px solid var(--color-border-emphasized);
+}
+
+.nav-zweig > *:last-child::before {
+  border-end-start-radius: 8px;
+}
+
+.nav-zweig > *:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  inset-inline-start: -16px;
+  inset-block-start: 50%;
+  inset-block-end: calc(-1 * var(--spacing-2));
+  border-inline-start: 2px solid var(--color-border-emphasized);
+}
+
+.nav-zweig > .nav-zweig-stand::before {
+  inset-block-end: calc(100% - 13px);
+}
+.nav-zweig > .nav-zweig-stand:not(:last-child)::after {
+  inset-block-start: 13px;
+}
+
+.nav-zweig > * {
+  transform: translateY(-4px);
+  transition: transform var(--beat-draw) var(--ease-move);
+}
+.nav-zweig > *::before,
+.nav-zweig > *::after {
+  clip-path: inset(0 0 100% 0);
+  transition: clip-path var(--beat-draw) var(--ease-move);
+}
+.nav-zweig[data-offen="true"] > * {
+  transform: none;
+}
+.nav-zweig[data-offen="true"] > *::before,
+.nav-zweig[data-offen="true"] > *::after {
+  clip-path: inset(0 0 0 0);
+}
+.nav-zweig[data-offen="true"] > *:nth-child(2),
+.nav-zweig[data-offen="true"] > *:nth-child(2)::before,
+.nav-zweig[data-offen="true"] > *:nth-child(2)::after {
+  transition-delay: 45ms;
+}
+.nav-zweig[data-offen="true"] > *:nth-child(n + 3),
+.nav-zweig[data-offen="true"] > *:nth-child(n + 3)::before,
+.nav-zweig[data-offen="true"] > *:nth-child(n + 3)::after {
+  transition-delay: 90ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-zweig > *,
+  .nav-zweig[data-offen="true"] > * {
+    transform: none;
+    transition: none;
+  }
+  .nav-zweig > *::before,
+  .nav-zweig > *::after,
+  .nav-zweig[data-offen="true"] > *::before,
+  .nav-zweig[data-offen="true"] > *::after {
+    clip-path: none;
+    transition: none;
+  }
+}
+
+/* Die kleine Zahl neben einem Eintrag sitzt in Astryx' eigenem Layout ganz
+ * am rechten Rand, dicht am Aufklapp-Pfeil: die Beschriftung selbst trägt
+ * intern `flex: 1` und schiebt alles danach an die Kante. 1:1 aus dem Hub
+ * übernommen (components/app-nav.tsx / app/globals.css dort). */
+.astryx-side-nav-item > *:nth-child(2),
+.astryx-side-nav-item > a > *:nth-child(2) {
+  flex: 0 1 auto;
 }
 
 /* Astryx' Collapsible steckt seinen Auslöser-Inhalt in einen <span>, der sich

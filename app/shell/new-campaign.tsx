@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@astryxdesign/core";
-import { Icon } from "./icons";
+import { Sign } from "@/theme/icons";
 
 /** Die Primäraktion der App, in jeder Ansicht an derselben Stelle. */
 export function NewCampaign() {
@@ -14,8 +14,7 @@ export function NewCampaign() {
       href={`/campaigns/new${customer ? `?customer=${customer}` : ""}`}
       as={Link}
       variant="primary"
-      size="sm"
-      icon={<Icon name="plus" />}
+      icon={<Sign meaning="add" />}
       label="Neue Kampagne"
     />
   );

@@ -6,16 +6,18 @@ import {
   Banner,
   Button,
   Card,
-  CheckboxList,
-  CheckboxListItem,
   Collapsible,
   CollapsibleGroup,
   DateInput,
   Divider,
   Heading,
   Kbd,
+  List,
+  ListItem,
+  MultiSelector,
   NumberInput,
   ProgressBar,
+  Section,
   Selector,
   Text,
   TextInput,
@@ -25,6 +27,7 @@ import {
   type SearchableItem,
 } from "@astryxdesign/core";
 import { UserPlusIcon } from "@phosphor-icons/react";
+import { Sign } from "@/theme/icons";
 import { getLocalTimeZone, parseDate, today } from "@internationalized/date";
 import { campaignName, ROLES } from "@/lib/naming";
 import { label, plural } from "@/lib/labels";
@@ -44,7 +47,9 @@ import {
   type WizardAdSet,
 } from "./state";
 import { drainArrived, useUploadVersion } from "./upload-queue";
+import { Entwuerfe } from "./entwuerfe";
 import { AdSetBlock } from "./ad-set-block";
+import { Angaben, Infotafel } from "./angaben";
 import { Stepper } from "./stepper";
 import { Preview } from "./preview";
 import { ReceiptPanel } from "./receipt";
@@ -212,23 +217,47 @@ function LeadgenTosAlert({ client }: { client: WizardClient }) {
 }
 
 /**
- * Beschriftung/Wert-Paare – für die Zusammenfassung und die Festwerte.
- * Einspaltig, wo die Fläche schmal ist: drei Zeilen über zwei Spalten lassen
- * eine halbe Zeile leer stehen und sehen aus, als fehle dort etwas.
+ * Der Rahmen jedes Schritts: eine Frage, ein Satz, dann die Felder.
+ *
+ * Vorher fing jeder Schritt unmittelbar mit einem Eingabefeld an. Wie er heißt,
+ * stand in der Leiste darüber – *was er entscheidet* nirgends, das war aus den
+ * Feldern zu erschließen. Die Überschrift wiederholt den Namen deshalb nicht,
+ * sondern stellt die Frage, die der Schritt beantwortet; der Satz darunter sagt,
+ * was an der Antwort hängt.
+ *
+ * Alle vier Schritte tragen denselben Innenabstand (24 px) und denselben
+ * Abstand zwischen ihren Blöcken (24 px) – vorher waren es je nach Schritt 16,
+ * 24 oder 32 px, und beim Weiterklicken verschob sich alles um ein paar Pixel.
  */
-function Facts({ rows, columns = 2 }: { rows: [string, string][]; columns?: 1 | 2 }) {
+function Step({
+  frage,
+  satz,
+  children,
+}: {
+  frage: string;
+  satz: ReactNode;
+  children: ReactNode;
+}) {
   return (
-    // Wert direkt neben der Beschriftung statt an den gegenüberliegenden Rand
-    // gedrückt: über eine halbe Kartenbreite hinweg stand jeder Wert näher an
-    // der Beschriftung der *nächsten* Spalte als an seiner eigenen.
-    <dl className={`grid gap-x-10 gap-y-2 text-sm ${columns === 2 ? "sm:grid-cols-2" : ""}`}>
-      {rows.map(([k, v]) => (
-        <div key={k} className="grid grid-cols-[minmax(0,11rem)_1fr] items-baseline gap-3">
-          <dt className="text-ink-500 truncate text-xs">{k}</dt>
-          <dd className="min-w-0 truncate font-medium">{v}</dd>
+    <div className="step-enter flex flex-col gap-6 p-6">
+      {/* Frage, Satz, Linie – in jedem der vier Schritte dieselbe Kopfzeile.
+          Der Haarstrich darunter macht aus der Frage einen Kopf statt des
+          ersten Eintrags im Stapel: vorher stand sie im selben 24-px-Abstand
+          zur ersten Eingabe wie jedes Feld zum nächsten, und ein Schritt las
+          sich als eine lange Reihe gleichrangiger Blöcke. */}
+      <header className="flex flex-col gap-4">
+        <div className="flex flex-col gap-1">
+          <Heading level={2}>{frage}</Heading>
+          {/* Auf Textbreite gedeckelt: über die volle Karte gezogen bräuchte
+              dieser eine Satz zwei Sprünge des Auges statt eines. */}
+          <Text type="supporting" color="secondary" as="p" className="max-w-prose">
+            {satz}
+          </Text>
         </div>
-      ))}
-    </dl>
+        <Divider />
+      </header>
+      {children}
+    </div>
   );
 }
 
@@ -254,9 +283,8 @@ function WizardSteps({
   defaultAccount,
   defaultBusiness,
 }: WizardProps) {
-  const { state, setState, loaded, restored, discard } = useWizardState(
-    initialState(defaultAccount, defaultBusiness),
-  );
+  const { state, setState, loaded, restored, others, resume, remove, discard, forget } =
+    useWizardState(initialState(defaultAccount, defaultBusiness));
   const [step, setStep] = useState("0");
   const customerFieldRef = useRef<HTMLDivElement>(null);
   // ⇧K öffnet die Kundensuche von überall, außer jemand tippt gerade in ein
@@ -315,12 +343,25 @@ function WizardSteps({
     rolesRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
     // Fokus zusätzlich zum Scrollen: wer per Tastatur kommt, sieht das Scrollen
     // nicht als Antwort auf seinen Tastendruck.
-    rolesRef.current?.querySelector<HTMLElement>("input")?.focus();
+    // Der Auslöser der Rollenauswahl ist seit dem MultiSelector ein
+    // role="combobox"-Knopf und kein Kästchen-<input> mehr; die Liste steht
+    // erst nach dem Aufklappen im DOM.
+    rolesRef.current?.querySelector<HTMLElement>("button, input")?.focus();
   }, [rolesWanted, step]);
   const { result, progress, pending, run } = useLaunch();
   // Für den Retry-Pfad im Receipt-Panel: das genaue Objekt, das gesendet wurde,
   // nicht der aktuelle (evtl. inzwischen weiterbearbeitete) Wizard-State.
   const [submission, setSubmission] = useState<WizardSubmission | null>(null);
+
+  // Angelegt heißt fertig. Bliebe der Entwurf in der Liste, lüde er morgen
+  // jemanden ein, dieselbe Kampagne ein zweites Mal anzulegen – und genau das
+  // ist der Fehler, der bei Meta Geld kostet statt eine Fehlermeldung zu geben.
+  // Auch bei teilweisem Erfolg: sobald eine campaignId existiert, steht sie.
+  const campaignId = result.receipt?.campaignId;
+  useEffect(() => {
+    if (campaignId) forget();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campaignId]);
 
   const account = accounts.find((a) => a.id === state.adAccount);
 
@@ -530,6 +571,22 @@ function WizardSteps({
   // Eingabe, die man später noch einmal machen darf.
   const locked = !client;
 
+  // Der Satz neben der Hauptaktion. In den ersten drei Schritten hält nichts
+  // auf – ein offener Punkt darf liegen bleiben, und genau das muss dastehen,
+  // sonst liest sich der Zähler in der Leiste als Sperre. Im letzten Schritt
+  // hält er sehr wohl auf: dort ist der Knopf tot, und der Grund dafür stand
+  // vorher nur oben in der Meldung, außer Sichtweite vom Knopf.
+  const lastStep = stepIndex === STEPS.length - 1;
+  const offen = lastStep ? allIssues.length : stepIssues[stepIndex];
+  const fussHinweis =
+    pending || offen === 0
+      ? undefined
+      : lastStep
+        ? `${offen === 1 ? "1 offener Punkt" : `${offen} offene Punkte`} — nachzulesen oben.`
+        : offen === 1
+          ? "1 offener Punkt — du kannst ihn später klären."
+          : `${offen} offene Punkte — du kannst sie später klären.`;
+
   return (
     <div className="space-y-4">
       {/* Ein wiederhergestellter Entwurf sieht aus wie ein frisch ausgefüllter –
@@ -538,12 +595,17 @@ function WizardSteps({
         <Banner
           status="warning"
           title="Entwurf wiederhergestellt"
-          description="Die Eingaben stammen aus einer früheren Sitzung in diesem Tab."
+          description="Die Eingaben stammen aus einer früheren Sitzung."
           endContent={
             <Button variant="secondary" size="sm" onClick={discard} label="Neu beginnen" />
           }
         />
       )}
+
+      {/* Nur im ersten Schritt: dort beginnt man, und dort ist die Frage „an
+          welchem hier arbeite ich weiter?“ noch offen. Ab Schritt 2 ist sie
+          beantwortet, und die Liste wäre nur noch eine Ablenkung. */}
+      {stepIndex === 0 && <Entwuerfe drafts={others} onResume={resume} onRemove={remove} />}
 
       {/* Die Karte legt ihre eigenen 16 px ab: Die Schrittleiste soll bis an
           beide Kanten reichen, und die Abschnitte darunter tragen mit 24 px
@@ -561,49 +623,55 @@ function WizardSteps({
 
         {/* ------------------------------------------------ Schritt 1: Kunde */}
         {stepIndex === 0 && (
-          <div className="space-y-6 p-6 step-enter">
+          <Step
+            frage="Für wen wird geworben?"
+            satz="Die Facebook-Seite des Kunden trägt die Anzeigen und die Lead-Formulare, sein Name baut den Kampagnennamen. Alle weiteren Schritte hängen daran."
+          >
             {/* Ein Feld, zwei Wirkungen: die Seite des Kunden trägt Anzeigen und
                 Lead-Formulare, sein Name baut den Kampagnennamen. Die Suche ist
                 lokal und sofort; beim Laden der Meta-Liste deckt loading.tsx
                 genau diese Fläche mit Skeletons ab. */}
-            <div className="flex max-w-xl items-end gap-2">
-              {/* Astryx' Typeahead ist selbst das Suchfeld – der Umweg über
-                  Auslöser, Popover und ein zweites SearchField darin entfällt,
-                  und mit hasEntriesOnFocus öffnet sich beim Hineinspringen die
-                  volle Kundenliste, genau wie vorher beim Aufklappen. */}
-              <Typeahead
-                label="Beworbener Kunde"
-                isRequired
-                placeholder="Kunde suchen…"
-                searchSource={clientSource}
-                value={clientItem}
-                onChange={(item) =>
-                  setState((s) => ({ ...s, business: item?.auxiliaryData.name ?? "" }))
-                }
-                hasEntriesOnFocus
-                maxMenuItems={clientItems.length}
-                debounceMs={0}
-                emptySearchResultsText="Kein Kunde gefunden"
-                ref={customerFieldRef}
-                className="min-w-0 flex-1"
-              />
+            <div className="flex max-w-xl flex-col gap-2">
+              <div className="flex items-end gap-2">
+                {/* Astryx' Typeahead ist selbst das Suchfeld – der Umweg über
+                    Auslöser, Popover und ein zweites SearchField darin entfällt,
+                    und mit hasEntriesOnFocus öffnet sich beim Hineinspringen die
+                    volle Kundenliste, genau wie vorher beim Aufklappen. */}
+                <Typeahead
+                  label="Beworbener Kunde"
+                  isRequired
+                  placeholder="Kunde suchen…"
+                  searchSource={clientSource}
+                  value={clientItem}
+                  onChange={(item) =>
+                    setState((s) => ({ ...s, business: item?.auxiliaryData.name ?? "" }))
+                  }
+                  hasEntriesOnFocus
+                  maxMenuItems={clientItems.length}
+                  debounceMs={0}
+                  emptySearchResultsText="Kein Kunde gefunden"
+                  ref={customerFieldRef}
+                  className="min-w-0 flex-1"
+                />
 
-              {/* Das Kürzel stand vorher im Feld, gleich neben dem Wert. Astryx'
-                  Typeahead hat dafür keinen Platz (kein Slot am Feldende), also
-                  steht es jetzt daneben – auf Höhe des Feldes und nicht neben
-                  der Beschriftung, wo es zwischen Text und Pflicht-Stern saß. */}
-              <span className="flex h-8 items-center">
-                <Kbd keys="shift+k" />
-              </span>
+                {/* Absichtlich noch ohne Aktion: der Einstieg ist sichtbar, ohne
+                    eine Kundenanlage vorzutäuschen, die es im Backend nicht gibt. */}
+                <Button
+                  isIconOnly
+                  variant="secondary"
+                  label="Kunde hinzufügen"
+                  icon={<UserPlusIcon aria-hidden size={20} weight="bold" />}
+                />
+              </div>
 
-              {/* Absichtlich noch ohne Aktion: der Einstieg ist sichtbar, ohne
-                  eine Kundenanlage vorzutäuschen, die es im Backend nicht gibt. */}
-              <Button
-                isIconOnly
-                variant="secondary"
-                label="Kunde hinzufügen"
-                icon={<UserPlusIcon aria-hidden size={20} weight="bold" />}
-              />
+              {/* Das Kürzel stand vorher als dritter kleiner Kasten in der Reihe
+                  – neben dem Löschknopf des Feldes und dem Knopf „Kunde
+                  hinzufügen" waren das drei Quadrate nebeneinander, von denen
+                  nur zwei anklickbar sind. Als Satz unter dem Feld sagt es, was
+                  es ist, und die Reihe trägt nur noch Bedienbares. */}
+              <Text type="supporting" as="p">
+                <Kbd keys="shift+k" /> öffnet die Kundensuche von überall.
+              </Text>
             </div>
 
             {client?.needsLeadgenTos && <LeadgenTosAlert client={client} />}
@@ -611,24 +679,20 @@ function WizardSteps({
             {/* Wer zahlt, unter wessen Seite veröffentlicht wird und ob Instagram
                 dabei ist, sind drei Antworten – vorher standen sie als ein Satz
                 mit Mittelpunkt da und mussten gelesen statt überflogen werden. */}
-            {client ? (
-              <Card elevation="low" variant="muted" className="max-w-xl space-y-3">
-                <Heading level={3}>Das steckt hinter dieser Wahl</Heading>
-                <Facts
-                  columns={1}
+            {client && (
+              <div className="max-w-xl">
+                <Angaben
+                  titel="Das steckt hinter dieser Wahl"
                   rows={[
                     ["Seite (veröffentlicht)", client.pageName],
                     ["Werbekonto (zahlt)", account?.name ?? "—"],
                     ["Instagram", instagramLabel ?? "nur Facebook-Seite"],
                   ]}
                 />
-              </Card>
-            ) : (
-              <Text type="supporting" as="p">
-                Die weiteren Schritte öffnen sich, sobald ein Kunde gewählt ist — seine
-                Facebook-Seite trägt die Anzeigen und Lead-Formulare.
-              </Text>
+              </div>
             )}
+
+            <Divider />
 
             {/* Fast immer MedArbeiter; die Ausnahme liegt eine Ebene tiefer und
                 hält so den üblichen Pfad kurz. Den Pfeil samt Drehung bringt
@@ -668,12 +732,15 @@ function WizardSteps({
                 )}
               </div>
             </Collapsible>
-          </div>
+          </Step>
         )}
 
         {/* ------------------------------------------------ Schritt 2: Anzeigen */}
         {stepIndex === 1 && (
-          <div className="space-y-4 p-6 step-enter">
+          <Step
+            frage="Was wird gezeigt — und wo?"
+            satz="Je Standort eine Anzeigengruppe. Dateien laden im Hintergrund weiter hoch: du kannst schon weiterklicken, während sie laufen."
+          >
             {/* Ein Standort je Zeile, aufgeklappt nur der, an dem gearbeitet
                 wird. Die Kopfzeile trägt, was sonst erst im Block steht:
                 Adresse, Zahl der Anzeigen, offene Punkte. */}
@@ -746,13 +813,24 @@ function WizardSteps({
               </div>
             </CollapsibleGroup>
 
-            <Button variant="secondary" onClick={addLocation} label="Standort hinzufügen" />
-          </div>
+            {/* Mit Zeichen: der Knopf steht unter einer Liste von Aufklappern,
+                die alle links ein Element tragen – ohne eigenes Zeichen las er
+                sich als deren Fuß statt als Handlung. */}
+            <Button
+              variant="secondary"
+              onClick={addLocation}
+              label="Standort hinzufügen"
+              icon={<Sign meaning="add" />}
+            />
+          </Step>
         )}
 
         {/* ------------------------------------------------ Schritt 3: Details */}
         {stepIndex === 2 && (
-          <div className="space-y-8 p-6 step-enter">
+          <Step
+            frage="Wie heißt sie, was darf sie kosten?"
+            satz="Der Name baut sich aus Kunde, Rollen, Startdatum und Kürzel — von Hand geht auch. Alles Übrige liegt fest und steht unten zum Nachlesen."
+          >
             {/* Der Name ist ein Ergebnis, keine Eingabe: er setzt sich aus Kunde,
                 Rollen, Datum und Initialen zusammen. Deshalb steht er oben als
                 Ergebnis, darunter das, was ihn füttert – das Feld erscheint nur,
@@ -855,33 +933,42 @@ function WizardSteps({
             {/* Der Rahmen trägt nur den ref: hierher springt „Rollen wählen“
                 aus dem Überschriften-Generator einen Schritt weiter vorn. */}
             <div ref={rolesRef} className="scroll-mt-24">
-            <FieldsetSection legend="Gesuchte Rollen">
-              {/* Astryx' CheckboxList legt die Einträge selbst an (als <ul>,
-                  untereinander) – das vorher von Hand gesetzte flex-row-wrap
-                  entfällt, sieben Rollen stehen jetzt in einer Spalte.
-                  aria-label wird zu label + isLabelHidden: die sichtbare
-                  Überschrift trägt schon die Legende des Abschnitts. */}
-              <CheckboxList
-                label="Rollen"
-                isLabelHidden
-                value={state.roles}
-                onChange={(roles) => setState((s) => ({ ...s, roles }))}
+              <FieldsetSection
+                legend="Gesuchte Rollen"
+                groupClassName="grid max-w-3xl gap-4 sm:grid-cols-2"
               >
-                {ROLES.map((r) => (
-                  <CheckboxListItem key={r.code} value={r.code} label={r.label} />
-                ))}
-              </CheckboxList>
+                {/* Eine Liste aus Kästchen statt eines Aufklappers hieß: jede
+                    neue Rolle macht den Schritt länger, und schon die sieben
+                    von heute stehen als Spalte quer durch das Formular. Der
+                    Bestand wächst weiter – Astryx' MultiSelector hält ihn
+                    hinter einem Feld von der Höhe der anderen. Die Auswahl
+                    bleibt trotzdem lesbar: `badges` zeigt die gewählten Rollen
+                    im Auslöser, statt nur „3 ausgewählt" zu melden.
+                    hasSearch erst ab ~15 Einträgen (Astryx' Regel) – bis dahin
+                    ist die Liste kürzer als das Suchfeld darüber. */}
+                <MultiSelector
+                  label="Rollen"
+                  isLabelHidden
+                  options={ROLES.map((r) => ({ value: r.code, label: r.label }))}
+                  value={state.roles}
+                  onChange={(roles) => setState((s) => ({ ...s, roles }))}
+                  placeholder="Rollen wählen…"
+                  triggerDisplay="badges"
+                  hasSearch={ROLES.length > 15}
+                  searchPlaceholder="Rolle suchen…"
+                  description="Mehrere möglich — die Kürzel landen im Namen."
+                  width="100%"
+                />
 
-              <TextInput
-                label="Weitere Rolle"
-                value={state.roleFreeText}
-                onChange={(roleFreeText) => setState((s) => ({ ...s, roleFreeText }))}
-                placeholder="z. B. Koch"
-                description="Für Einzelfälle, die in kein Kürzel passen — landet unverändert im Namen."
-                className="max-w-sm"
-                width="100%"
-              />
-            </FieldsetSection>
+                <TextInput
+                  label="Weitere Rolle"
+                  value={state.roleFreeText}
+                  onChange={(roleFreeText) => setState((s) => ({ ...s, roleFreeText }))}
+                  placeholder="z. B. Koch"
+                  description="Für Einzelfälle ohne Kürzel — steht unverändert im Namen."
+                  width="100%"
+                />
+              </FieldsetSection>
             </div>
 
             <Divider />
@@ -935,6 +1022,13 @@ function WizardSteps({
                 label="Startdatum"
                 value={toIsoDate(state.startDate)}
                 onChange={(date) => date && setState((s) => ({ ...s, startDate: date }))}
+                // Ohne diese Zeile stand das Feld als einziges der drei ohne
+                // Beschreibung da – und damit sein Eingabekasten eine Zeile
+                // höher als die beiden daneben. Sie sagt zugleich das
+                // Einzige, was das Datum wirklich tut: es steht im Namen
+                // („… ab 21.08.26 …", siehe lib/naming.ts) und wird nicht an
+                // Meta geschickt, die Kampagne entsteht ohnehin pausiert.
+                description="Steht im Kampagnennamen."
                 width="100%"
               />
             </FieldsetSection>
@@ -945,66 +1039,71 @@ function WizardSteps({
                 Bewegung ist über theme/motion.css global auf
                 prefers-reduced-motion gestellt. */}
             <Collapsible defaultIsOpen={false} trigger="Feste Einstellungen ansehen">
-              <div className="space-y-2 pb-2">
-                <Facts rows={FIXED} />
+              <div className="flex max-w-xl flex-col gap-3 pb-2">
+                <Angaben rows={FIXED} />
                 <Text type="supporting" as="p">
                   In v1 alles nur lesbar — das Tagesbudget oben ist der einzige editierbare Wert.
                 </Text>
               </div>
             </Collapsible>
-          </div>
+          </Step>
         )}
 
         {/* ------------------------------------------------ Schritt 4: Überprüfung */}
         {stepIndex === 3 && (
-          <div className="space-y-4 p-6 step-enter">
-            {/* className="text-base" ist weggefallen: Astryx' Heading setzt
-                seine Schriftgröße selbst, und Astryx' CSS-Layer steht hinter
-                Tailwinds Utilities – die Klasse wäre wirkungslos gewesen.
-                Ebene 3 ist die Kartentitelgröße dieses Hauses. */}
-            <Card elevation="low" variant="muted" className="space-y-3">
-              <Heading level={3}>{state.campaignName || "—"}</Heading>
-              <Facts
-                rows={[
-                  ["Werbekonto (zahlt)", account?.name ?? "—"],
-                  ["Kunde (beworben)", state.business || "—"],
-                  ["Seite", client?.pageName ?? "—"],
-                  ["Instagram", instagramLabel ?? "nur Facebook-Seite"],
-                  ["Tagesbudget", money.format(state.dailyBudgetEuros)],
-                  [
-                    "Ausgabenlimit",
-                    state.spendCapEuros !== undefined ? money.format(state.spendCapEuros) : "keins",
-                  ],
-                  ["Start", new Date(state.startDate).toLocaleDateString("de-DE")],
-                  ["Anzeigen gesamt", String(state.adSets.reduce((n, s) => n + s.ads.length, 0))],
-                ]}
-              />
-            </Card>
+          <Step
+            frage="Passt alles?"
+            satz="Kampagne, Anzeigengruppen und Anzeigen werden pausiert angelegt — es läuft nichts los und kostet nichts, bevor du sie bei Meta startest."
+          >
+            {/* Der Kampagnenname ist der Titel dieser Tafel und nicht eine Zeile
+                darin: er ist das, was gleich bei Meta stehen wird. */}
+            <Angaben
+              titel={state.campaignName || "—"}
+              rows={[
+                ["Werbekonto (zahlt)", account?.name ?? "—"],
+                ["Kunde (beworben)", state.business || "—"],
+                ["Seite", client?.pageName ?? "—"],
+                ["Instagram", instagramLabel ?? "nur Facebook-Seite"],
+                ["Tagesbudget", money.format(state.dailyBudgetEuros)],
+                [
+                  "Ausgabenlimit",
+                  state.spendCapEuros !== undefined ? money.format(state.spendCapEuros) : "keins",
+                ],
+                ["Start", new Date(state.startDate).toLocaleDateString("de-DE")],
+                ["Anzeigen gesamt", String(state.adSets.reduce((n, s) => n + s.ads.length, 0))],
+              ]}
+            />
 
             {/* Ein Standort je Zeile, mit demselben Zähler wie in Schritt 2 –
-                wer hier eine rote Zahl sieht, weiß, wohin er zurück muss. */}
-            <ul className="space-y-2">
-              {issues.perSet.map(({ set, blockers }) => (
-                <li key={set.id}>
-                  <Card elevation="low" variant="muted" className="flex flex-row items-center gap-3">
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">{set.name}</span>
-                      <span className="text-ink-500 block truncate text-xs">
-                        {locationSummary(set)} · {plural(set.ads.length, "Anzeige", "Anzeigen")}
-                      </span>
-                    </span>
-                    <IssueChip count={blockers.length} />
-                  </Card>
-                </li>
-              ))}
-            </ul>
+                wer hier eine rote Zahl sieht, weiß, wohin er zurück muss.
+                Eine Liste mit Trennlinien statt einer Karte je Standort: drei
+                gleich große getönte Kästen untereinander sind ein Raster, keine
+                Aufzählung, und tragen jeweils einen Schatten, den die
+                Ein-Schritt-Regel der äußeren Karte schon vergeben hat. */}
+            <Infotafel titel={plural(state.adSets.length, "Standort", "Standorte")}>
+              <List hasDividers density="spacious">
+                {issues.perSet.map(({ set, blockers }) => (
+                  <ListItem
+                    key={set.id}
+                    label={set.name}
+                    description={`${locationSummary(set)} · ${plural(set.ads.length, "Anzeige", "Anzeigen")}`}
+                    endContent={<IssueChip count={blockers.length} />}
+                  />
+                ))}
+              </List>
+            </Infotafel>
 
             {/* Die Anzeige, wie sie später aussieht – erst hier, weil die Texte
                 fertig sind. Bei mehreren Standorten eine Vorschau mit Auswahl
                 statt einer Reihe untereinander: die Texte unterscheiden sich
-                meist nur in einer Zeile. */}
+                meist nur in einer Zeile. Mit Überschrift: ohne sie stand das
+                Telefonbild ohne ein Wort dazu zwischen zwei Aufzählungen und
+                sah aus wie eine schon angelegte Anzeige. */}
             {previewSet && (
-              <div className="space-y-2">
+              <section className="flex flex-col gap-3">
+                <Text type="large" weight="medium" as="h3">
+                  Vorschau
+                </Text>
                 {state.adSets.length > 1 && (
                   <Selector
                     label="Standort für die Vorschau"
@@ -1023,7 +1122,7 @@ function WizardSteps({
                     adAccount={state.adAccount}
                   />
                 </div>
-              </div>
+              </section>
             )}
 
             {/* Was Meta ohnehin ablehnen würde – hier kostet es einen Klick, dort
@@ -1061,49 +1160,60 @@ function WizardSteps({
             {submission && (
               <ReceiptPanel state={result} submission={submission} onRetry={submitWizard} />
             )}
-          </div>
+          </Step>
         )}
 
         {/* Ein Weiter-Knopf, immer an derselben Stelle – im letzten Schritt wird
             er zum Anlegen-Knopf. Vorher war die Hauptaktion je nach Schritt an
-            einem anderen Ort oder gar nicht vorhanden. */}
-        {/* Astryx' Card hat keine Unterteile – die Fußzeile ist deshalb ein
-            eigenes div und trägt ihr flex selbst, das vorher von
-            Card.Footer kam. */}
-        <div className="border-line bg-surface-secondary flex items-center justify-between gap-3 border-t px-6 py-4">
-          <Button
-            variant="secondary"
-            label="Zurück"
-            isDisabled={stepIndex === 0 || pending}
-            onClick={() => setStep(String(stepIndex - 1))}
-          />
+            einem anderen Ort oder gar nicht vorhanden.
 
-          <div className="flex items-center gap-3">
-            {stepIndex < STEPS.length - 1 ? (
-              <>
-                {stepIssues[stepIndex] > 0 && (
-                  <Text type="supporting">
-                    {stepIssues[stepIndex] === 1
-                      ? "1 offener Punkt — du kannst ihn später klären."
-                      : `${stepIssues[stepIndex]} offene Punkte — du kannst sie später klären.`}
-                  </Text>
-                )}
+            Astryx' Card hat keine Unterteile, die Fußzeile ist deshalb eine
+            eigene Section: sie bringt die getönte Fläche und den Haarstrich
+            oben aus dem Thema mit. Vorher standen dafür `bg-surface-secondary`
+            und `border-t` im Markup – für die getönte Fläche gab es aber kein
+            Token, der Streifen war also unsichtbar und die Fußzeile hing weiß
+            an weiß unter dem letzten Feld. `padding`/`paddingBlock` treffen
+            dieselben 24/16 px wie vorher, also fluchtet der Zurück-Knopf
+            weiter mit dem Text darüber. */}
+        <Section variant="muted" padding={6} paddingBlock={4} dividers={["top"]}>
+          {/* Umbrechend statt starr nebeneinander: auf dem Telefon rutscht der
+              Hinweis über die Knöpfe, statt den Weiter-Knopf zu zerdrücken. */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Button
+              variant="secondary"
+              label="Zurück"
+              icon={<Sign meaning="previous" />}
+              isDisabled={stepIndex === 0 || pending}
+              onClick={() => setStep(String(stepIndex - 1))}
+            />
+
+            <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-3">
+              {/* aria-live: der Satz wechselt, während man in einem Feld tippt –
+                  wer nicht hinsieht, erführe die Änderung sonst nicht. */}
+              {fussHinweis && (
+                <Text type="supporting" as="span" className="text-right" aria-live="polite">
+                  {fussHinweis}
+                </Text>
+              )}
+              {stepIndex < STEPS.length - 1 ? (
                 <Button
                   isDisabled={locked}
                   label={`Weiter: ${STEPS[stepIndex + 1]}`}
+                  endContent={<Sign meaning="next" />}
                   onClick={() => setStep(String(stepIndex + 1))}
                 />
-              </>
-            ) : (
-              <Button
-                onClick={onCreate}
-                isLoading={pending}
-                isDisabled={pending || blocked}
-                label={pending ? "Wird erstellt…" : "Erstellen (pausiert)"}
-              />
-            )}
+              ) : (
+                <Button
+                  onClick={onCreate}
+                  isLoading={pending}
+                  isDisabled={pending || blocked}
+                  icon={pending ? undefined : <Sign meaning="launch" />}
+                  label={pending ? "Wird erstellt…" : "Erstellen (pausiert)"}
+                />
+              )}
+            </div>
           </div>
-        </div>
+        </Section>
       </Card>
     </div>
   );

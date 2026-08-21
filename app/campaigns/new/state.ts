@@ -1,12 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { adSetName } from "@/lib/naming";
 import { locationProblem } from "@/lib/geo";
 import { nextCreativeName, normalizeAdName, planAds, uniqueName } from "@/lib/media";
 import type { AdInput, AdSetInput, FormatAsset } from "@/lib/launch";
 import type { Orientation } from "@/lib/media";
 
+// Der Einzelentwurf von früher: ein Stand, im sessionStorage dieses Tabs, weg
+// beim Schließen des Fensters. Abgelöst von der Entwurfsliste weiter unten;
+// steht hier nur noch, um beim ersten Laden einmal übernommen zu werden.
+//
 // v3: davor hieß das Feld der Anzeigengruppe `videos` – eine flache Dateiliste,
 // eine Anzeige je Datei. Auf `ads` lässt sich das nicht abbilden, ohne Paarungen
 // zu erfinden, die niemand bestätigt hat. Wie schon bei v1→v2 heißt der neue
@@ -353,55 +357,256 @@ export function detailBlockers(state: WizardState): string[] {
 // über Tabs und Tage) statt sessionStorage (stirbt mit dem Entwurf).
 const INITIALS_KEY = "medarbeiter:initials";
 
-// sessionStorage statt Datenbank: Der Entwurf muss nur einen Reload überleben,
-// die hochgeladenen Dateien liegen ohnehin schon im Werbekonto.
+/**
+ * Entwürfe liegen in localStorage, der Zeiger auf den gerade bearbeiteten in
+ * sessionStorage. Diese Trennung ist der ganze Trick:
+ *
+ * - localStorage überlebt den geschlossenen Tab und den Neustart des Rechners.
+ *   Ein halbfertiger Entwurf ist damit nicht mehr weg, nur weil jemand das
+ *   falsche Fenster geschlossen hat – vorher war er das.
+ * - Der Zeiger gilt nur für diesen Tab. Zwei offene Assistenten arbeiten
+ *   dadurch an zwei Entwürfen nebeneinander, statt sich unter einem einzigen
+ *   Schlüssel gegenseitig zu überschreiben.
+ *
+ * Immer noch keine Datenbank: der Entwurf gehört der Person, die ihn tippt, und
+ * die hochgeladenen Dateien liegen ohnehin schon im Werbekonto.
+ */
+const DRAFTS_KEY = "medarbeiter:new-campaign:drafts:v1";
+const CURRENT_KEY = "medarbeiter:new-campaign:current";
+/** Mehr hebt niemand auf; der älteste fällt hinten heraus. */
+const MAX_DRAFTS = 10;
+
+export type Draft = { id: string; savedAt: number; state: WizardState };
+
+/**
+ * Ab der zweiten Änderung wird gespeichert. Nicht danach gefragt, *was* sich
+ * geändert hat: jede Eingabe ist Arbeit, und welche davon es wert ist, kann nur
+ * die Person entscheiden, die sie gemacht hat. Die zwei halten allein den
+ * Fehlgriff heraus – einmal ins Formular gefasst und weitergeklickt legt noch
+ * keinen Entwurf an, sonst bestünde die Liste binnen einer Woche aus
+ * Karteileichen.
+ */
+const MIN_CHANGES = 2;
+
+/**
+ * Ein Entwurf, den es schon gibt, wird ab sofort bei *jeder* Änderung
+ * geschrieben – die zwei Änderungen sind die Hürde, einen anzulegen, nicht eine,
+ * die bei jedem Fortsetzen neu zu nehmen wäre. Ohne diese Hälfte ginge die erste
+ * Änderung an einem fortgesetzten Entwurf verloren.
+ */
+export const shouldSave = (changes: number, hasDraft: boolean): boolean =>
+  hasDraft || changes >= MIN_CHANGES;
+
+/** Woran ein Entwurf in der Liste wiederzuerkennen ist. */
+export const draftLabel = (draft: Draft): string =>
+  draft.state.campaignName.trim() || draft.state.business.trim() || "Ohne Kunde";
+
+/** Wie viel Arbeit in einem Entwurf steckt – die zweite Zeile in der Liste. */
+export const draftSummary = (draft: Draft): string => {
+  const ads = draft.state.adSets.reduce((n, s) => n + s.ads.length, 0);
+  const sets = draft.state.adSets.length;
+  return `${sets === 1 ? "1 Standort" : `${sets} Standorte`} · ${ads === 1 ? "1 Anzeige" : `${ads} Anzeigen`}`;
+};
+
+/**
+ * Der berührte Entwurf nach vorn, der älteste hinten heraus. Die Liste ist
+ * damit immer nach zuletzt bearbeitet sortiert, ohne dass irgendwer sortiert.
+ */
+export const upsertDraft = (drafts: Draft[], draft: Draft): Draft[] =>
+  [draft, ...drafts.filter((d) => d.id !== draft.id)].slice(0, MAX_DRAFTS);
+
+/**
+ * Gelesen wird bei jedem Schreiben neu, statt einen Stand im Speicher zu halten:
+ * ein zweiter Tab hat die Liste vielleicht gerade geändert, und dessen Entwurf
+ * darf nicht verschwinden, weil dieser Tab noch den Stand von vorhin kennt.
+ */
+const readDrafts = (): Draft[] => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(DRAFTS_KEY) ?? "[]") as Draft[];
+    // Ein kaputter Eintrag ist kein Grund, die Seite nicht zu zeigen.
+    return Array.isArray(parsed) ? parsed.filter((d) => d?.id && d?.state?.adSets) : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeDrafts = (drafts: Draft[]) => {
+  try {
+    localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+  } catch {
+    // Voller oder gesperrter localStorage darf das Tippen nicht aufhalten.
+  }
+};
+
+/** Ein gespeicherter Stand kann aus einer älteren Fassung stammen – siehe KEY. */
+const hydrate = (state: WizardState, initials: string): WizardState => ({
+  ...state,
+  initials: state.initials || initials,
+  adSets: state.adSets.map((s) => ({
+    ...s,
+    id: s.id ?? crypto.randomUUID(),
+    ads: s.ads ?? [],
+    loose: s.loose ?? [],
+  })),
+});
+
 export function useWizardState(defaults: WizardState) {
   const [state, setState] = useState<WizardState>(defaults);
   const [loaded, setLoaded] = useState(false);
-  // Ein wiederhergestellter Entwurf ändert Felder, ohne dass jemand tippt –
-  // das gehört gesagt, samt Weg zurück auf leer.
+  const [drafts, setDrafts] = useState<Draft[]>([]);
+  // Ein von selbst wiederhergestellter Entwurf ändert Felder, ohne dass jemand
+  // tippt – das gehört gesagt. Ein bewusst aus der Liste geholter nicht.
   const [restored, setRestored] = useState(false);
+  // Der Entwurf, an dem dieser Tab arbeitet. Erst gesetzt, wenn es etwas zu
+  // speichern gibt: ein bloß geöffneter Assistent ist noch kein Entwurf.
+  const current = useRef<string>(undefined);
+  // Wie oft sich der Stand seit dem Ausgangsstand geändert hat, und welcher
+  // Stand zuletzt gezählt wurde. Der zweite Ref ist nicht bloß Buchhaltung: im
+  // Strict Mode läuft der Effekt zweimal mit demselben Objekt, und ohne ihn
+  // wäre eine Änderung sofort zwei.
+  const changes = useRef(0);
+  const counted = useRef<WizardState>(undefined);
+
+  // Zurück auf Anfang zählen – nach jedem Weg, der das Formular leert oder den
+  // Entwurf aus der Hand gibt. Sonst zählte das Leeren selbst als Änderung und
+  // der nächste Tastendruck legte schon wieder einen Entwurf an.
+  const rebase = () => {
+    changes.current = 0;
+    counted.current = undefined;
+  };
 
   useEffect(() => {
     const initials = localStorage.getItem(INITIALS_KEY) ?? "";
-    const raw = sessionStorage.getItem(KEY);
-    if (raw) {
+    let all = readDrafts();
+
+    // Einmalige Übernahme des alten Einzelentwurfs aus dem sessionStorage. Wer
+    // beim Aufspielen dieser Fassung gerade mitten in einer Kampagne stand,
+    // findet sie danach in der Liste wieder, statt vor einem leeren Formular
+    // zu sitzen.
+    const legacy = sessionStorage.getItem(KEY);
+    if (legacy) {
+      sessionStorage.removeItem(KEY);
       try {
-        const parsed = JSON.parse(raw) as WizardState;
-        setState({
-          ...parsed,
-          initials: parsed.initials || initials,
-          adSets: parsed.adSets.map((s) => ({
-            ...s,
-            id: s.id ?? crypto.randomUUID(),
-            ads: s.ads ?? [],
-            loose: s.loose ?? [],
-          })),
-        });
-        setRestored(true);
+        const id = crypto.randomUUID();
+        all = upsertDraft(all, { id, savedAt: Date.now(), state: JSON.parse(legacy) as WizardState });
+        writeDrafts(all);
+        sessionStorage.setItem(CURRENT_KEY, id);
       } catch {
         // kaputter Entwurf ist kein Grund, die Seite nicht zu zeigen
       }
+    }
+
+    // Fehlt der Zeiger (neuer Tab, Neustart) oder zeigt er auf einen Entwurf,
+    // den ein anderer Tab gelöscht hat, beginnt dieser Tab leer – die Liste
+    // steht trotzdem zur Auswahl.
+    const mine = all.find((d) => d.id === sessionStorage.getItem(CURRENT_KEY));
+    if (mine) {
+      current.current = mine.id;
+      setState(hydrate(mine.state, initials));
+      setRestored(true);
     } else if (initials) {
       setState((s) => ({ ...s, initials }));
     }
+    setDrafts(all);
     setLoaded(true);
   }, []);
 
   useEffect(() => {
     if (!loaded) return;
-    sessionStorage.setItem(KEY, JSON.stringify(state));
     if (state.initials) localStorage.setItem(INITIALS_KEY, state.initials);
+
+    // Der erste Lauf nach dem Laden ist keine Änderung, sondern der Stand, an
+    // dem die Zählung beginnt.
+    if (counted.current === undefined) {
+      counted.current = state;
+      return;
+    }
+    if (counted.current === state) return;
+    counted.current = state;
+    changes.current += 1;
+    if (!shouldSave(changes.current, Boolean(current.current))) return;
+
+    const id = (current.current ??= crypto.randomUUID());
+    sessionStorage.setItem(CURRENT_KEY, id);
+    const next = upsertDraft(readDrafts(), { id, savedAt: Date.now(), state });
+    writeDrafts(next);
+    setDrafts(next);
   }, [state, loaded]);
 
-  const discard = () => {
-    sessionStorage.removeItem(KEY);
-    setState({ ...defaults, initials: state.initials });
+  /** Diesen Tab von vorn beginnen lassen; der bisherige Entwurf bleibt liegen. */
+  const detach = () => {
+    current.current = undefined;
+    sessionStorage.removeItem(CURRENT_KEY);
     setRestored(false);
+    rebase();
+  };
+
+  /** Einen Entwurf aus der Liste in diesen Tab holen. */
+  const resume = (id: string) => {
+    const found = readDrafts().find((d) => d.id === id);
+    if (!found) return;
+    current.current = id;
+    sessionStorage.setItem(CURRENT_KEY, id);
+    setState(hydrate(found.state, state.initials));
+    // Bewusst geholt – der Hinweis auf einen unbemerkt wiederhergestellten
+    // Entwurf wäre hier Lärm.
+    setRestored(false);
+  };
+
+  /** Wegwerfen. War es der eigene, steht der Assistent danach leer da. */
+  const remove = (id: string) => {
+    const next = readDrafts().filter((d) => d.id !== id);
+    writeDrafts(next);
+    setDrafts(next);
+    if (current.current !== id) return;
+    detach();
+    setState({ ...defaults, initials: state.initials });
+  };
+
+  /**
+   * Der Knopf am Hinweis „Entwurf wiederhergestellt“: wegwerfen und von vorn.
+   * Leer wird das Formular auch dann, wenn es (noch) keinen gespeicherten
+   * Entwurf dazu gibt – sonst bliebe der Knopf ohne sichtbare Wirkung.
+   */
+  const discard = () => {
+    if (current.current) return remove(current.current);
+    detach();
+    setState({ ...defaults, initials: state.initials });
+  };
+
+  /**
+   * Nach dem Anlegen hat der Entwurf seinen Zweck erfüllt: die Kampagne steht
+   * bei Meta, und in der Liste wäre er ab jetzt eine Einladung, sie ein zweites
+   * Mal anzulegen. Das Formular bleibt stehen – daneben steht die Quittung.
+   *
+   * Die Zählung beginnt dabei von vorn (detach → rebase): wer nach dem Anlegen
+   * weiterarbeitet, braucht wieder zwei Änderungen für einen neuen Entwurf – und
+   * das ist ab da auch einer, nämlich der für die nächste Kampagne.
+   */
+  const forget = () => {
+    const id = current.current;
+    if (!id) return;
+    detach();
+    const next = readDrafts().filter((d) => d.id !== id);
+    writeDrafts(next);
+    setDrafts(next);
   };
 
   // `loaded` nach außen, weil es vor dem Wiederherstellen keine gültigen
   // Anzeigengruppen-IDs gibt: ein fertiger Upload, der in diesem Moment
   // zugestellt würde, fände nur die frisch erzeugte leere Gruppe und wäre weg.
-  return { state, setState, loaded, restored, discard };
+  //
+  // `others`: der eigene Entwurf gehört nicht in die Liste zum Fortsetzen – er
+  // steht ja schon offen auf dem Bildschirm.
+  return {
+    state,
+    setState,
+    loaded,
+    restored,
+    others: drafts.filter((d) => d.id !== current.current),
+    resume,
+    remove,
+    discard,
+    forget,
+  };
 }

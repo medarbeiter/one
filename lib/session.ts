@@ -22,6 +22,12 @@ export type Person = {
   role: string;
   /** Maßgeblich für Berechtigungen – nie aus `role` ableiten, Konten können Zusatzrechte tragen. */
   rechte: string[];
+  /**
+   * Fertige Bildquelle fürs Avatar – Tierfigur direkt vom Hub (öffentlich,
+   * keine Anmeldung nötig) oder der eigene Vorschau-Weg `/api/avatar/{sub}`
+   * für ein hochgeladenes Foto (siehe lib/hub.ts, app/api/avatar/[sub]).
+   */
+  picture: string;
 };
 
 export function sessionSecret(): string {
@@ -66,11 +72,18 @@ export async function openSession(
     .catch(() => false);
   if (!echt) return null;
   try {
-    const { exp, sub, name, email, role, rechte } = JSON.parse(
+    const { exp, sub, name, email, role, rechte, picture } = JSON.parse(
       Buffer.from(body, "base64url").toString(),
     );
     if (typeof exp !== "number" || exp <= now) return null;
-    return { sub: String(sub), name, email, role, rechte: Array.isArray(rechte) ? rechte : [] };
+    return {
+      sub: String(sub),
+      name,
+      email,
+      role,
+      rechte: Array.isArray(rechte) ? rechte : [],
+      picture: typeof picture === "string" ? picture : "",
+    };
   } catch {
     return null;
   }

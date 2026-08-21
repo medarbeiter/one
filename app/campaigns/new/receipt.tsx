@@ -1,6 +1,8 @@
 "use client";
 
-import { Banner, Button, Link } from "@astryxdesign/core";
+import { Badge, Banner, Button, Link, List, ListItem } from "@astryxdesign/core";
+import { Infotafel } from "./angaben";
+import { Sign } from "@/theme/icons";
 import { label, plural } from "@/lib/labels";
 import type { Receipt } from "@/lib/launch";
 import type { LaunchState, WizardSubmission } from "../actions";
@@ -133,54 +135,109 @@ export function ReceiptPanel({
             }
           />
 
-          <div className="space-y-1 text-sm">
-            <p>
-              <strong>Kampagne:</strong>{" "}
-              {receipt.campaignId ? (
-                campaignHref ? (
-                  <Link href={campaignHref} target="_blank" rel="noreferrer">
-                    {receipt.campaignId}
-                  </Link>
-                ) : (
-                  receipt.campaignId
-                )
-              ) : (
-                "—"
-              )}
-            </p>
-            <ul className="list-disc space-y-1 pl-5">
+          {/* Vorher zwei Aufzählungen mit Doppelpunkten und Gedankenstrichen in
+              einer Zeile: „Name: id — 3 Anzeigen — Fehler". Was davon der
+              Schlüssel ist und was der Wert, stand nur in der Zeichensetzung.
+              Jetzt eine Liste mit Haarstrichen: Name links, Id darunter, der
+              Zähler als Marke am rechten Rand – dieselbe Zeile wie in der
+              Standortliste der Überprüfung. */}
+          <Infotafel titel="Was jetzt bei Meta steht">
+            <List hasDividers density="spacious">
+              <ListItem
+                label={<span className="text-ink-500">Kampagne</span>}
+                endContent={
+                  <span className="font-medium tabular-nums">
+                    {receipt.campaignId ? (
+                      campaignHref ? (
+                        <Link href={campaignHref} target="_blank" rel="noreferrer">
+                          {receipt.campaignId}
+                        </Link>
+                      ) : (
+                        receipt.campaignId
+                      )
+                    ) : (
+                      "—"
+                    )}
+                  </span>
+                }
+              />
               {receipt.adSets.map((s, i) => (
-                <li key={`${s.name}-${i}`}>
-                  {s.name}: {s.id ?? "—"} — {plural(s.adIds.length, "Anzeige", "Anzeigen")}
-                  {s.error ? ` — ${label(s.error)}` : ""}
-                </li>
+                <ListItem
+                  key={`${s.name}-${i}`}
+                  label={s.name}
+                  description={
+                    s.error ? (
+                      <span className="text-danger-700">{label(s.error)}</span>
+                    ) : (
+                      <span className="tabular-nums">{s.id ?? "—"}</span>
+                    )
+                  }
+                  endContent={
+                    <Badge
+                      variant={s.error ? "error" : "neutral"}
+                      className="tabular-nums"
+                      label={plural(s.adIds.length, "Anzeige", "Anzeigen")}
+                    />
+                  }
+                />
               ))}
-            </ul>
-          </div>
+            </List>
+          </Infotafel>
         </>
       )}
 
+      {/* Haken und Kreuz sind gezeichnete Zeichen aus theme/icons.tsx, keine
+          Unicode-Glyphen: „✓" und „✗" kommen aus zwei verschiedenen Blöcken,
+          stehen je nach Schriftschnitt unterschiedlich hoch und fallen auf
+          Systemen ohne Deckung auf eine Ersatzschrift zurück. */}
       {checks && (
-        <ul className="space-y-1 text-sm">
-          {checks.map((c) => (
-            <li key={c.label} className={c.ok ? "text-success-700" : "text-danger-700"}>
-              {c.ok ? "✓" : "✗"} {c.label}
-              {!c.ok && c.detail ? ` — ${label(c.detail)}` : ""}
-            </li>
-          ))}
-        </ul>
+        <Infotafel titel="Prüfung nach dem Anlegen">
+          <List hasDividers density="spacious">
+            {checks.map((c) => (
+              // Das Zeichen trägt die Farbe, die Zeile nicht: eine ganze Zeile in
+              // Grün gelesen zu bekommen, weil sie in Ordnung ist, macht aus einer
+              // Prüfliste eine Ampel. Haken und Kreuz unterscheiden sich in der
+              // Form, nicht nur im Ton – Farbe ist die Zugabe.
+              <ListItem
+                key={c.label}
+                startContent={
+                  <span className={c.ok ? "text-success-700" : "text-danger-700"}>
+                    <Sign meaning={c.ok ? "confirm" : "close"} />
+                  </span>
+                }
+                label={c.label}
+                description={
+                  !c.ok && c.detail ? (
+                    <span className="text-danger-700">{label(c.detail)}</span>
+                  ) : undefined
+                }
+              />
+            ))}
+          </List>
+        </Infotafel>
       )}
 
       {receipt && receipt.failed.length > 0 && (
-        <div className="space-y-2">
-          <ul className="list-disc space-y-1 pl-5 text-sm text-danger-700">
-            {receipt.failed.map((f, i) => (
-              <li key={`${f.adSetName}-${f.adName}-${i}`}>
-                {f.adSetName} / {f.adName}: {label(f.error)}
-              </li>
-            ))}
-          </ul>
-          <Button label="Fehlgeschlagene Anzeigen erneut versuchen" onClick={retry} />
+        <div className="flex flex-col items-start gap-3">
+          <Infotafel
+            titel={`${plural(receipt.failed.length, "Anzeige", "Anzeigen")} fehlgeschlagen`}
+            className="w-full"
+          >
+            <List hasDividers density="spacious">
+              {receipt.failed.map((f, i) => (
+                <ListItem
+                  key={`${f.adSetName}-${f.adName}-${i}`}
+                  label={`${f.adSetName} / ${f.adName}`}
+                  description={<span className="text-danger-700">{label(f.error)}</span>}
+                />
+              ))}
+            </List>
+          </Infotafel>
+          <Button
+            label="Fehlgeschlagene Anzeigen erneut versuchen"
+            icon={<Sign meaning="retry" />}
+            onClick={retry}
+          />
         </div>
       )}
     </div>

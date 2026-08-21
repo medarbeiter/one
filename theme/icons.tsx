@@ -1,10 +1,12 @@
 'use client';
 
 import {
-  ArrowClockwise, CaretLeft, CaretRight, Check, Copy, DotsThree, Eye, Gear,
-  ImageSquare, Link as LinkIcon, MagnifyingGlass, MapPin, Megaphone, Pause,
-  PencilSimple, Play, Plus, Rocket, SignOut, Trash, UploadSimple, User, Users,
-  VideoCamera, Warning, X, type Icon as PhosphorIcon,
+  ArrowClockwise, Calendar, CaretLeft, CaretLineLeft, CaretLineRight,
+  CaretRight, ChartLine, Check, Copy, DotsThree, Eye, Funnel, Gear, GridNine,
+  House, ImageSquare, Link as LinkIcon, MagnifyingGlass, MapPin, Megaphone,
+  Pause, PencilSimple, Play, Plus, Rocket, SignOut, Sun, Trash, Tray,
+  UploadSimple, User, Users, UsersThree, VideoCamera, Warning, X,
+  type Icon as PhosphorIcon,
 } from '@phosphor-icons/react';
 import type { ReactNode } from 'react';
 
@@ -19,6 +21,11 @@ import type { ReactNode } from 'react';
  * The form axis carries selection: `solid` means running / chosen / selected,
  * `outline` means the opposite. Phosphor has a full weight axis and complete
  * outline/fill pairs, so unlike Typicons the channel never silently degrades.
+ *
+ * `outline` renders at `bold`, not `regular` — same choice and reasoning as
+ * the hub's `umriss` (see components/sinnbilder.tsx there): at 16px next to
+ * 13–14px text, `regular`'s stroke reads as too thin to carry weight, which
+ * is exactly why unported icons here looked gray next to the hub's.
  */
 export const MEANINGS = {
   add: { solid: Plus, outline: Plus },
@@ -53,6 +60,36 @@ export const MEANINGS = {
   next: { solid: CaretRight, outline: CaretRight },
 
   moreActions: { solid: DotsThree, outline: DotsThree },
+
+  today: { solid: House, outline: House },
+  inbox: { solid: Tray, outline: Tray },
+  customers: { solid: UsersThree, outline: UsersThree },
+  filter: { solid: Funnel, outline: Funnel },
+  /* A caret against a line, not the bare caret `previous`/`next` use — the
+     rail toggle and pagination are different actions and shouldn't render
+     as the same glyph (see the vocabulary test below). Hub's `einklappen`/
+     `ausklappen` do reuse `zurueck`/`weiter`'s bare caret deliberately; this
+     module holds itself to the stricter rule instead of copying that one
+     exception. */
+  collapse: { solid: CaretLineLeft, outline: CaretLineLeft },
+  expand: { solid: CaretLineRight, outline: CaretLineRight },
+
+  /* Die vier Zeiträume der Kampagnenansicht — die Reiter des Navigators
+     (app/shell/navigator.tsx). Sie ersetzen das frühere `calendar`, das ein
+     Glyphenname war und keine Bedeutung: „Kalender" sagt nicht, welcher
+     Ausschnitt gemeint ist, und genau das ist hier die Frage. Wie im Hub
+     (`tag`/`woche`/`monat`/`konto` in components/sinnbilder.tsx) trägt der
+     offene Zeitraum sein Zeichen gefüllt.
+
+     Es sind Zeichen für Zeichen dieselben vier wie dort — auch das Raster für
+     die Woche. Zwei Kalenderblätter nebeneinander (`CalendarDots` neben
+     `CalendarBlank`) unterscheiden sich bei 14px um drei Punkte und lesen sich
+     als dasselbe Zeichen; das Raster steht dagegen für die Menge der Tage, die
+     man auf einmal sieht, und hat gegen das Blatt echte Masse. */
+  periodDay: { solid: Sun, outline: Sun },
+  periodWeek: { solid: GridNine, outline: GridNine },
+  periodMonth: { solid: Calendar, outline: Calendar },
+  periodTotal: { solid: ChartLine, outline: ChartLine },
 } satisfies Record<string, { solid: PhosphorIcon; outline: PhosphorIcon }>;
 
 export type Meaning = keyof typeof MEANINGS;
@@ -69,11 +106,25 @@ export function Sign({
   meaning,
   form = 'solid',
   size = 16,
+  color,
+  className,
 }: {
   meaning: Meaning;
   form?: 'solid' | 'outline';
   size?: number;
+  /** Overrides the inherited ink — e.g. `var(--color-icon-secondary)` for a muted sign. */
+  color?: string;
+  className?: string;
 }): ReactNode {
   const Glyph = MEANINGS[meaning][form];
-  return <Glyph aria-hidden size={size} weight={form === 'solid' ? 'fill' : 'regular'} />;
+  return (
+    <Glyph
+      aria-hidden
+      focusable={false}
+      size={size}
+      weight={form === 'solid' ? 'fill' : 'bold'}
+      className={className}
+      style={{ flexShrink: 0, color }}
+    />
+  );
 }

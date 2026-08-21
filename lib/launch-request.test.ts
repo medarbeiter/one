@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import type { Customer } from "./customers";
+import { GraphError, LESS_PERSONALIZED_ADS } from "./graph";
 import type { AdInput } from "./launch";
 import { resolveLaunch, type WizardSubmission } from "./launch-request";
 
@@ -19,10 +20,12 @@ const fakeCustomer: Customer = {
   issues: [],
 };
 
-// estimateReach() aus demselben Grund: die Standortprüfung fragt sonst Meta.
+// estimateReach() und graph() aus demselben Grund: Standort- und
+// Identitätsprüfung fragen sonst Meta.
 const deps = {
   listCustomers: async () => ({ customers: [fakeCustomer], errors: [], issues: [] }),
   estimateReach: async () => ({ ready: true as const, lower: 100_000, upper: 200_000 }),
+  graph: async () => ({ success: true }) as any,
 };
 
 const ugcAd: AdInput = {
@@ -231,4 +234,85 @@ test("scheitert die Prüfung selbst, hält sie nichts auf", async () => {
       },
     }),
   ).toEqual({ adAccount: "act_1", pageId: "p1" });
+});
+
+/**
+ * Der Fall, der eine fertige Kampagne kurz vor dem Ziel zerlegt hat: Kampagne
+ * und alle Anzeigengruppen standen bei Meta, jede Anzeige fiel durch, und der
+ * Knopf „Erneut versuchen“ half nicht – an einer Werbepräferenz ändert ein
+ * zweiter Versuch nichts.
+ */
+const lpa = () => {
+  throw new GraphError({
+    kind: "permission",
+    code: LESS_PERSONALIZED_ADS,
+    message:
+      "Weil hospizsalzgitter sich für less-personalized Werbung entschieden hat, kannst du keine Anzeigen erstellen.",
+    retryable: false,
+  });
+};
+
+test("weniger personalisierte Werbung hält vor dem ersten Schreibzugriff auf", async () => {
+  const result = await resolveLaunch(base, { ...deps, graph: lpa as any });
+  expect(result).toHaveProperty("error");
+  const { error } = result as { error: string };
+  // Metas eigener Wortlaut muss durchkommen: nur er nennt das Konto, das die
+  // Wahl getroffen hat – die Anwendung kann es nicht auslesen.
+  expect(error).toContain("hospizsalzgitter");
+  expect(error).toContain("Werbepräferenzen");
+  expect(error).toContain("https://www.facebook.com/business/help/1563729837497242");
+});
+
+test("die Identität wird mit validate_only gefragt – es entsteht nichts", async () => {
+  const calls: { path: string; params: any }[] = [];
+  await resolveLaunch(
+    { ...base, adSets: [{ ...base.adSets[0], instagramUserId: "ig1" }] },
+    {
+      ...deps,
+      graph: (async (path: string, opts: any) => {
+        calls.push({ path, params: opts.params });
+        return { success: true };
+      }) as any,
+    },
+  );
+  expect(calls).toHaveLength(1);
+  expect(calls[0].path).toBe("act_1/adcreatives");
+  // Ohne diese Zeile legte die Prüfung bei jedem Start eine Gestaltung an.
+  expect(calls[0].params.execution_options).toEqual(["validate_only"]);
+  // Nur die Identität: ein Medium oder ein Formular in der Probe könnte selbst
+  // durchfallen, und der Befund wäre dann keiner über Seite und Instagram-Konto.
+  expect(calls[0].params.object_story_spec).toMatchObject({
+    page_id: "p1",
+    instagram_user_id: "ig1",
+  });
+});
+
+test("eine fehlende Zuweisung wird als solche erklärt, nicht als Werbepräferenz", async () => {
+  const result = await resolveLaunch(base, {
+    ...deps,
+    graph: (() => {
+      throw new GraphError({
+        kind: "permission",
+        code: 200,
+        message: "Du bist nicht berechtigt, auf dieses Profil zuzugreifen.",
+        retryable: false,
+      });
+    }) as any,
+  });
+  expect((result as { error: string }).error).toContain("Business Manager");
+  expect((result as { error: string }).error).not.toContain("Werbepräferenzen");
+});
+
+test("scheitert die Identitätsprüfung selbst, hält sie nichts auf", async () => {
+  // Dieselbe Regel wie bei der Standortprüfung: ein Rate-Limit ist kein Befund
+  // über die Identität. Nur „permission“ blockt – alles andere geht durch.
+  for (const kind of ["rate", "unknown", "token"] as const)
+    expect(
+      await resolveLaunch(base, {
+        ...deps,
+        graph: (() => {
+          throw new GraphError({ kind, message: "gerade nicht", retryable: kind === "rate" });
+        }) as any,
+      }),
+    ).toEqual({ adAccount: "act_1", pageId: "p1" });
 });

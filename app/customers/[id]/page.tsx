@@ -9,6 +9,7 @@ import {
   listCustomers,
   needsLeadgenTos,
 } from "@/lib/customers";
+import { Blatt, Blattkopf } from "@/app/shell/blattkopf";
 
 export default async function CustomerPage({ params }: PageProps<"/customers/[id]">) {
   const { id } = await params;
@@ -31,74 +32,94 @@ export default async function CustomerPage({ params }: PageProps<"/customers/[id
   ];
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <UI.TypographyHeading level={1} className="font-display text-xl">
-          {c.name}
-        </UI.TypographyHeading>
-        <Badge variant="neutral" label={c.access === "own" ? "Eigen" : "Kunde"} />
-      </div>
-
-      {c.issues.length > 0 && (
-        <Banner
-          status="error"
-          title="Fehlender Zugriff"
-          description={
-            <>
-              {c.issues.join(" · ")} — führe <UI.TypographyCode>bun run assign</UI.TypographyCode> aus,
-              nachdem du im Business Manager Zugriff gewährt hast.
-            </>
-          }
-        />
-      )}
-
-      {/* Kein Zugriffsproblem, sondern eines, das nur der Kunde selbst löst –
-          deshalb eine eigene Meldung mit dem Weg dorthin statt einer Zeile in
-          der Liste oben. */}
-      {needsLeadgenTos(c.page) && (
-        <Banner
-          status="warning"
-          title="Lead-Bedingungen nicht angenommen"
-          description={`Meta lehnt jede Lead-Anzeige über ${c.page?.name} ab, bis ein Administrator dieser Seite die Nutzungsbedingungen annimmt. Über die API ist das nicht möglich.`}
-          endContent={
+    <>
+      {/* Kein Zähler im Kopf: die Frage an einen Kunden ist nicht "wie viele",
+          sondern "kann er laufen". Das beantworten die Marken rechts – dieselben
+          drei Zustände wie in der Zugriffsspalte der Übersicht. */}
+      <Blattkopf
+        titel={c.name}
+        meaning="customer"
+        stand={c.page?.name ?? "Keine Seite verknüpft"}
+        marken={
+          <>
+            <Badge variant="neutral" label={c.access === "own" ? "Eigen" : "Kunde"} />
+            {c.issues.length ? (
+              <Badge
+                variant="error"
+                label={`${c.issues.length} Problem${c.issues.length > 1 ? "e" : ""}`}
+              />
+            ) : needsLeadgenTos(c.page) ? (
+              <Badge variant="warning" label="Lead-Bedingungen offen" />
+            ) : (
+              <Badge variant="success" label="OK" />
+            )}
+          </>
+        }
+        werkzeuge={
+          <>
+            <Button as={Link} href={`/inbox?customer=${c.id}`} label="Inbox öffnen" />
             <Button
-              href={leadgenTosUrl(c.page!.id)}
-              target="_blank"
-              rel="noreferrer"
+              as={Link}
+              href={`/campaigns?customer=${c.id}`}
               variant="secondary"
-              size="sm"
-              label="Bei Meta annehmen"
+              label="Kampagnen"
             />
-          }
-        />
-      )}
+          </>
+        }
+      />
 
-      <div className="flex gap-2">
-        <Button as={Link} href={`/inbox?customer=${c.id}`} label="Inbox öffnen" />
-        <Button
-          as={Link}
-          href={`/campaigns?customer=${c.id}`}
-          variant="secondary"
-          label="Kampagnen"
-        />
-      </div>
+      <Blatt>
+        {c.issues.length > 0 && (
+          <Banner
+            status="error"
+            title="Fehlender Zugriff"
+            description={
+              <>
+                {c.issues.join(" · ")} — führe <UI.TypographyCode>bun run assign</UI.TypographyCode> aus,
+                nachdem du im Business Manager Zugriff gewährt hast.
+              </>
+            }
+          />
+        )}
 
-      <Card elevation="low">
-        <UI.CardHeader className="flex items-center justify-between">
-          <UI.CardTitle>Assets</UI.CardTitle>
-        </UI.CardHeader>
-        <UI.CardContent className="flex flex-col gap-4 text-sm">
-          {assets.map((a, i) => (
-            <div key={`${a.label}-${a.id ?? i}`}>
-              {/* Die Linie trennt, statt jede Zeile zu unterstreichen – vor dem
-                  ersten Eintrag gibt es deshalb nichts zu trennen. */}
-              {i > 0 && <Separator />}
-              <Asset {...a} />
-            </div>
-          ))}
-        </UI.CardContent>
-      </Card>
-    </div>
+        {/* Kein Zugriffsproblem, sondern eines, das nur der Kunde selbst löst –
+            deshalb eine eigene Meldung mit dem Weg dorthin statt einer Zeile in
+            der Liste oben. */}
+        {needsLeadgenTos(c.page) && (
+          <Banner
+            status="warning"
+            title="Lead-Bedingungen nicht angenommen"
+            description={`Meta lehnt jede Lead-Anzeige über ${c.page?.name} ab, bis ein Administrator dieser Seite die Nutzungsbedingungen annimmt. Über die API ist das nicht möglich.`}
+            endContent={
+              <Button
+                href={leadgenTosUrl(c.page!.id)}
+                target="_blank"
+                rel="noreferrer"
+                variant="secondary"
+                size="sm"
+                label="Bei Meta annehmen"
+              />
+            }
+          />
+        )}
+
+        <Card elevation="low">
+          <UI.CardHeader className="flex items-center justify-between">
+            <UI.CardTitle>Assets</UI.CardTitle>
+          </UI.CardHeader>
+          <UI.CardContent className="flex flex-col gap-4 text-sm">
+            {assets.map((a, i) => (
+              <div key={`${a.label}-${a.id ?? i}`}>
+                {/* Die Linie trennt, statt jede Zeile zu unterstreichen – vor dem
+                    ersten Eintrag gibt es deshalb nichts zu trennen. */}
+                {i > 0 && <Separator />}
+                <Asset {...a} />
+              </div>
+            ))}
+          </UI.CardContent>
+        </Card>
+      </Blatt>
+    </>
   );
 }
 

@@ -65,10 +65,16 @@ export type Target = { bitrate?: number; width?: number; height?: number };
 /**
  * Gedeckelt wird, nicht gesetzt: ein sparsames HEVC soll beim Umkodieren nicht
  * auf 8 Mbit/s aufgeblasen werden, nur weil es umkodiert werden muss.
+ *
+ * Gerundet wird, weil computePacketStats() misst statt abzulesen: die Bitrate
+ * kommt als Bruch heraus (8 · Bytes / Dauer), und mb.Quality nimmt nur ganze
+ * Zahlen ("options.bitrate, when provided, must be a positive integer"). Das
+ * traf genau die Videos, die *unter* der Decke liegen – über ihr steht mit
+ * MAX_BITRATE ohnehin eine ganze Zahl, deshalb ging es meistens gut.
  */
 export function encodeTarget({ bitrate, width, height }: Probe): Target {
   const target: Target = {};
-  if (bitrate !== undefined) target.bitrate = Math.min(bitrate, MAX_BITRATE);
+  if (bitrate !== undefined) target.bitrate = Math.round(Math.min(bitrate, MAX_BITRATE));
   if (width && height && Math.max(width, height) > MAX_EDGE) {
     const scale = MAX_EDGE / Math.max(width, height);
     target.width = even(width * scale);

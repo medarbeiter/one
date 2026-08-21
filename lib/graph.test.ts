@@ -37,6 +37,35 @@ test("Fehlercodes werden auf Handlungsoptionen abgebildet", () => {
   expect(mapGraphError(undefined, 400).retryable).toBe(false);
 });
 
+/**
+ * „Die Erstellung der Werbeanzeige ist ... fehlgeschlagen: Etwas ist
+ * schiefgelaufen. Bitte versuche es später noch einmal." – kommt mit 400 und
+ * ging deshalb als endgültiger Fehler in die Quittung, obwohl der Knopf
+ * „Erneut versuchen" dieselbe Anzeige gleich darauf anlegte.
+ */
+test("Was Meta selbst als vorübergehend meldet, wird wiederholt", () => {
+  expect(
+    mapGraphError(
+      {
+        code: 2,
+        is_transient: true,
+        error_user_msg: "Etwas ist schiefgelaufen. Bitte versuche es später noch einmal.",
+      },
+      400,
+    ),
+  ).toMatchObject({ retryable: true });
+  // Ohne das Flag bleibt eine 400 endgültig – sonst liefe jeder Tippfehler
+  // dreimal gegen dieselbe Wand.
+  expect(mapGraphError({ code: 100, message: "Invalid parameter" }, 400).retryable).toBe(false);
+  // Und es hebelt nichts aus, was ausdrücklich nicht wiederholt werden darf.
+  expect(
+    mapGraphError({ code: 190, message: "expired", is_transient: true }, 400),
+  ).toMatchObject({ kind: "token", retryable: false });
+  expect(
+    mapGraphError({ code: 100, error_subcode: 1815089, message: "tos", is_transient: true }, 400),
+  ).toMatchObject({ kind: "permission", retryable: false });
+});
+
 test("Nicht angenommene Lead-Bedingungen sind nie wiederholbar", () => {
   // Der code ist 100 ("Invalid parameter") und trägt nichts bei – die Aussage
   // steht im Subcode. Der Status ist hier absichtlich 500: ohne die eigene
@@ -48,8 +77,38 @@ test("Nicht angenommene Lead-Bedingungen sind nie wiederholbar", () => {
       kind: "permission",
       message: "Invalid parameter",
       retryable: false,
+      code: 100,
     });
   }
+});
+
+/**
+ * „Weil <Name> sich für less-personalized Werbung entschieden hat, kannst du
+ * keine Anzeigen erstellen." Kam in freier Wildbahn als „unknown error“ durch –
+ * also womöglich mit is_transient, und dann liefe die Wiederholungsleiter drei
+ * Runden gegen eine Einstellung, die sich dabei nicht ändert.
+ */
+test("Wer weniger personalisierte Werbung gewählt hat, wird nicht nachgefragt", () => {
+  for (const err of [
+    { code: 3858412, message: "unknown error", is_transient: true },
+    // Welches der beiden Felder Meta benutzt, ist nicht dokumentiert.
+    { code: 1, error_subcode: 3858412, message: "unknown error" },
+  ])
+    expect(mapGraphError(err, 400)).toMatchObject({
+      kind: "permission",
+      retryable: false,
+      code: 3858412,
+    });
+});
+
+test("Der Fehlercode reist mit, damit Aufrufer feiner unterscheiden können", () => {
+  expect(mapGraphError({ code: 200, message: "no perm" }, 403).code).toBe(200);
+  // Ohne Code steht dort nichts – 0 wäre ein Code, den Meta nie vergibt.
+  expect(mapGraphError(undefined, 500)).toEqual({
+    kind: "unknown",
+    message: "Graph 500",
+    retryable: true,
+  });
 });
 
 function stub(handler: (url: URL) => { status?: number; body: unknown }) {

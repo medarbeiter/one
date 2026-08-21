@@ -512,18 +512,34 @@ async function batchAds(ctx: Ctx, jobs: AdJob[]): Promise<void> {
       continue;
     }
 
+    // Anzeigen, die Meta ausdrücklich als "gerade nicht, versuch es später"
+    // abgelehnt hat. Sie gehen gleich noch einmal einzeln los, statt als
+    // endgültiger Fehler in die Quittung zu wandern – von Hand hat genau das
+    // bisher geholfen.
+    const retry: AdJob[] = [];
+
     chunk.forEach((job, k) => {
       // Fehlt ein Eintrag ganz, ist das derselbe Fall wie ein leerer: keine
       // Antwort zu dieser Anzeige.
       const creative = items[k * 2] ?? unwrapBatchItem<{ id: string }>(null);
       const ad = items[k * 2 + 1] ?? unwrapBatchItem<{ id: string }>(null);
+      // Nur was Meta beantwortet hat, darf noch einmal los: ein fehlender
+      // Eintrag ist keine Absage, sondern keine Auskunft – der Sub-Request kann
+      // gelaufen sein, und ein zweiter Versuch legte die Anzeige doppelt an.
+      const answered = items[k * 2] !== undefined && items[k * 2 + 1] !== undefined;
+      const transient = (r: PromiseSettledResult<unknown>) =>
+        answered && r.status === "rejected" && r.reason instanceof GraphError && r.reason.retryable;
       // Eine Id zuerst: existiert die Anzeige bei Meta, gehört sie in die
       // Quittung, egal wie der Sub-Request davor ausging – sonst legte der Retry
       // sie ein zweites Mal an. Danach ist die Reihenfolge die Aussage:
       // scheitert das Creative, ist die Anzeige dahinter nur die Folge davon und
       // kein zweiter Fehler.
       if (ad.status === "fulfilled" && ad.value?.id) job.entry.adIds.push(ad.value.id);
-      else if (creative.status === "rejected") fail(ctx, job, (creative.reason as Error).message);
+      else if (transient(creative) || transient(ad)) {
+        // Ohne stepDone(): createAd() zählt diese Anzeige gleich selbst ab.
+        retry.push(job);
+        return;
+      } else if (creative.status === "rejected") fail(ctx, job, (creative.reason as Error).message);
       else if (ad.status === "rejected") fail(ctx, job, (ad.reason as Error).message);
       // 2xx, dessen Body sich nicht lesen ließ: unwrapBatchItem gibt dafür
       // absichtlich einen erfüllten Eintrag ohne Wert zurück. Ungeprüft wäre das
@@ -538,6 +554,12 @@ async function batchAds(ctx: Ctx, jobs: AdJob[]): Promise<void> {
         );
       ctx.stepDone();
     });
+
+    // Einzeln, damit jeder Aufruf durch die Wiederholungsleiter in graph() geht.
+    // Ein Creative, das im Batch schon durchging und dessen Anzeige daran
+    // scheiterte, wird dabei ein zweites Mal angelegt: eine Gestaltung ohne
+    // Anzeige kostet nichts und läuft nirgends – eine fehlende Anzeige schon.
+    await poolAds(ctx, retry);
   }
 }
 

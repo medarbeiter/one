@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { Badge, Button, Selector, TextInput } from "@astryxdesign/core";
-import { Icon, type IconName } from "./icons";
-import { Sign } from "@/theme/icons";
+import { Sign, type Meaning } from "@/theme/icons";
 
 export type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -41,7 +40,7 @@ export function FacetSelect({
   label: string;
   options: [string, string][];
   value?: string;
-  icon?: IconName;
+  icon?: Meaning;
 }) {
   // Der gewählte Wert reist über ein verstecktes Feld ins GET-Formular: Selector
   // schreibt ihn hinein und schickt sofort ab. Der Filter bleibt damit das, was
@@ -57,7 +56,7 @@ export function FacetSelect({
       <Selector
         label={label}
         isLabelHidden
-        startIcon={<Icon name={icon} className="text-ink-300 size-4" />}
+        startIcon={<Sign meaning={icon} form="outline" size={16} className="text-ink-300" />}
         value={selected}
         options={[{ value: ANY, label }, ...options.map(([v, l]) => ({ value: v, label: l }))]}
         onChange={(next) => {
@@ -97,7 +96,7 @@ export function FacetSearch({ value }: { value?: string }) {
       onEnter={submit}
       hasClear
       placeholder="Suchen…"
-      startIcon={<Icon name="search" className="text-ink-300 size-4" />}
+      startIcon={<Sign meaning="search" form="outline" size={16} className="text-ink-300" />}
       className="ml-auto w-72 max-w-full"
     />
   );

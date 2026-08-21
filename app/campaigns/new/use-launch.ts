@@ -26,7 +26,7 @@ export function useLaunch() {
     setResult({});
     // Der Nenner ist erst bekannt, wenn der Server geprüft hat – bis dahin nur
     // die Beschriftung, damit nicht sofort "0 / 0" dasteht.
-    setProgress({ label: "Checking the campaign before anything is created", done: 0, total: 0 });
+    setProgress({ label: "Die Kampagne wird geprüft, bevor irgendetwas angelegt wird", done: 0, total: 0 });
 
     try {
       const res = await fetch("/api/launch", {
@@ -34,7 +34,7 @@ export function useLaunch() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(input),
       });
-      if (!res.body) throw new Error(`The server answered ${res.status} without a body.`);
+      if (!res.body) throw new Error(`Der Server antwortete mit ${res.status} und ohne Inhalt.`);
 
       for await (const event of readNdjson<LaunchEvent>(res.body)) {
         if (event.type === "progress") setProgress(event);
@@ -49,7 +49,7 @@ export function useLaunch() {
       // Ein abgerissener Stream heißt nicht, dass nichts angelegt wurde. Das
       // muss dastehen, sonst legt jemand dieselbe Kampagne ein zweites Mal an.
       setResult({
-        error: `${(e as Error).message} — the campaign may have been partly created. Check the campaigns table before creating it again.`,
+        error: `${(e as Error).message} — die Kampagne kann teilweise angelegt worden sein. Sieh in der Kampagnentabelle nach, bevor du sie erneut anlegst.`,
       });
     } finally {
       setProgress(undefined);

@@ -82,6 +82,24 @@ test("das Ziel deckelt, statt aufzublasen", () => {
   expect(encodeTarget({ container: "MP4", video: "avc", audio: "aac" })).toEqual({});
 });
 
+/**
+ * Der Fall aus „Tobi_PDL2“: gemessen, nicht abgelesen – und damit ein Bruch.
+ * mb.Quality nimmt nur ganze Zahlen und warf sonst mitten im Upload
+ * "options.bitrate, when provided, must be a positive integer".
+ */
+test("eine gemessene Bitrate wird ganzzahlig weitergereicht", () => {
+  const { bitrate } = encodeTarget({
+    container: MOV,
+    video: "hevc",
+    audio: "aac",
+    bitrate: 5_234_567.891,
+  });
+  expect(bitrate).toBe(5_234_568);
+  expect(Number.isInteger(bitrate!)).toBe(true);
+  // Auch über der Decke, wo gedeckelt wird.
+  expect(Number.isInteger(encodeTarget({ container: MOV, video: "hevc", audio: "aac", bitrate: 20_077_949.7 }).bitrate!)).toBe(true);
+});
+
 test("herunterskaliert wird auf die lange Kante, im Seitenverhältnis", () => {
   expect(
     encodeTarget({ container: "MP4", video: "avc", audio: "aac", bitrate: 30e6, width: 3840, height: 2160 }),

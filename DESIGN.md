@@ -110,7 +110,7 @@ deliberately pushed away from the brand hue. Every hex below lives once, in
 
 ### Primary
 - **Brand Gold** (#e1b025, `--color-accent`): the primary button, the current
-  step's mark and underline in the wizard stepper, selection edges in the
+  step's mark and the rail behind it in the wizard stepper, selection edges in the
   asset grid.
 - **On-Gold Ink** (#231a02, `--color-on-accent`): the only text or icon colour
   allowed on a gold surface. White on gold reaches 2.01:1 and fails AA.
@@ -175,13 +175,17 @@ temptation.
 **The Header-Band Exception.** Exactly one surface is gold without carrying
 meaning: the header band (`.header-band` in `app/globals.css`), a 180°
 gradient from `--color-accent-muted` through a 30% mix at 62% down to the
-paper body, closed by a hairline. It is the marketing site's gold wash brought
-into the product. It is allowed *because* it says nothing — no contrast floor
-applies to it, and the rule is written into the CSS comment so it survives the
-next edit. Anything meaning-carrying that stands on it brings its own edge:
-the one gold primary button in the app ("Neue Kampagne") sits in this band.
-It remains the only such exception. A second one would make gold ambiguous
-again.
+paper body, closed by a hairline. The action strip above it (`.leiste`) is
+flat `--color-accent-muted` and reads as the top of the same wash, not as a
+second surface — one exception, two elements. It is the marketing site's gold
+wash brought into the product. It is allowed *because* it says nothing — no
+contrast floor applies to it, and the rule is written into the CSS comment so
+it survives the next edit. Anything meaning-carrying that stands on it brings
+its own edge: the one gold primary button in the app ("Neue Kampagne") sits in
+the strip, and `.leiste .astryx-button[data-variant="primary"]` gives it an
+inset `--color-icon-accent` hairline, because gold on gold has no boundary of
+its own. It remains the only such exception. A second one would make gold
+ambiguous again.
 
 **The Dark-Ink-On-Gold Rule.** Text or icons on a gold surface are always
 #231a02 (8.56:1). White on gold reaches 2.01:1 and is forbidden.
@@ -275,9 +279,9 @@ different amounts.
 
 **A fixed shell, one scrolling column.** `app/layout.tsx` is a flex row on a
 `h-full overflow-hidden` body: a 240px sidebar on the left, and to its right a
-64px header band above an `overflow-y-auto` `<main>`. Only the main
-column scrolls. With ~200 customers, the customer scope switcher in the header
-must never be somewhere up above the fold.
+single `overflow-y-auto` `<main>`. Only the main column scrolls, and it has no
+padding of its own — the gold has to reach the window edge, so every band
+inside it pads itself.
 
 - **The sidebar** is hand-built Tailwind (`app/shell/sidebar.tsx`), not Astryx
   `SideNav`: the logo mark, four destinations (Heute, Inbox, Kampagnen,
@@ -287,14 +291,64 @@ must never be somewhere up above the fold.
 - **The customer scope survives every navigation.** Every sidebar link carries
   the current `?customer=` through. A scope that resets on navigation is not a
   scope.
-- **The header band** carries the scope switcher on the left and the app's one
-  gold primary action on the right, in the same place in every view.
 
-**List pages are one grammar.** Heading + a neutral count Badge beside it, a
-`Facets` filter row, then a `<Card elevation="low" padding={0}>` wrapping an
-Astryx `Table`. The card drops its own padding so the table reaches both
-edges; the card supplies the chrome, because Astryx's `Table` has no surface
-or elevation of its own.
+**The strip floats, it does not sit.** `app/shell/leiste.tsx` is the first
+thing inside `<main>` and is `position: sticky` — *inside* the scroller, not
+above it. That is the whole trick, ported from Hub's `.stempel-leiste`: at rest
+the strip and the header band beneath it are one uninterrupted gold field, and
+only once the page scrolls does the strip earn a border and `--shadow-low` and
+come loose from it. The state comes from an invisible 1px sentinel and an
+`IntersectionObserver` (`data-schwebt`), not from a scroll listener — a
+listener fires on every frame of every scroll to answer one boolean.
+
+The strip carries, left to right: the search trigger, the customer scope
+switcher, and — pushed right by `ml-auto` — the app's one gold primary action.
+Everything in it clears 44px, and buttons take a 0.965 scale on `:active`
+(dropped under `prefers-reduced-motion`).
+
+**The search is one field and it cuts on the server.** ⌘K anywhere opens
+`app/shell/suche.tsx`, an Astryx `CommandPalette` over `/api/suche`
+(`lib/suche.ts`). It finds two things: the ways through the house — the same
+destinations as the sidebar — and customers. Ways rank first, because someone
+typing "kamp" wants the campaign list, not a customer who happens to be named
+that. Typing debounces 180ms and every in-flight request is aborted by the
+next. The cut happens server-side: shipping 200+ customers into the bundle to
+show six of them would be paid for at every keystroke.
+
+**Every page is a band and a sheet.** `app/shell/blattkopf.tsx` holds both:
+`<Blattkopf>` is the gold header band, `<Blatt>` the paper sheet under it, and
+both cap at 1180px so a dense table stops widening on a 1900px screen. The
+band's grammar never varies between views — sign + title, then **one** figure
+with its unit, a supporting line of state, badges and tools on the right, and
+the navigator at its foot. What used to be a heading plus a count Badge is now
+that figure: the campaign list leads with spend, the customer list with the
+number of customers, a customer sheet with no figure at all, because "how
+many" is not the question you ask a customer.
+
+**The figure rolls, it does not blink.** `app/shell/zahlwert.tsx` keys the
+number by its own value, so a new value is a new DOM node and the CSS
+animation runs again: 0.18em up from below at `--beat-step`, no overshoot —
+the value is being written forward, not thrown. A number that is simply
+swapped tells you something changed but not that it is the *same* number with
+a new value. No fill mode: if the animation never ticks (a background tab),
+the resting state is the readable one. Dropped under `prefers-reduced-motion`.
+
+**Tabs are views, selects are filters.** The navigator at the foot of the band
+(`app/shell/navigator.tsx`) carries what changes *which numbers you are
+looking at*; the `Facets` row on the sheet carries what *cuts the list down*.
+The period picker moved from the second to the first (`app/campaigns/
+period-nav.tsx`) — it was never a filter. Its choice lives in the URL and
+carries every other parameter along; because a GET form rewrites the whole
+query on submit, the facets row keeps the period as a hidden field or filtering
+would silently reset it. The open tab wears its sign solid, the others outline.
+
+**List pages are one grammar.** `Blattkopf` (figure = the one number of the
+list), then inside `<Blatt>`: a `Facets` filter row and a
+`<Card elevation="low" padding={0}>` wrapping an Astryx `Table`. The card drops
+its own padding so the table reaches both edges; the card supplies the chrome,
+because Astryx's `Table` has no surface or elevation of its own. `loading.tsx`
+renders the same band with a skeleton in place of the figure — a page that
+loads without its band jumps by the band's full height when the data lands.
 
 ### The campaign wizard
 
@@ -316,6 +370,29 @@ Four decisions hold it together:
 - **The forward action never moves.** One footer, `Zurück` on the left, the
   forward button on the right, becoming `Erstellen (pausiert)` on the last
   step. Before this, the main action sat somewhere different on each step.
+- **The stepper is a rail, not four fields.** Each step hugs its own content
+  and the space between two steps is a connector: gold for what is behind
+  you, `--color-border-emphasized` for what is ahead. Under `flex-1` the four
+  labels sat in four 290px cells with 200px of nothing between them — four
+  loose words rather than a way through. The current mark also carries a
+  gold-wash halo, because below `sm` the labels are gone and the mark is the
+  only thing left to say where you are. The rail carries no rule under it: the
+  step head's own `Divider` follows 20px later, and two lines that close in on
+  each other turn a heading into a table row.
+- **Every pair of facts is a divided list.** The choice behind step 1, the
+  review summary, the fixed settings and the launch receipt are all one
+  `List hasDividers density="spacious"`, label in stone on the left and value
+  in ink at the right edge. Before this they were an Astryx `MetadataList` with
+  no line between the rows: across half a card's width, nothing said which
+  value belonged to which label — which is the one question a rule between rows
+  answers.
+- **Information sits on parchment; input stays white.** Every such list lives
+  in an `Infotafel` (`app/campaigns/new/angaben.tsx`): muted parchment, one
+  hairline, no shadow. Read-only facts in a white bordered box next to white
+  bordered fields are four boxes that look alike, and each one has to be read
+  before you know it wants nothing from you. Tone is the house's word for "not
+  yours to turn" — the same fill the wizard footer and the ad-set summary
+  already use.
 - **Steps enter from below, and only by transform.** `.step-enter` animates
   `translate3d(0, 12px, 0)` over `--beat-draw` with `--ease-in`. Each step is
   a separate conditional expression in the same parent, so React genuinely
@@ -324,10 +401,17 @@ Four decisions hold it together:
 
 The stepper is deliberately **not** a `TabList`. Tabs are four equal views of
 one thing; a wizard has an order, a progress and steps that are not yet due.
-"Schritt 2 von 4" is not a tab. (The HeroUI `Tabs.Indicator` it replaced also
-painted its pill over the neighbouring label, which is how "1. Kunde" came to
-read "1. Ku".) Below the `sm` breakpoint the labels drop out and a line under
-the marks names the current step in words instead.
+"Schritt 2 von 4" is not a tab — Astryx says the same in TabList's own best
+practices ("don't use tabs for sequential steps or workflows"), and ships no
+stepper, which is why this one is hand-built. (The HeroUI `Tabs.Indicator` it
+replaced also painted its pill over the neighbouring label, which is how
+"1. Kunde" came to read "1. Ku".) Below the `sm` breakpoint the labels drop out
+and a line under the marks names the current step in words instead.
+
+Every step opens with the same head: the question, the sentence under it, then
+a `Divider`. Without the rule the question sat the same 24px from the first
+field as any field sits from the next, and a step read as one long stack of
+equal blocks rather than a heading and its work.
 
 Spacing rides the Astryx `--spacing-N` scale; the theme tightens `Card` and
 `Section` padding to `--spacing-3`.

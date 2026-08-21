@@ -7,6 +7,7 @@ const person: Person = {
   email: "max@firma.de",
   role: "mitarbeiter",
   rechte: ["zeit.erfassen", "abwesenheit.beantragen"],
+  picture: "https://hub.example/avatare/01-vertrieb-akquise-fuchs.png",
 };
 
 const secret = "test-secret";

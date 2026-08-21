@@ -3,11 +3,15 @@ import {
   customerBlockers,
   detailBlockers,
   dissolveAd,
+  draftLabel,
   emptyAdSet,
   initialState,
   promoteLoose,
+  shouldSave,
   swapPair,
+  upsertDraft,
   withArrivedAssets,
+  type Draft,
   type WizardAd,
   type WizardAdSet,
   type WizardImageAsset,
@@ -161,6 +165,49 @@ test("die Formate eines Paares lassen sich tauschen, ohne dass es zerfällt", ()
   expect(swapped.name).toBe("Creative 1");
   // Zweimal getauscht ist der Ausgangsstand – der Griff ist ein Umschalter.
   expect(swapPair(swapPair([ad], "a1"), "a1")).toEqual([ad]);
+});
+
+/**
+ * Was die Entwurfsliste sauber hält, ohne über den Inhalt zu urteilen: zwei
+ * Änderungen legen einen Entwurf an, egal welche. Ein bloß geöffneter oder
+ * einmal angetippter Assistent hinterlässt nichts.
+ */
+test("zwei Änderungen legen einen Entwurf an, eine noch nicht", () => {
+  expect(shouldSave(0, false)).toBe(false);
+  expect(shouldSave(1, false)).toBe(false);
+  expect(shouldSave(2, false)).toBe(true);
+  expect(shouldSave(17, false)).toBe(true);
+});
+
+test("an einem Entwurf, den es schon gibt, zählt jede einzelne Änderung", () => {
+  // Sonst ginge die erste Änderung nach dem Fortsetzen verloren – genau die,
+  // wegen der jemand den Entwurf wieder aufgemacht hat.
+  expect(shouldSave(0, true)).toBe(true);
+  expect(shouldSave(1, true)).toBe(true);
+});
+
+const draft = (id: string, savedAt: number, state = ready()): Draft => ({ id, savedAt, state });
+
+test("der zuletzt berührte Entwurf steht vorn, und über zehn hebt niemand auf", () => {
+  const older = [draft("b", 2), draft("c", 1)];
+  expect(upsertDraft(older, draft("a", 3)).map((d) => d.id)).toEqual(["a", "b", "c"]);
+
+  // Derselbe Entwurf ein zweites Mal gespeichert bleibt einer – sonst stünde
+  // nach einer Minute Tippen dieselbe Kampagne sechzigmal in der Liste.
+  const again = upsertDraft([draft("b", 2), draft("a", 1)], draft("a", 3));
+  expect(again.map((d) => d.id)).toEqual(["a", "b"]);
+  expect(again[0].savedAt).toBe(3);
+
+  const many = Array.from({ length: 12 }, (_, i) => draft(`d${i}`, i));
+  const capped = upsertDraft(many, draft("neu", 99));
+  expect(capped).toHaveLength(10);
+  expect(capped.at(-1)?.id).toBe("d8");
+});
+
+test("ein Entwurf heißt wie seine Kampagne, sonst wie sein Kunde", () => {
+  expect(draftLabel(draft("a", 1))).toBe("Herzhalt Pflegedienst | PFK | 13.08. | JP");
+  expect(draftLabel(draft("a", 1, ready({ campaignName: "  " })))).toBe("Herzhalt Pflegedienst");
+  expect(draftLabel(draft("a", 1, ready({ campaignName: "", business: "" })))).toBe("Ohne Kunde");
 });
 
 test("das Tauschen an einer geliehenen Anzeige löst die Verbindung", () => {

@@ -53,6 +53,17 @@ export async function redeemCode(code: string): Promise<Person> {
     headers: { Authorization: `Bearer ${access_token}` },
   });
   if (!infoRes.ok) throw new Error(`Identität vom Hub nicht lesbar (${infoRes.status}).`);
-  const { sub, name, email, role, rechte } = (await infoRes.json()) as Person;
-  return { sub: String(sub), name, email, role, rechte: Array.isArray(rechte) ? rechte : [] };
+  const { sub, name, email, role, rechte, picture } = (await infoRes.json()) as Person & { picture?: string };
+  return {
+    sub: String(sub),
+    name,
+    email,
+    role,
+    rechte: Array.isArray(rechte) ? rechte : [],
+    // Der Hub liefert eine relative Adresse (avatarQuelle() dort). Eine
+    // Tierfigur liegt öffentlich unter public/ im Hub — direkt verlinkbar.
+    // Ein eigenes Foto steckt hinter der Sitzung des Hubs; dafür holt diese
+    // Anwendung es über ihre eigene, gleichnamige Route nach (app/api/avatar).
+    picture: picture?.startsWith("/api/avatar/") ? `/api/avatar/${sub}` : `${hub()}${picture ?? ""}`,
+  };
 }

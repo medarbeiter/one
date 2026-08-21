@@ -38,6 +38,7 @@
 
 import { defineTheme, defineSyntaxTheme } from "@astryxdesign/core/theme";
 import { PALETTE } from "@/lib/palette";
+import { houseIconRegistry } from "./control-icons";
 
 /**
  * Neutral syntax palette — pulled from the OKLCH T30 (light) / T80 (dark)
@@ -527,4 +528,6 @@ export const houseTheme = defineTheme({
       "--color-overlay-pressed": "#FFFFFF1A",
     },
   },
+
+  icons: houseIconRegistry,
 });

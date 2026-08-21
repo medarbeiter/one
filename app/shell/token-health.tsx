@@ -1,4 +1,7 @@
-import { Badge, Button, Heading, Popover, TypographyParagraph } from "@/app/shell/ui";
+"use client";
+
+import { useSideNavCollapse } from "@astryxdesign/core";
+import { Badge, Button, Heading, Popover, StatusDot, TypographyParagraph } from "@/app/shell/ui";
 
 const COPY = {
   ok: { variant: "success", title: "Verbunden", body: "Der System-User-Token funktioniert." },
@@ -22,6 +25,9 @@ export function TokenHealth({
   detail: string[];
 }) {
   const c = COPY[state];
+  // Eingeklappte Schiene: derselbe Auslöser, nur als Zeichen statt als Zeile
+  // (siehe Kontozeile im Hub, components/app-nav.tsx).
+  const { isCollapsed } = useSideNavCollapse();
   return (
     // Astryx' Popover hat keine Trigger/Content/Dialog/Heading-Teile: der
     // Auslöser sind die Kinder, die Fläche ist die `content`-Prop. role="dialog",
@@ -48,9 +54,19 @@ export function TokenHealth({
       {/* Der Auslöser trägt die Button-Optik des Designsystems statt eigener
           Rahmen- und Hover-Klassen. Astryx kennt kein "outline" – secondary
           ist die umrandete, ungefüllte Variante des Designsystems. */}
-      <Button variant="secondary" size="sm" width="100%" label={`Verbindung: ${c.title}`}>
-        <Badge variant={c.variant} label={c.title} />
-      </Button>
+      {isCollapsed ? (
+        <Button
+          variant="secondary"
+          size="sm"
+          isIconOnly
+          icon={<StatusDot variant={c.variant} label={c.title} />}
+          label={`Verbindung: ${c.title}`}
+        />
+      ) : (
+        <Button variant="secondary" size="sm" width="100%" label={`Verbindung: ${c.title}`}>
+          <Badge variant={c.variant} label={c.title} />
+        </Button>
+      )}
     </Popover>
   );
 }

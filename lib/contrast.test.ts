@@ -92,6 +92,21 @@ describe('status colours', () => {
       expect(contrast(C.errorFill, ground)).toBeGreaterThanOrEqual(OBJECT_FLOOR);
     }
   });
+  // The edge of a failed thing — the border on an upload tile that could not
+  // be transcoded, and the ring around its pastel badge (`--color-danger` in
+  // app/globals.css). It carries the dark error ink, not Astryx' own
+  // `--color-border-red` (#e6bab8): that value is meant as the edge OF a red
+  // fill and reaches 1.4:1 on white, which is how the tile ended up with no
+  // visible edge at all.
+  test('the error edge clears the object floor on every ground', () => {
+    for (const ground of [C.white, C.paper, C.parchment]) {
+      expect(contrast(C.errorText, ground)).toBeGreaterThanOrEqual(OBJECT_FLOOR);
+    }
+  });
+  test('Astryx own border-red would NOT have cleared it — this is why it is not used', () => {
+    expect(contrast('#e6bab8', C.white)).toBeLessThan(OBJECT_FLOOR);
+  });
+
   test('white on success fill clears the text floor', () => {
     expect(contrast(C.white, C.successFill)).toBeGreaterThanOrEqual(TEXT_FLOOR);
   });

@@ -361,3 +361,16 @@ suggests the two applications are already token-identical everywhere Phase 1
 touched. Phase 2's shared package can proceed on that basis, but the visual
 side-by-side remains formally unconfirmed and should be the first thing a
 human does before treating Phase 1 as fully closed.
+
+## Correction (2026-08-21): the icon weight *was* diverged
+
+The visual side-by-side above was run. One's outline icons rendered visibly
+lighter/grayer than Hub's — the "pixel-identical SVG … by construction" claim
+was false. Root cause: `theme/icons.tsx`'s `Sign` rendered the `outline` form
+at Phosphor weight `regular`, while Hub's `sinnbilder.tsx` documents and uses
+`bold` for the equivalent `umriss` form specifically because `regular`'s
+stroke is too thin to read as ink at 14–16px next to text. Same `weight`-prop
+mechanism, different weight value — the static token diff in Task 5/15 above
+didn't catch it because it never rendered a glyph. Fixed by matching Hub's
+`bold`. Lesson for Phase 2: a component-level parity check needs to compare
+rendered props, not just confirm both sides use the same mechanism.

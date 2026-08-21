@@ -2,11 +2,12 @@
 // für Intl.DateTimeFormat fest (Begründung in der Datei).
 import "@/lib/intl-de";
 
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Figtree, Poppins } from "next/font/google";
 import { Suspense } from "react";
 import { cookies } from "next/headers";
 import { after } from "next/server";
+import { AppShell } from "@astryxdesign/core";
 import "./globals.css";
 import brandIcon from "@/assets/logo-square.png";
 import { ensureAssigned } from "@/lib/assign";
@@ -14,11 +15,12 @@ import { listCustomers } from "@/lib/customers";
 import { openSession, SESSION_COOKIE, sessionSecret } from "@/lib/session";
 import { IntlDeutschImBrowser } from "@/components/intl-de-client";
 import { Providers } from "./providers";
+import { Leiste } from "./shell/leiste";
 import { NewCampaign } from "./shell/new-campaign";
 import { ScopeSwitcher } from "./shell/scope-switcher";
+import { AccountRow } from "./shell/account-row";
 import { Sidebar } from "./shell/sidebar";
 import { TokenHealth } from "./shell/token-health";
-import { UserBadge } from "./shell/user-badge";
 
 export const metadata: Metadata = {
   title: "MedArbeiter One",
@@ -27,6 +29,14 @@ export const metadata: Metadata = {
     icon: brandIcon.src,
     apple: brandIcon.src,
   },
+};
+
+// themeColor: Next 14 zog das aus metadata heraus in einen eigenen Export
+// (Hub macht dasselbe in seinem layout.tsx). #faf8f3 ist der Paper-Wert aus
+// theme/house.ts.
+export const viewport: Viewport = {
+  themeColor: "#faf8f3",
+  colorScheme: "light",
 };
 
 // Self-hosted through next/font: no runtime request to Google, no CDN failure
@@ -62,39 +72,56 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       : "ok";
 
   return (
-    <html
-      lang="de"
-      data-astryx-theme="house"
-      className={`${poppins.variable} ${figtree.variable} h-full antialiased`}
-    >
-      {/* Die Leiste steht, gescrollt wird nur der Inhalt – bei 200 Kunden ist
-          der Kunden-Scope nie weggescrollt. */}
-      <body className="bg-canvas text-ink-700 flex h-full overflow-hidden">
+    <html lang="de" className={`${poppins.variable} ${figtree.variable} h-full antialiased`}>
+      {/* AppShell/SideNav aus @astryxdesign/core – dieselbe Schale wie im Hub
+          (app/(app)/layout.tsx dort), nur mit den Inhalten dieses Hauses.
+          Innen gescrollt wird weiterhin nur `main`, nicht die ganze Schale –
+          bei 200 Kunden ist der Kunden-Scope nie weggescrollt. */}
+      <body className="text-ink-700">
         <IntlDeutschImBrowser />
         <Providers>
-          <Suspense fallback={<div className="border-line w-60 shrink-0 border-r" />}>
-            <Sidebar
-              footer={
-                <div className="space-y-2">
-                  {person && <UserBadge person={person} />}
-                  <TokenHealth state={state} detail={[...errors.map((e) => e.message), ...issues]} />
-                </div>
-              }
-            />
-          </Suspense>
-          <div className="flex min-w-0 flex-1 flex-col">
-            <header className="header-band flex h-16 shrink-0 items-center gap-3 px-6">
-              <Suspense fallback={<div className="h-9 w-72 shrink-0" />}>
-                <ScopeSwitcher customers={customers.map((c) => ({ id: c.id, name: c.name }))} />
+          <AppShell
+            contentPadding={0}
+            sideNav={
+              <Suspense fallback={<div className="h-full w-[260px] shrink-0" />}>
+                <Sidebar
+                  footer={
+                    // Der Verbindungsstatus ist vorerst ausgeblendet (Hub
+                    // zeigt ihn an dieser Stelle nicht) – die Kontozeile
+                    // bleibt der einzige Fußinhalt.
+                    <div className="space-y-2">
+                      {/* <TokenHealth state={state} detail={[...errors.map((e) => e.message), ...issues]} /> */}
+                      {person && <AccountRow person={person} />}
+                    </div>
+                  }
+                />
               </Suspense>
-              <div className="ml-auto flex items-center gap-2">
-                <Suspense fallback={null}>
-                  <NewCampaign />
+            }
+          >
+            {/* Die Leiste steht IM scrollenden Blatt, nicht darüber: nur so
+                sind Leiste und Kopfband eine durchgehende Goldfläche, und nur
+                so kann sie beim Rollen über den Kopf laufen und sich dabei
+                ihre Kante zurückholen (app/shell/leiste.tsx). Dass sie dabei
+                stehen bleibt, macht `position: sticky` gegen genau diesen
+                Scroller — der Kundenscope ist bei 200 Kunden nie weggerollt.
+                `main` trägt deshalb keinen eigenen Innenabstand mehr: den
+                setzen die Bänder, damit die Wäsche bis an die Fensterkante
+                läuft. */}
+            <main className="h-full overflow-y-auto">
+              <Leiste
+                aktion={
+                  <Suspense fallback={null}>
+                    <NewCampaign />
+                  </Suspense>
+                }
+              >
+                <Suspense fallback={<div className="h-9 w-64 shrink-0" />}>
+                  <ScopeSwitcher customers={customers.map((c) => ({ id: c.id, name: c.name }))} />
                 </Suspense>
-              </div>
-            </header>
-            <main className="min-h-0 flex-1 overflow-y-auto p-6">{children}</main>
-          </div>
+              </Leiste>
+              {children}
+            </main>
+          </AppShell>
           {/* Die Toast-Region kommt jetzt aus Providers (LayerProvider) –
               der umschließt den ganzen Baum unten, statt daneben zu stehen. */}
         </Providers>

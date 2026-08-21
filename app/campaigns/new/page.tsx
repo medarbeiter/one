@@ -1,4 +1,4 @@
-import * as UI from "@/app/shell/ui";
+import { Blatt, Blattkopf } from "@/app/shell/blattkopf";
 import {
   clients,
   listCustomers,
@@ -59,20 +59,25 @@ export default async function NewCampaignPage({ searchParams }: PageProps<"/camp
     "";
 
   return (
-    <div className="space-y-4">
-      <UI.TypographyHeading level={1} className="font-display text-xl">
-        Neue Kampagne
-      </UI.TypographyHeading>
-      <UI.TypographyParagraph color="secondary" size="sm">
-        Erstellt Kampagne, Anzeigengruppe und eine Anzeige pro Datei — alles pausiert.
-      </UI.TypographyParagraph>
-      <Wizard
-        accounts={accounts}
-        clients={clientOptions}
-        knownInitials={[...KNOWN_INITIALS]}
-        defaultAccount={defaultAccount}
-        defaultBusiness={defaultBusiness}
+    <>
+      {/* Der Assistent hat keine Zahl – er hat einen Satz, der sagt, was am
+          Ende entsteht. Er steht in der Standzeile, wo sonst der Stand des
+          Blattes steht: hier ist der Stand "noch nichts, und zwar pausiert". */}
+      <Blattkopf
+        titel="Neue Kampagne"
+        meaning="add"
+        stand="Erstellt Kampagne, Anzeigengruppe und eine Anzeige pro Datei — alles pausiert."
       />
-    </div>
+
+      <Blatt>
+        <Wizard
+          accounts={accounts}
+          clients={clientOptions}
+          knownInitials={[...KNOWN_INITIALS]}
+          defaultAccount={defaultAccount}
+          defaultBusiness={defaultBusiness}
+        />
+      </Blatt>
+    </>
   );
 }

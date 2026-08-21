@@ -10,6 +10,7 @@ import {
 } from "./customers";
 import { locationKey, locationProblem } from "./geo";
 import { estimateReach as realEstimateReach } from "./geo-search";
+import { GraphError, LESS_PERSONALIZED_ADS, graph as realGraph } from "./graph";
 import type { AdSetInput, LaunchInput, LaunchProgress, Receipt } from "./launch";
 import type { Check } from "./verify";
 
@@ -86,9 +87,57 @@ async function unresolvableLocation(
   return undefined;
 }
 
+/**
+ * Ob Meta unter dieser Identität – Seite plus Instagram-Konto – überhaupt
+ * Anzeigen zulässt. Gefragt wird mit execution_options=['validate_only']: Meta
+ * prüft die Gestaltung und legt nichts an.
+ *
+ * Der Anlass ist ein Fehler ohne Feld: „Weil <Name> sich für less-personalized
+ * Werbung entschieden hat, kannst du keine Anzeigen erstellen." Anders als die
+ * Lead-Bedingungen gibt Graph diesen Zustand nirgends zu lesen – nicht am
+ * Werbekonto, nicht an der Seite, nicht am Instagram-Konto (durchprobiert; keins
+ * der naheliegenden Felder existiert). Bleibt der Umweg, Meta die Frage in der
+ * einzigen Form zu stellen, in der es sie beantwortet: als Anzeigengestaltung.
+ *
+ * In der Nutzlast steht nur die Identität – kein Medium, kein Formular, keine
+ * Texte. Was hier scheitert, scheitert an Seite oder Instagram-Konto und nicht an
+ * einer Eigenheit dieser Probe.
+ *
+ * Und nur „permission" hält auf: ein Rate-Limit oder ein Aussetzer ist kein
+ * Befund über die Identität, sondern einer über den Moment – dieselbe Regel wie
+ * bei unresolvableLocation() darüber.
+ */
+async function forbiddenIdentity(
+  adAccount: string,
+  pageId: string,
+  instagramUserId: string | undefined,
+  deps: ResolveLaunchDeps,
+): Promise<GraphError | undefined> {
+  const graph = deps.graph ?? realGraph;
+  try {
+    await graph(`${adAccount}/adcreatives`, {
+      method: "POST",
+      params: {
+        name: "Identitätsprüfung",
+        object_story_spec: {
+          page_id: pageId,
+          ...(instagramUserId ? { instagram_user_id: instagramUserId } : {}),
+          // link ist bei Lead-Ads ein Platzhalter – siehe buildCreative().
+          link_data: { link: "http://fb.me/", message: "Identitätsprüfung" },
+        },
+        execution_options: ["validate_only"],
+      },
+    });
+  } catch (e) {
+    if (e instanceof GraphError && e.kind === "permission") return e;
+  }
+  return undefined;
+}
+
 export type ResolveLaunchDeps = {
   listCustomers?: typeof realListCustomers;
   estimateReach?: typeof realEstimateReach;
+  graph?: typeof realGraph;
 };
 
 /**
@@ -175,6 +224,29 @@ export async function resolveLaunch(
 
   const badLocation = await unresolvableLocation(input.adSets, adAccount, deps);
   if (badLocation) return { error: badLocation };
+
+  // Je Instagram-Konto einmal, nicht je Anzeigengruppe – in aller Regel ist das
+  // genau eines. Der Grund für die Schleife ist trotzdem echt: die Identität
+  // hängt am Ad Set, nicht an der Kampagne.
+  for (const igId of new Set(input.adSets.map((s) => s.instagramUserId))) {
+    const denied = await forbiddenIdentity(adAccount, client.page.id, igId, deps);
+    if (!denied) continue;
+    const identity = igId
+      ? `„${client.page.name}“ oder das verknüpfte Instagram-Konto`
+      : `„${client.page.name}“`;
+    return {
+      error:
+        denied.code === LESS_PERSONALIZED_ADS
+          ? `${identity} hat sich für weniger personalisierte Werbung entschieden — solange das so ist, ` +
+            `lehnt Meta jede Anzeige unter dieser Identität ab („${denied.message}“). Zurückstellen lässt sich ` +
+            `das nur dort, wo die Wahl getroffen wurde: in den Werbepräferenzen des genannten Kontos ` +
+            `(Meta-Konto → Werbepräferenzen). Über die API ist das nicht möglich. ` +
+            `Mehr dazu: https://www.facebook.com/business/help/1563729837497242`
+          : `Meta lässt unter ${identity} keine Anzeigen aus diesem Werbekonto zu: „${denied.message}“ ` +
+            `Das ändert sich nicht durch einen zweiten Versuch — prüfe im Business Manager, ob Seite und ` +
+            `Instagram-Konto dem System User und diesem Werbekonto zugewiesen sind.`,
+    };
+  }
 
   return { adAccount, pageId: client.page.id };
 }

@@ -3,21 +3,26 @@
 /**
  * Die Schrittleiste des Assistenten.
  *
- * Vorher standen hier HeroUI-Tabs. Zwei Gründe, warum sie weg sind:
+ * Kein `TabList`: Tabs sind vier gleichrangige Sichten auf dasselbe; ein
+ * Assistent hat eine Reihenfolge, einen Fortschritt und Schritte, die noch
+ * nicht dran sind. Astryx sagt dasselbe in den Best Practices seines TabList
+ * („Don't use tabs for sequential steps or workflows") – es gibt keine
+ * Stepper-Komponente, also steht sie hier.
  *
- * 1. Falsche Bedeutung. Tabs sind vier gleichrangige Sichten auf dasselbe;
- *    ein Assistent hat eine Reihenfolge, einen Fortschritt und Schritte, die
- *    noch nicht dran sind. „Schritt 2 von 4" ist keine Registerkarte.
- * 2. Ein echter Fehler. Die Pille hinter dem gewählten Reiter (`Tabs.Indicator`)
- *    liegt als `absolute size-full` in ihrem Reiter und wandert per Transform;
- *    weil jeder Reiter `z-index: 1` hat, malte die Pille des späteren Reiters
- *    über die Beschriftung des früheren. Daher „1. Ku" statt „1. Kunde".
- *
- * Der Zustand steht jetzt im Zeichen selbst statt allein in der Schriftfarbe:
+ * Der Zustand steht im Zeichen selbst statt allein in der Schriftfarbe:
  * Haken = erledigt, Zahl = offen, Schloss = noch gesperrt. Farbe ist die
  * Zugabe, nicht die Information.
+ *
+ * Die Leiste ist eine **Schiene, keine Reihe von vier Feldern**. Vorher trug
+ * jeder Schritt `flex-1`: auf 1180 px Karte standen vier Beschriftungen von je
+ * 90 px in vier 290-px-Feldern, mit 200 px Nichts dazwischen – vier lose Wörter
+ * statt eines Wegs. Jetzt umschließt jeder Schritt seinen Inhalt, und den Raum
+ * dazwischen füllt der Verbinder: golden hinter sich gebracht, stone noch vor
+ * sich. Derselbe Platz, aber er trägt jetzt die Auskunft, die vorher nur in der
+ * Farbe der Marke stand.
  */
 
+import { Fragment } from "react";
 import { CheckIcon, LockSimpleIcon } from "@phosphor-icons/react";
 
 export type StepperStep = {
@@ -37,30 +42,43 @@ function stateOf(index: number, current: number, locked: boolean, issues: number
   return "todo";
 }
 
-/** Die runde Marke links: Zahl, Haken oder Schloss. */
-function Badge({ state, number }: { state: StepState; number: number }) {
+/**
+ * Die runde Marke: Zahl, Haken oder Schloss.
+ *
+ * 28 px statt 24 – bei 24 verschwand der Haarstrich der offenen Schritte gegen
+ * die weiße Karte, und übrig blieb eine nackte Ziffer. Die offenen Marken
+ * tragen deshalb jetzt auch die Pergamentfläche und den kräftigen Rand: eine
+ * Marke, die noch nicht dran ist, ist trotzdem eine Marke.
+ */
+function Mark({ state, number }: { state: StepState; number: number }) {
   const base =
-    "flex size-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold tabular-nums transition-colors";
+    "flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold tabular-nums transition-colors";
   if (state === "done")
     return (
       <span aria-hidden className={`${base} border-gold-500 bg-gold-500 text-ink-900`}>
-        <CheckIcon size={13} weight="bold" />
+        <CheckIcon size={14} weight="bold" />
       </span>
     );
   if (state === "current")
     return (
-      <span aria-hidden className={`${base} border-gold-500 bg-gold-500 text-ink-900`}>
+      // Der Hof aus Goldwasch ist die einzige Stelle, an der die Leiste mehr
+      // trägt als eine Farbe: er hebt den laufenden Schritt auch dann heraus,
+      // wenn die Beschriftungen unter `sm` gar nicht dastehen.
+      <span
+        aria-hidden
+        className={`${base} border-gold-500 bg-gold-500 text-ink-900 ring-gold-100 ring-4`}
+      >
         {number}
       </span>
     );
   if (state === "locked")
     return (
-      <span aria-hidden className={`${base} border-line text-ink-300`}>
-        <LockSimpleIcon size={12} weight="bold" />
+      <span aria-hidden className={`${base} border-line bg-surface-secondary text-ink-300`}>
+        <LockSimpleIcon size={13} weight="bold" />
       </span>
     );
   return (
-    <span aria-hidden className={`${base} border-ink-300 bg-surface text-ink-500`}>
+    <span aria-hidden className={`${base} border-line-strong bg-surface-secondary text-ink-500`}>
       {number}
     </span>
   );
@@ -79,78 +97,101 @@ export function Stepper({
   lockedFrom?: number;
 }) {
   return (
-    <nav aria-label="Schritte" className="border-line border-b px-2 sm:px-4">
+    // px-4 + der Innenabstand des Knopfs (px-2) ergeben die 24 px, mit denen
+    // auch der Schrittinhalt darunter von der Kartenkante wegsteht: die erste
+    // Marke fluchtet mit der Überschrift. Oben pt-6 plus die py-3 des Knopfs:
+    // 36 px zwischen Kartenkante und Marke. Mehr als unten, mit Absicht – die
+    // Leiste ist der Kopf der Karte, und ein Kopf, der oben so eng steht wie
+    // unten, sieht aus, als sei er hineingerutscht.
+    //
+    // Kein `border-b` mehr: die Leiste braucht keinen Strich, um oben zu sein,
+    // und der Haarstrich unter der Frage im Schritt darunter (`Step`) stand
+    // 24 px später noch einmal fast dasselbe. Zwei Linien in 40 px machen aus
+    // einem Kopf eine Tabelle.
+    <nav aria-label="Schritte" className="px-4 pt-6 pb-1">
       <ol className="flex items-stretch">
         {steps.map((step, i) => {
           const locked = i >= lockedFrom;
           const state = stateOf(i, current, locked, step.issues);
           const showsIssues = step.issues > 0 && !locked;
           return (
-            <li key={step.label} className="relative min-w-0 flex-1">
-              <button
-                type="button"
-                disabled={locked}
-                aria-current={state === "current" ? "step" : undefined}
-                aria-label={
-                  `Schritt ${i + 1} von ${steps.length}: ${step.label}` +
-                  (locked
-                    ? ", noch gesperrt"
-                    : showsIssues
-                      ? step.issues === 1
-                        ? ", 1 offener Punkt"
-                        : `, ${step.issues} offene Punkte`
-                      : i < current
-                        ? ", erledigt"
-                        : "")
-                }
-                onClick={() => onSelect(i)}
-                className={[
-                  // 2px Fokusring statt des HeroUI-Standards am Reiter: der Knopf
-                  // hat keinen eigenen Rand, an dem Fokus sonst sichtbar würde.
-                  "flex w-full items-center justify-center gap-2 rounded-t-lg px-2 py-3 outline-none",
-                  "focus-visible:ring-focus focus-visible:ring-2 focus-visible:ring-inset",
-                  locked ? "cursor-not-allowed" : "hover:bg-surface-secondary cursor-pointer",
-                ].join(" ")}
-              >
-                <Badge state={state} number={i + 1} />
-                <span
-                  aria-hidden
+            <Fragment key={step.label}>
+              <li className="min-w-0">
+                <button
+                  type="button"
+                  disabled={locked}
+                  aria-current={state === "current" ? "step" : undefined}
+                  aria-label={
+                    `Schritt ${i + 1} von ${steps.length}: ${step.label}` +
+                    (locked
+                      ? ", noch gesperrt"
+                      : showsIssues
+                        ? step.issues === 1
+                          ? ", 1 offener Punkt"
+                          : `, ${step.issues} offene Punkte`
+                        : i < current
+                          ? ", erledigt"
+                          : "")
+                  }
+                  onClick={() => onSelect(i)}
                   className={[
-                    "hidden truncate text-[0.8125rem] sm:block",
-                    state === "current"
-                      ? "text-ink-900 font-semibold"
-                      : state === "locked"
-                        ? "text-ink-300 font-medium"
-                        : "text-ink-500 font-medium",
+                    // 2px Fokusring statt des Astryx-Standards: der Knopf hat
+                    // keinen eigenen Rand, an dem Fokus sonst sichtbar würde.
+                    "flex items-center gap-2.5 rounded-lg px-2 py-3 outline-none",
+                    // `transition-colors` gehört an den Knopf, nicht nur an die
+                    // Marke darin: die Fläche darunter tönt beim Überfahren mit,
+                    // und ohne Übergang springt sie, während die Marke gleitet.
+                    "transition-colors",
+                    "focus-visible:ring-focus focus-visible:ring-2 focus-visible:ring-inset",
+                    locked ? "cursor-not-allowed" : "hover:bg-surface-secondary cursor-pointer",
                   ].join(" ")}
                 >
-                  {step.label}
-                </span>
-                {showsIssues && (
+                  <Mark state={state} number={i + 1} />
                   <span
                     aria-hidden
-                    className="bg-attention text-danger-700 flex size-5 shrink-0 items-center justify-center rounded-full text-[0.6875rem] font-semibold tabular-nums"
+                    className={[
+                      "hidden truncate text-sm sm:block",
+                      state === "current"
+                        ? "text-ink-900 font-semibold"
+                        : state === "locked"
+                          ? "text-ink-300 font-medium"
+                          : "text-ink-500 font-medium",
+                    ].join(" ")}
                   >
-                    {step.issues}
+                    {step.label}
                   </span>
-                )}
-              </button>
-              {/* Der Balken sitzt am Schritt und nicht als wandernde Pille über
-                  allen – er kann damit nichts überdecken. */}
-              <span
-                aria-hidden
-                className={[
-                  "absolute inset-x-0 -bottom-px h-0.5 rounded-full transition-colors",
-                  state === "current" ? "bg-gold-500" : "bg-transparent",
-                ].join(" ")}
-              />
-            </li>
+                  {showsIssues && (
+                    <span
+                      aria-hidden
+                      className="bg-attention text-danger-700 flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-semibold tabular-nums"
+                    >
+                      {step.issues}
+                    </span>
+                  )}
+                </button>
+              </li>
+
+              {/* Der Verbinder trägt den Fortschritt: hinter dem laufenden
+                  Schritt golden, davor stone. Er ist keine Station, deshalb
+                  aria-hidden – die Reihenfolge steht schon in „Schritt 2 von 4"
+                  an jedem Knopf. min-w-4 hält ihn sichtbar, wenn die
+                  Beschriftungen auf schmalen Schirmen die ganze Breite wollen. */}
+              {i < steps.length - 1 && (
+                <li aria-hidden className="flex min-w-4 flex-1 items-center px-1 sm:px-2">
+                  <span
+                    className={`h-0.5 w-full rounded-full transition-colors ${
+                      i < current ? "bg-gold-500" : "bg-line-strong"
+                    }`}
+                  />
+                </li>
+              )}
+            </Fragment>
           );
         })}
       </ol>
       {/* Schmal bleibt von der Leiste nur die Zahlenreihe – der Name des
           aktuellen Schritts steht dann darunter statt gar nicht. */}
-      <p className="text-ink-700 px-2 pb-2 text-[0.8125rem] font-semibold sm:hidden">
+      <p className="text-ink-700 px-2 pb-3 text-sm font-semibold sm:hidden">
         Schritt {current + 1} von {steps.length}: {steps[current]?.label}
       </p>
     </nav>

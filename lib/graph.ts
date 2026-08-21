@@ -18,16 +18,22 @@ export type GraphFailure = {
   kind: "token" | "permission" | "rate" | "unknown";
   message: string;
   retryable: boolean;
+  /** Metas Fehlercode, sofern er einen trug. Für Aufrufer, denen `kind` zu grob
+   *  ist – etwa die Identitätsprüfung in launch-request.ts, die eine fehlende
+   *  Zuweisung anders erklären muss als LESS_PERSONALIZED_ADS. */
+  code?: number;
 };
 
 export class GraphError extends Error {
   kind: GraphFailure["kind"];
   retryable: boolean;
+  code?: number;
   constructor(f: GraphFailure) {
     super(f.message);
     this.name = "GraphError";
     this.kind = f.kind;
     this.retryable = f.retryable;
+    this.code = f.code;
   }
 }
 
@@ -60,21 +66,56 @@ function token() {
  */
 const LEADGEN_TOS_SUBCODES = [1815089, 1892181, 1892291];
 
+/**
+ * „Weil <Name> sich für less-personalized Werbung entschieden hat, kannst du
+ * keine Anzeigen erstellen." Metas EU-Wahl gegen personalisierte Werbung – wer
+ * sie trifft, kann selbst keine Anzeigen mehr schalten. Gemeint ist nicht das
+ * Werbekonto, sondern die Identität, unter der die Anzeige läuft: das
+ * Instagram-Konto oder das Profil hinter der Seite. Der Name in der Meldung sagt,
+ * welche.
+ *
+ * Wie die Lead-Bedingungen: nur in Metas eigener Oberfläche zu ändern, von der
+ * betroffenen Identität selbst, nicht vom Werbekonto aus – und damit das Gegenteil
+ * von wiederholbar. Anders als bei den Lead-Bedingungen gibt Graph den Zustand
+ * aber nirgends zu lesen; deshalb steht in launch-request.ts eine Probe davor.
+ */
+export const LESS_PERSONALIZED_ADS = 3858412;
+
 // 190 = Token tot, 4/17/32/613 = Rate-Limit, 10/200/272 = fehlende Berechtigung.
 // Die Einordnung entscheidet, was der Mensch zu sehen bekommt – nicht der Text.
 export function mapGraphError(err: any, status = 0): GraphFailure {
   const code = err?.code ?? 0;
   const message = err?.error_user_msg || err?.message || `Graph ${status || "request failed"}`;
-  if (code === 190) return { kind: "token", message, retryable: false };
-  if ([4, 17, 32, 613].includes(code)) return { kind: "rate", message, retryable: true };
+  // Ein fehlender Code bleibt weg statt als 0 dazustehen – 0 wäre ein Code, den
+  // Meta nie vergibt, und ein Aufrufer müsste ihn eigens ausschließen.
+  const base = code ? { message, code } : { message };
+  if (code === 190) return { ...base, kind: "token", retryable: false };
+  if ([4, 17, 32, 613].includes(code)) return { ...base, kind: "rate", retryable: true };
   if ([10, 200, 272, 294].includes(code))
-    return { kind: "permission", message, retryable: false };
+    return { ...base, kind: "permission", retryable: false };
   // Vor dem unknown-Zweig: der trüge diesen Fehler bei einer 500er-Antwort als
   // retryable weiter, und ein Retry legte dieselben Anzeigen ein zweites Mal an,
   // ohne dass die zweite Runde besser ausgehen könnte als die erste.
   if (LEADGEN_TOS_SUBCODES.includes(err?.error_subcode ?? 0))
-    return { kind: "permission", message, retryable: false };
-  return { kind: "unknown", message, retryable: status >= 500 };
+    return { ...base, kind: "permission", retryable: false };
+  // Aus demselben Grund vor is_transient: welches der beiden Felder Meta für
+  // 3858412 benutzt, ist nicht dokumentiert, also werden beide gelesen – und die
+  // Meldung kam in freier Wildbahn als „unknown error" durch, also womöglich
+  // sogar mit is_transient. Wiederholen ändert an einer Werbepräferenz nichts.
+  if (code === LESS_PERSONALIZED_ADS || err?.error_subcode === LESS_PERSONALIZED_ADS)
+    return { ...base, kind: "permission", retryable: false, code: LESS_PERSONALIZED_ADS };
+  // is_transient setzt Meta selbst, wenn nur der Zeitpunkt schuld war: "Etwas
+  // ist schiefgelaufen. Bitte versuche es später noch einmal." kommt mit 400
+  // und fiele sonst als endgültig in die Quittung – obwohl derselbe Aufruf ein
+  // paar Sekunden später durchgeht. Genau das war die Handarbeit dahinter: erst
+  // der Knopf „Erneut versuchen“ hat die Anzeige angelegt.
+  //
+  // Auf Metas Flag statt auf einen Code: welcher Code darunter steckt, wechselt
+  // (1, 2, 1487390 …), die Aussage nicht. Ein Fehler-Body heißt außerdem, dass
+  // nichts angelegt wurde – dieselbe Annahme, auf der batchAds() in launch.ts
+  // schon seinen Rückfall aufbaut –, also legt der zweite Versuch nichts doppelt an.
+  if (err?.is_transient === true) return { ...base, kind: "unknown", retryable: true };
+  return { ...base, kind: "unknown", retryable: status >= 500 };
 }
 
 /**

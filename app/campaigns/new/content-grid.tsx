@@ -525,9 +525,10 @@ export function UploadTile({ upload }: { upload: UploadJob }) {
       <Stage
         overlay={
           upload.error ? (
-            <span className="text-danger-700 text-xl font-semibold" aria-hidden>
-              !
-            </span>
+            // Ein gezeichnetes Zeichen statt eines Ausrufezeichens aus der
+            // Fließschrift: das „!" stand je nach Schnitt anders hoch und war
+            // kein Zeichen, sondern Text, der zufällig wie eines aussah.
+            <Sign meaning="warning" size={28} color="var(--color-text-red)" />
           ) : (
             <UploadIndicator upload={upload} />
           )
