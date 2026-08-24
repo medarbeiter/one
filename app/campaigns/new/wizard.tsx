@@ -27,6 +27,7 @@ import {
   type SearchableItem,
 } from "@astryxdesign/core";
 import { UserPlusIcon } from "@phosphor-icons/react";
+import { useRouter } from "next/navigation";
 import { Sign } from "@/theme/icons";
 import { getLocalTimeZone, parseDate, today } from "@internationalized/date";
 import { campaignName, ROLES } from "@/lib/naming";
@@ -53,7 +54,7 @@ import { Angaben, Infotafel } from "./angaben";
 import { Stepper } from "./stepper";
 import { Preview } from "./preview";
 import { ReceiptPanel } from "./receipt";
-import { prefillAction, type WizardSubmission } from "../actions";
+import { prefillAction, refreshAssetsAction, type WizardSubmission } from "../actions";
 import { useLaunch } from "./use-launch";
 import {
   fuzzyCustomerMatch,
@@ -391,6 +392,29 @@ function WizardSteps({
   // gewählt – ohne einen zweiten Klick dafür.
   const client = resolveClientByName(clients, state.business);
   const clientItem = clientItems.find((item) => item.id === client?.id) ?? null;
+
+  // Die Annahme der Lead-Bedingungen passiert in Metas Oberfläche, in einem
+  // anderen Tab (siehe LeadgenTosAlert) – dieser hier erfährt davon nur durch
+  // Nachlesen. Solange die gewählte Seite blockt: bei Fokus (der Moment der
+  // Rückkehr aus Metas Tab) und alle 30 s den Portfolio-Cache wegwerfen und neu
+  // rendern. Sobald leadgen_tos_accepted stimmt, kommt needsLeadgenTos als
+  // false herein und Meldung samt offenem Punkt verschwinden von allein.
+  // needsLeadgenTos ist der einzige Blocker aus Server-Daten; alle anderen sind
+  // lokaler Formularzustand, an dem Nachlesen nichts ändert.
+  const router = useRouter();
+  const needsTos = client?.needsLeadgenTos ?? false;
+  useEffect(() => {
+    if (!needsTos) return;
+    const check = () => refreshAssetsAction().then(() => router.refresh());
+    // ponytail: 30 s festes Intervall gegen Metas Graph – Backoff erst, falls
+    // Rate-Limits real werden.
+    const id = setInterval(check, 30_000);
+    window.addEventListener("focus", check);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener("focus", check);
+    };
+  }, [needsTos, router]);
 
   // Das Instagram-Konto hängt an der Seite des beworbenen Kunden, nicht am
   // zahlenden Konto. Es kommt mit der Kundenoption vom Server und ist deshalb

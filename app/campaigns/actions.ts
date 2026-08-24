@@ -26,6 +26,15 @@ export async function refreshCampaignsAction(): Promise<void> {
   updateTag("campaigns");
 }
 
+/**
+ * Wirft die gecachte Portfolio-Kopie weg (listAssets, 5 Minuten). Der Wizard
+ * ruft das beim Nachlesen der Lead-Bedingungen auf: ohne den Tag-Wurf
+ * antwortete router.refresh() bis zu 5 Minuten mit demselben alten Stand.
+ */
+export async function refreshAssetsAction(): Promise<void> {
+  updateTag("assets");
+}
+
 export async function setStatusAction(
   id: string,
   status: "ACTIVE" | "PAUSED",
