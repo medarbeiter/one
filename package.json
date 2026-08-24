@@ -28,14 +28,14 @@
   "devDependencies": {
     "@astryxdesign/cli": "0.2.0",
     "@tailwindcss/postcss": "^4",
-    "@types/bun": "^1.3.14",
+    "@types/bun": "^1.4.0",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "tailwindcss": "^4",
     "typescript": "^5"
   },
-  "packageManager": "bun@1.3.14",
+  "packageManager": "bun@1.4.0",
   "ignoreScripts": [
     "sharp",
     "unrs-resolver"
