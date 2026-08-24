@@ -25,6 +25,9 @@ ENV NODE_ENV=production \
 COPY --from=build --chown=bun:bun /app/.next/standalone ./
 COPY --from=build --chown=bun:bun /app/.next/static ./.next/static
 
+RUN mkdir -p /data && chown bun:bun /data
+VOLUME /data
+
 USER bun
 EXPOSE 3000
 
