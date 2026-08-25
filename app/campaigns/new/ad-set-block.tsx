@@ -234,15 +234,23 @@ function TextListField({
                 />
               </div>
               {pending?.[i] ? (
-                // In Feldhöhe (rows={4} ≈ 7 rem), damit beim Eintreffen des
-                // Textes nichts springt.
+                // Skeleton misst sich über width/height-Props (StyleX-Vars),
+                // nicht über Tailwind-Klassen – h-4 verlor gegen das
+                // eingebaute height:100% und der Kasten fiel auf 0 zusammen.
+                // index staffelt die Welle über die Slots.
                 <div
-                  className="border-line space-y-2 rounded-xl border p-3"
+                  className="ki-schimmer space-y-2"
                   aria-label={`${singular} ${i + 1} wird generiert…`}
                 >
-                  <Skeleton className="h-4 w-full rounded" />
-                  <Skeleton className="h-4 w-5/6 rounded" />
-                  <Skeleton className="h-4 w-2/3 rounded" />
+                  {multiline ? (
+                    <>
+                      <Skeleton height={14} width="100%" radius={1} index={i * 3} />
+                      <Skeleton height={14} width="83%" radius={1} index={i * 3 + 1} />
+                      <Skeleton height={14} width="62%" radius={1} index={i * 3 + 2} />
+                    </>
+                  ) : (
+                    <Skeleton height={14} width="70%" radius={1} index={i} />
+                  )}
                 </div>
               ) : multiline ? (
                 // Vier Zeilen, nicht fünf: erst damit passen die üblichen fünf
@@ -963,16 +971,12 @@ export function AdSetBlock({
               <Text type="label" as="div">
                 Beschreibung
               </Text>
-              {/* In Feldhöhe (rows={6}), damit beim Eintreffen nichts springt. */}
-              <div
-                className="border-line space-y-2 rounded-xl border p-3"
-                aria-label="Beschreibung wird generiert…"
-              >
-                <Skeleton className="h-4 w-2/5 rounded" />
-                <Skeleton className="h-4 w-3/5 rounded" />
-                <Skeleton className="h-4 w-1/2 rounded" />
-                <Skeleton className="h-4 w-3/5 rounded" />
-                <Skeleton className="h-4 w-4/5 rounded" />
+              {/* In Feldhöhe (rows={6}), damit beim Eintreffen nichts springt.
+                  width/height als Props, nicht als Klassen – siehe TextListField. */}
+              <div className="ki-schimmer space-y-2" aria-label="Beschreibung wird generiert…">
+                {["40%", "60%", "50%", "60%", "80%"].map((w, i) => (
+                  <Skeleton key={i} height={14} width={w} radius={1} index={i} />
+                ))}
               </div>
             </div>
           ) : (

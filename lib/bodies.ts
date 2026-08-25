@@ -252,9 +252,22 @@ export function parseTitles(content: string): string[] {
   const titles = Array.isArray(data) ? data : (data as { titel?: unknown }).titel;
   if (!Array.isArray(titles) || !titles.every((t) => typeof t === "string") || titles.length === 0)
     throw new Error("Mistral hat keine Überschriftenliste geliefert.");
-  const out = titles.map((t) => t.trim()).filter((t) => t && t.length <= 40);
-  if (!out.length) throw new Error("Alle Vorschläge waren zu lang für Metas Kürzung.");
-  return out.slice(0, TITLE_COUNT);
+  // Der Prompt verlangt mehr Kandidaten als Slots, und die 40 Zeichen sind
+  // eine Vorliebe, keine Grenze: Meta kürzt nur die Anzeige, und laut
+  // lib/copy.ts ist eine lange Überschrift neben kurzen der Normalfall. Das
+  // Modell zählt Zeichen notorisch schlecht – ein harter Schnitt bei 40 ließ
+  // deshalb Felder leer. Also: erst alles Kurze, dann die kürzesten der etwas
+  // längeren; nur klar Aufgeblähtes (über 60) fliegt ganz raus.
+  const clean: string[] = [];
+  for (const raw of titles) {
+    const t = raw.trim();
+    if (!t || t.length > 60 || clean.some((o) => o.toLowerCase() === t.toLowerCase())) continue;
+    clean.push(t);
+  }
+  if (!clean.length) throw new Error("Alle Vorschläge waren zu lang für Metas Kürzung.");
+  const short = clean.filter((t) => t.length <= 40);
+  const longer = clean.filter((t) => t.length > 40).sort((a, b) => a.length - b.length);
+  return [...short, ...longer].slice(0, TITLE_COUNT);
 }
 
 /**
@@ -273,13 +286,15 @@ function titlesPrompt(input: BodiesInput): string {
 
   return `Du schreibst Überschriften für Meta-Stellenanzeigen (Facebook/Instagram) in der Pflege.
 
-Schreibe genau ${TITLE_COUNT} deutsche Überschriften für die folgende Kampagne. Meta rotiert alle fünf in einer Anzeige – sie müssen fünf verschiedene Winkel abdecken, keine zwei dürfen sich ähneln.
+Schreibe 8 deutsche Überschriften für die folgende Kampagne – verwendet werden die besten fünf, Meta rotiert sie in einer Anzeige. Sie müssen verschiedene Winkel abdecken, keine zwei dürfen sich ähneln.
 
-Regeln:
+Die wichtigste Regel: Jede Überschrift muss FÜR SICH ALLEIN sagen, dass hier ein Job angeboten wird und in welchem Feld – über die Rolle („Pflegefachkraft (m/w/d) gesucht“), das Feld („Dein neuer Job in der Pflege“) oder den Arbeitgeber als Suchenden („{Arbeitgeber} sucht dich“). Ein Benefit oder Ort allein sagt nichts: „{Benefit} in {Ort}“ könnte alles bewerben und ist verboten. Benefits nur mit Job-Kontext im selben Satz („{Benefit} als Pflegefachkraft“) – und nur Benefits, die wörtlich in den Kampagnenfakten stehen, keine Zahlen oder Leistungen von anderswo.
+
+Weitere Regeln:
 - Höchstens 40 Zeichen je Überschrift (danach kürzt Meta), mindestens zwei deutlich kürzer (15–25 Zeichen).
-- Bei mehreren gesuchten Rollen: NIE alle in einer Überschrift aufzählen – das wird zu lang. Nimm je Überschrift eine einzelne Rolle oder einen Sammelbegriff wie „Pflege-Jobs“; über die fünf verteilt dürfen verschiedene Rollen vorkommen.
+- Bei mehreren gesuchten Rollen: NIE alle in einer Überschrift aufzählen – das wird zu lang. Nimm je Überschrift eine einzelne Rolle oder einen Sammelbegriff wie „Pflege-Jobs“; über die Überschriften verteilt dürfen verschiedene Rollen vorkommen.
 - Steht eine Rolle in der Überschrift, dann mit „(m/w/d)“ – außer es sprengt die 40 Zeichen.
-- Mische die Winkel: Rolle (+ Ort, wenn er kurz ist), Arbeitgebername (nur wenn kurz), der stärkste Benefit als Aufmacher (z. B. eine Gehaltszahl), Frage oder Aufforderung.
+- Mische die Winkel: Rolle (+ Ort, wenn er kurz ist), Arbeitgeber sucht, Frage oder Aufforderung, Benefit mit Job-Kontext.
 - Duze. Keine erfundenen Fakten – nur genannte Rollen, Ort und Benefits. Keine Emojis.
 
 KAMPAGNENFAKTEN:

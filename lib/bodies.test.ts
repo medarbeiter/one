@@ -6,11 +6,13 @@ test("parseTitles liest die Liste, wirft zu Lange weg und kappt bei fünf", () =
     "Kurz",
     "Pflege-Jobs (m/w/d)",
   ]);
-  const long = "x".repeat(41);
-  expect(parseTitles(JSON.stringify({ titel: [long, "Ok"] }))).toEqual(["Ok"]);
-  expect(() => parseTitles(JSON.stringify({ titel: [long] }))).toThrow("zu lang");
+  // 41–60 Zeichen füllen nur Restplätze (kurze zuerst), über 60 fliegt raus.
+  const longish = "x".repeat(45);
+  expect(parseTitles(JSON.stringify({ titel: [longish, "Ok"] }))).toEqual(["Ok", longish]);
+  expect(() => parseTitles(JSON.stringify({ titel: ["x".repeat(61)] }))).toThrow("zu lang");
   const seven = Array.from({ length: 7 }, (_, i) => `Titel ${i}`);
   expect(parseTitles(JSON.stringify({ titel: seven }))).toHaveLength(5);
+  expect(parseTitles('{"titel": ["Gleich", "gleich", "Anders"]}')).toEqual(["Gleich", "Anders"]);
   expect(() => parseTitles("kein json")).toThrow("kein lesbares JSON");
   expect(() => parseTitles('{"titel": []}')).toThrow("keine Überschriftenliste");
 });

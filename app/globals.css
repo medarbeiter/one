@@ -72,6 +72,36 @@
   border-block-end: 1px solid var(--color-border);
 }
 
+/* Der KI-Schimmer: der Rahmen um die Skelette, während Mistral schreibt.
+ * Dieselbe Goldwäsche wie das Kopfband – Atmosphäre, keine Bedeutung, also
+ * ohne Kontrastpflicht. Der Verlauf wandert langsam durch den Kasten; wer
+ * Bewegung abbestellt hat, bekommt die Wäsche stehend. */
+.ki-schimmer {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-container);
+  padding: 0.75rem;
+  background:
+    linear-gradient(
+      100deg,
+      transparent 25%,
+      var(--color-accent-muted) 50%,
+      transparent 75%
+    )
+    var(--color-background-body);
+  background-size: 300% 100%;
+  animation: ki-schimmer 2.4s ease-in-out infinite;
+}
+@keyframes ki-schimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ki-schimmer {
+    animation: none;
+    background: var(--color-accent-muted);
+  }
+}
+
 /* Das Blatt. Jedes Band ist vollflächig, damit die Goldwäsche des Kopfes und
  * die Trennlinien der Zeilen die Fensterkanten erreichen — der Inhalt darin
  * ist aber gedeckelt: über einen 1900px-Schirm gezogen hört eine dichte
