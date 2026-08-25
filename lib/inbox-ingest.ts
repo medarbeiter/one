@@ -12,6 +12,16 @@ import { normalize, type RawComment, type RawConversation, type RawFrom, type Ra
 import { insertMessage, upsertThread, type Message } from "./inbox-store";
 import { Database } from "bun:sqlite";
 
+/**
+ * Workaround: der Posteingang erzeugt keinerlei Graph-Verkehr mehr – kein
+ * Abgleich (app/layout.tsx), kein Nachladen bei Webhook-Ereignissen
+ * (app/api/webhooks/meta), kein Abonnieren (webhook-subscribe.ts). /inbox
+ * zeigt weiter den SQLite-Bestand; Kampagnen-Seiten sind nicht betroffen.
+ * Zum Wiedereinschalten auf false setzen. Geprüft wird an den Einstiegen,
+ * nicht hier in den Funktionen – so bleiben sie testbar.
+ */
+export const INBOX_FETCH_PAUSED = true;
+
 const DAYS_90 = 90 * 24 * 60 * 60 * 1000;
 export const reconcileWindow = (now = Date.now()) => new Date(now - DAYS_90).toISOString();
 

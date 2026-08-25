@@ -6,6 +6,7 @@
  * bekommt ihr Abonnement, ohne dass jemand eine Einstellungsseite besucht.
  */
 import { graph, GraphError } from "./graph";
+import { INBOX_FETCH_PAUSED } from "./inbox-ingest";
 
 /**
  * Der Rückweg, den Meta anrufen soll. Ohne ihn passiert hier nichts: lokal
@@ -79,6 +80,7 @@ export async function ensureWebhookSubscribed(
 let geprueft = false;
 
 export async function ensureWebhooksOnce(pages: { id: string; name: string }[]): Promise<void> {
+  if (INBOX_FETCH_PAUSED) return; // Workaround, siehe inbox-ingest.ts
   if (geprueft) return;
   geprueft = true;
   try {

@@ -11,7 +11,7 @@ import { AppShell } from "@astryxdesign/core";
 import "./globals.css";
 import brandIcon from "@/assets/logo-square.png";
 import { ensureAssigned } from "@/lib/assign";
-import { reconcile } from "@/lib/inbox-ingest";
+import { INBOX_FETCH_PAUSED, reconcile } from "@/lib/inbox-ingest";
 import { countUnanswered, openDb } from "@/lib/inbox-store";
 import { listCustomers } from "@/lib/customers";
 import { openSession, SESSION_COOKIE, sessionSecret } from "@/lib/session";
@@ -80,6 +80,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   // bei einem entfernten Dienst; ein doppelter Lauf schreibt nur dieselben
   // Zeilen erneut.
   after(async () => {
+    if (INBOX_FETCH_PAUSED) return;
     if (process.env.NEXT_PHASE === "phase-production-build") return;
     try {
       const { failed } = await reconcile(openDb(), customers);

@@ -3,7 +3,7 @@
  * (README), POST liefert jede Änderung, sobald sie passiert.
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { ingestWebhookEntry, type WebhookEntry } from "@/lib/inbox-ingest";
+import { INBOX_FETCH_PAUSED, ingestWebhookEntry, type WebhookEntry } from "@/lib/inbox-ingest";
 import { openDb } from "@/lib/inbox-store";
 import { listCustomers } from "@/lib/customers";
 
@@ -29,6 +29,10 @@ export async function POST(request: Request): Promise<Response> {
   const body = await request.text();
   if (!validSignature(body, request.headers.get("x-hub-signature-256")))
     return new Response("Forbidden", { status: 403 });
+
+  // Workaround (siehe inbox-ingest.ts): trotzdem 200, sonst drosselt Meta die
+  // Zustellung und straft den Wiedereinstieg.
+  if (INBOX_FETCH_PAUSED) return new Response("OK", { status: 200 });
 
   const payload = JSON.parse(body) as { entry?: WebhookEntry[] };
   const db = openDb();
