@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import {
   Badge,
   Banner,
@@ -402,6 +402,15 @@ function WizardSteps({
   // needsLeadgenTos ist der einzige Blocker aus Server-Daten; alle anderen sind
   // lokaler Formularzustand, an dem Nachlesen nichts ändert.
   const router = useRouter();
+  // Ein Kunde entsteht im Business Manager (Seite dem System User zuweisen),
+  // nicht hier. Der Knopf holt danach nur die Liste: ohne den Tag-Wurf hielte
+  // der Portfolio-Cache die neue Seite bis zu 5 Minuten zurück.
+  const [reloading, startReload] = useTransition();
+  const reloadClients = () =>
+    startReload(async () => {
+      await refreshAssetsAction();
+      router.refresh();
+    });
   const needsTos = client?.needsLeadgenTos ?? false;
   useEffect(() => {
     if (!needsTos) return;
@@ -678,13 +687,14 @@ function WizardSteps({
                   className="min-w-0 flex-1"
                 />
 
-                {/* Absichtlich noch ohne Aktion: der Einstieg ist sichtbar, ohne
-                    eine Kundenanlage vorzutäuschen, die es im Backend nicht gibt. */}
                 <Button
                   isIconOnly
                   variant="secondary"
-                  label="Kunde hinzufügen"
+                  label="Neuen Kunden nachladen"
+                  tooltip="Seite im Business Manager dem System User zuweisen, dann hier nachladen."
                   icon={<UserPlusIcon aria-hidden size={20} weight="bold" />}
+                  isLoading={reloading}
+                  onClick={reloadClients}
                 />
               </div>
 
