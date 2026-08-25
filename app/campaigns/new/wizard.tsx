@@ -327,28 +327,6 @@ function WizardSteps({
   // den Index: wird ein Standort davor entfernt, zeigte ein Index still auf
   // einen anderen. Fehlt die id, gilt der erste Standort.
   const [previewSetId, setPreviewSetId] = useState<string>();
-  // Der Weg von den Überschriften zu den Rollen. Die beiden hängen zusammen –
-  // ohne Rolle hat der Generator nur die neutralen Vorlagen – stehen aber einen
-  // Schritt auseinander. Der Sprung nimmt den Schrittwechsel und das Suchen im
-  // langen Formular in einem Klick ab.
-  const rolesRef = useRef<HTMLDivElement>(null);
-  const [rolesWanted, setRolesWanted] = useState(false);
-  const goToRoles = () => {
-    setStep("2");
-    setRolesWanted(true);
-  };
-  // Erst nach dem Rendern des Schritts – vorher gibt es das Fieldset nicht.
-  useEffect(() => {
-    if (!rolesWanted || step !== "2") return;
-    setRolesWanted(false);
-    rolesRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
-    // Fokus zusätzlich zum Scrollen: wer per Tastatur kommt, sieht das Scrollen
-    // nicht als Antwort auf seinen Tastendruck.
-    // Der Auslöser der Rollenauswahl ist seit dem MultiSelector ein
-    // role="combobox"-Knopf und kein Kästchen-<input> mehr; die Liste steht
-    // erst nach dem Aufklappen im DOM.
-    rolesRef.current?.querySelector<HTMLElement>("button, input")?.focus();
-  }, [rolesWanted, step]);
   const { result, progress, pending, run } = useLaunch();
   // Für den Retry-Pfad im Receipt-Panel: das genaue Objekt, das gesendet wurde,
   // nicht der aktuelle (evtl. inzwischen weiterbearbeitete) Wizard-State.
@@ -844,7 +822,6 @@ function WizardSteps({
                         .filter((other) => other.id !== set.id)
                         .map(({ id, name, ads }) => ({ id, name, ads }))}
                       borrowersOfAd={(adId) => borrowersOf(state.adSets, set.id, adId)}
-                      onEditRoles={goToRoles}
                       onChange={(patch) => updateAdSet(i, patch)}
                       onRemove={() => removeAdSet(i)}
                       canRemove={state.adSets.length > 1}
@@ -971,9 +948,7 @@ function WizardSteps({
             {/* Eigener Abschnitt statt einer Zeile Kleingedrucktem über den
                 Kästchen: die Rollen sind eine Frage für sich, auch wenn ihre
                 Antwort im Namen landet. */}
-            {/* Der Rahmen trägt nur den ref: hierher springt „Rollen wählen“
-                aus dem Überschriften-Generator einen Schritt weiter vorn. */}
-            <div ref={rolesRef} className="scroll-mt-24">
+            <div className="scroll-mt-24">
               <FieldsetSection
                 legend="Gesuchte Rollen"
                 groupClassName="grid max-w-3xl gap-4 sm:grid-cols-2"

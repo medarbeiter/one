@@ -7,11 +7,11 @@ import {
   createStaticSource,
   Divider,
   DropdownMenu,
+  Skeleton,
   Text,
   TextArea,
   TextInput,
   Toolbar,
-  Tooltip,
   Typeahead,
   type SearchableItem,
 } from "@astryxdesign/core";
@@ -19,10 +19,8 @@ import { PlusIcon, SparkleIcon, XIcon } from "@phosphor-icons/react";
 import type { LeadForm } from "@/lib/forms";
 import { instantFormsUrl } from "@/lib/forms";
 import { nextCreativeName } from "@/lib/media";
-import { fillTitles, freeTitleSlots, roleWord } from "@/lib/headlines";
-import { HeadlineDialog } from "./headline-dialog";
-import { BodyDialog } from "./body-dialog";
-import { DescriptionDialog } from "./description-dialog";
+import { BenefitsDialog } from "./benefits-dialog";
+import { BODY_TEMPLATE_COUNT, TITLE_COUNT } from "@/lib/bodies";
 import { plural } from "@/lib/labels";
 import { LocationField } from "./location-field";
 import { checkCopy, type CopyField, type Notice } from "@/lib/copy";
@@ -39,7 +37,13 @@ import {
   type WizardAsset,
   type WizardImageAsset,
 } from "./state";
-import { listFormsAction, pullFormAction } from "../actions";
+import {
+  generateBodyAction,
+  generateDescriptionAction,
+  generateTitlesAction,
+  listFormsAction,
+  pullFormAction,
+} from "../actions";
 
 const BODY_LIMIT = 4399;
 const TITLE_LIMIT = 255;
@@ -131,72 +135,6 @@ function CopyNotices({ notices, field }: { notices: Notice[]; field: CopyField }
 }
 
 /**
- * Der Knopf über den Überschriften – grau, solange keine Rolle feststeht.
- *
- * Ohne Rolle bleiben von den Vorschlägen nur die neutralen Zeilen übrig (siehe
- * lib/headlines.ts): „Wir suchen dich“, für jede Kampagne dieselben. Das fällt
- * erst auf, wenn der Dialog schon offen ist und zwanzig austauschbare Zeilen
- * zeigt – also gar nicht erst anbieten.
- *
- * Ein grauer Knopf sagt allerdings nur, dass hier nichts geht, nicht warum. Die
- * Rollen stehen einen Schritt weiter hinten, also genau dort, wo sie hier
- * niemand vermutet: deshalb der Tooltip, und darin der Weg dorthin statt nur
- * der Ortsangabe. Astryx' Tooltip bringt dafür eine eigene Hover-Brücke mit
- * (kein React Aria mehr darunter) — der Zeiger darf vom Rahmen zum Knopf im
- * Tooltip wandern, ohne dass der Tooltip vorher schließt.
- */
-function GenerateTitlesButton({
-  hasRole,
-  onGenerate,
-  onEditRoles,
-}: {
-  hasRole: boolean;
-  onGenerate: () => void;
-  onEditRoles: () => void;
-}) {
-  if (hasRole)
-    return (
-      <Button
-        variant="secondary"
-        size="sm"
-        icon={<SparkleIcon size={14} weight="bold" />}
-        label="Überschriften generieren"
-        onClick={onGenerate}
-      />
-    );
-  return (
-    <Tooltip
-      placement="above"
-      content={
-        <div className="flex max-w-64 flex-col items-center gap-2 text-center break-normal">
-          <p>
-            Ohne gesuchte Rolle bleiben nur allgemeine Vorschläge — „Pflegefachkraft (m/w/d)
-            gesucht“ braucht die Rolle aus Schritt 3.
-          </p>
-          <Button variant="ghost" size="sm" label="Rollen wählen" onClick={onEditRoles} />
-        </div>
-      }
-    >
-      {/* Der Tooltip hängt am Rahmen, nicht am Knopf: ein <button disabled>
-          verschluckt Hover und Fokus, der Hinweis bliebe genau dann aus, wenn
-          er gebraucht wird. Ein span mit tabIndex={0} trägt Hover und Fokus
-          stattdessen; pointer-events-none am Knopf gibt die Fläche an den
-          Rahmen weiter – sonst greift der Hover nur auf dem Haarrand daneben. */}
-      <span tabIndex={0} className="inline-flex rounded-xl">
-        <Button
-          variant="secondary"
-          size="sm"
-          isDisabled
-          className="pointer-events-none"
-          icon={<SparkleIcon size={14} weight="bold" />}
-          label="Überschriften generieren"
-        />
-      </span>
-    </Tooltip>
-  );
-}
-
-/**
  * Fünf Primärtexte und fünf Überschriften sind hier der Normalfall, nicht die
  * Ausnahme. Untereinander gestellt waren das zehn volle Feldbreiten in einer
  * Spalte: man scrollt an ihnen entlang und kann nie zwei davon nebeneinander
@@ -215,6 +153,7 @@ function TextListField({
   limit,
   multiline,
   action,
+  pending,
   onChange,
 }: {
   label: string;
@@ -225,8 +164,13 @@ function TextListField({
   multiline?: boolean;
   /** Was diese Liste außer „hinzufügen“ noch kann – bei den Überschriften das Generieren. */
   action?: ReactNode;
+  /** Je Slot: läuft dort gerade eine Generierung? Dann Skelett statt Feld –
+   *  und kein Hinzufügen/Entfernen, solange irgendwo eins läuft, sonst
+   *  schrieben die per Index eintreffenden Antworten in den falschen Slot. */
+  pending?: boolean[];
   onChange: (values: string[]) => void;
 }) {
+  const anyPending = pending?.some(Boolean) ?? false;
   const update = (i: number, v: string) =>
     onChange(values.map((val, idx) => (idx === i ? v : val)));
   const add = () => onChange([...values, ""]);
@@ -249,7 +193,7 @@ function TextListField({
             icon={<PlusIcon size={14} weight="bold" />}
             label={`${singular} hinzufügen`}
             onClick={add}
-            isDisabled={values.length >= MAX_ITEMS}
+            isDisabled={values.length >= MAX_ITEMS || anyPending}
           />
         </div>
       </div>
@@ -286,10 +230,21 @@ function TextListField({
                   icon={<XIcon size={14} weight="bold" />}
                   label={`${singular} ${i + 1} entfernen`}
                   onClick={() => remove(i)}
-                  isDisabled={values.length === 1}
+                  isDisabled={values.length === 1 || anyPending}
                 />
               </div>
-              {multiline ? (
+              {pending?.[i] ? (
+                // In Feldhöhe (rows={4} ≈ 7 rem), damit beim Eintreffen des
+                // Textes nichts springt.
+                <div
+                  className="border-line space-y-2 rounded-xl border p-3"
+                  aria-label={`${singular} ${i + 1} wird generiert…`}
+                >
+                  <Skeleton className="h-4 w-full rounded" />
+                  <Skeleton className="h-4 w-5/6 rounded" />
+                  <Skeleton className="h-4 w-2/3 rounded" />
+                </div>
+              ) : multiline ? (
                 // Vier Zeilen, nicht fünf: erst damit passen die üblichen fünf
                 // Primärtexte in zwei Spalten ohne Scrollen ins Feld. TextArea
                 // zeigt den Zeichenzähler eingebaut über maxLength an — und
@@ -361,7 +316,6 @@ export function AdSetBlock({
   blockers,
   otherAdSets,
   borrowersOfAd,
-  onEditRoles,
   onChange,
   onRemove,
   canRemove,
@@ -375,9 +329,9 @@ export function AdSetBlock({
   /** Der beworbene Kunde – für die Namensregel in lib/copy.ts. */
   business: string;
   /**
-   * Die gesuchten Rollen aus Schritt 3 – sie stehen in den Überschriftenvorschlägen.
+   * Die gesuchten Rollen aus Schritt 3 – sie stehen in den generierten Texten.
    * Seit Anzeigen vor Details liegen, sind sie hier meist noch leer; der
-   * Generator kommt damit zurecht und schlägt dann allgemeiner vor.
+   * Generator kommt damit zurecht und schreibt dann allgemeiner.
    */
   roles: string[];
   roleFreeText?: string;
@@ -386,8 +340,6 @@ export function AdSetBlock({
   /** Andere Anzeigengruppen dieser Kampagne, aus denen geliehen werden kann. */
   otherAdSets: { id: string; name: string; ads: WizardAd[] }[];
   borrowersOfAd: (adId: string) => string[];
-  /** Springt zur Rollenauswahl in Schritt 3 – siehe GenerateTitlesButton. */
-  onEditRoles: () => void;
   /** Als Funktion, wenn der Patch auf dem aktuellen Stand aufbauen muss – siehe addAssets. */
   onChange: (patch: Partial<WizardAdSet> | ((set: WizardAdSet) => Partial<WizardAdSet>)) => void;
   onRemove: () => void;
@@ -398,12 +350,87 @@ export function AdSetBlock({
   const [formsLoading, setFormsLoading] = useState(false);
   const [formIdInput, setFormIdInput] = useState("");
   const [pulling, setPulling] = useState(false);
-  const [generating, setGenerating] = useState(false);
-  const [generatingBodies, setGeneratingBodies] = useState(false);
-  const [generatingDescription, setGeneratingDescription] = useState(false);
+  const [bodiesDialog, setBodiesDialog] = useState(false);
+  const [titlesDialog, setTitlesDialog] = useState(false);
+  const [descriptionDialog, setDescriptionDialog] = useState(false);
   // Ein Eingabefeld für drei Dialoge: Benefits stehen in keiner API, aber in
   // Primärtexten, Überschriften und Beschreibung – einmal eintippen reicht.
   const [benefits, setBenefits] = useState("");
+  // Generiert wird in den Formularfeldern selbst, nicht im Dialog: der
+  // schließt beim Klick, und hier steht, welcher Slot noch auf seine Antwort
+  // wartet (Skelett) und was schiefging.
+  const [pendingBodies, setPendingBodies] = useState<boolean[]>([]);
+  const [pendingTitles, setPendingTitles] = useState<boolean[]>([]);
+  const [pendingDescription, setPendingDescription] = useState(false);
+  const [genErrors, setGenErrors] = useState<string[]>([]);
+  // „Generieren“ mitten im Lauf: Antworten des alten Laufs dürfen weder
+  // Felder noch frische Skelette füllen. Zwei Zähler, denn eine gestartete
+  // Beschreibung darf einen laufenden Primärtexte-Lauf nicht entwerten.
+  const bodiesRun = useRef(0);
+  const titlesRun = useRef(0);
+  const descriptionRun = useRef(0);
+
+  // Ein Aufruf für alle fünf: Überschriften sind kurz, und ob „Pflege-Jobs in
+  // Dresden“ neben „Pflegefachkraft (m/w/d) gesucht“ stehen darf, weiß nur,
+  // wer beide sieht – fünf Einzelaufrufe schrieben fünfmal fast dasselbe.
+  const generateTitles = async () => {
+    const myRun = ++titlesRun.current;
+    setGenErrors([]);
+    setPendingTitles(Array(TITLE_COUNT).fill(true));
+    onChange({ titles: Array(TITLE_COUNT).fill("") });
+    const res = await generateTitlesAction({
+      business,
+      roles,
+      roleFreeText,
+      place: value.place?.name ?? value.addressString,
+      benefits,
+    });
+    if (titlesRun.current !== myRun) return;
+    if (res.titles.length)
+      onChange((set) => ({
+        titles: set.titles.map((t, i) => res.titles[i] ?? t),
+      }));
+    if (res.error) setGenErrors((e) => [...e, `Überschriften: ${res.error}`]);
+    setPendingTitles([]);
+  };
+
+  const generateBodies = async () => {
+    const myRun = ++bodiesRun.current;
+    setGenErrors([]);
+    setPendingBodies(Array(BODY_TEMPLATE_COUNT).fill(true));
+    // Alle fünf Slots leeren – die Antworten ersetzen ohnehin alles, und ein
+    // alter Text unter einem Skelett sähe aus wie ein Ergebnis.
+    onChange({ bodies: Array(BODY_TEMPLATE_COUNT).fill("") });
+    const input = { business, roles, roleFreeText, place: value.place?.name ?? value.addressString, benefits };
+    await Promise.all(
+      Array.from({ length: BODY_TEMPLATE_COUNT }, async (_, i) => {
+        const res = await generateBodyAction(input, i);
+        if (bodiesRun.current !== myRun) return;
+        if (res.body) {
+          const body = res.body;
+          onChange((set) => ({ bodies: set.bodies.map((b, j) => (j === i ? body : b)) }));
+        }
+        if (res.error) setGenErrors((e) => [...e, `Primärtext ${i + 1}: ${res.error}`]);
+        setPendingBodies((p) => p.map((v, j) => (j === i ? false : v)));
+      }),
+    );
+  };
+
+  const generateDescription = async () => {
+    const myRun = ++descriptionRun.current;
+    setPendingDescription(true);
+    const res = await generateDescriptionAction({
+      business,
+      roles,
+      roleFreeText,
+      place: value.place?.name ?? value.addressString,
+      benefits,
+    });
+    if (descriptionRun.current !== myRun) return;
+    if (res.description) onChange({ description: res.description });
+    if (res.error) setGenErrors((e) => [...e, `Beschreibung: ${res.error}`]);
+    setPendingDescription(false);
+  };
   const uploads = useUploads(value.id);
 
   // refresh=true nur beim Klick: der Cache soll beim Aufklappen weiter greifen,
@@ -855,29 +882,36 @@ export function AdSetBlock({
             values={value.bodies}
             limit={BODY_LIMIT}
             multiline
+            pending={pendingBodies}
             action={
               <Button
                 variant="secondary"
                 size="sm"
                 icon={<SparkleIcon size={14} weight="bold" />}
                 label="Primärtexte generieren"
-                onClick={() => setGeneratingBodies(true)}
+                onClick={() => setBodiesDialog(true)}
+                isDisabled={pendingBodies.some(Boolean)}
               />
             }
             onChange={(bodies) => onChange({ bodies })}
           />
           <CopyNotices notices={notices} field="bodies" />
+          {genErrors.length > 0 && (
+            <Banner
+              status="error"
+              title="Einige Texte konnten nicht generiert werden"
+              description={genErrors.join(" · ")}
+            />
+          )}
 
-          <BodyDialog
-            isOpen={generatingBodies}
-            onOpenChange={setGeneratingBodies}
-            business={business}
-            roles={roles}
-            roleFreeText={roleFreeText}
-            place={value.place?.name ?? value.addressString}
+          <BenefitsDialog
+            isOpen={bodiesDialog}
+            onOpenChange={setBodiesDialog}
+            title="Primärtexte generieren"
+            hint="Rollen und Ort kommen aus der Kampagne. Was die App nicht weiß, sind die Benefits des Arbeitgebers – eine pro Zeile, sie stehen wörtlich in den Texten. Generieren ersetzt alle fünf Primärtexte."
             benefits={benefits}
             onBenefitsChange={setBenefits}
-            onApply={(bodies) => onChange({ bodies })}
+            onGenerate={generateBodies}
           />
 
           {/* Meta lehnt eine UGC-Anzeige ab, bei der jedes Textfeld nur einen
@@ -895,64 +929,81 @@ export function AdSetBlock({
             singular="Überschrift"
             values={value.titles}
             limit={TITLE_LIMIT}
+            pending={pendingTitles}
             action={
-              <GenerateTitlesButton
-                hasRole={Boolean(roleWord(roles, roleFreeText))}
-                onGenerate={() => setGenerating(true)}
-                onEditRoles={onEditRoles}
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<SparkleIcon size={14} weight="bold" />}
+                label="Überschriften generieren"
+                onClick={() => setTitlesDialog(true)}
+                isDisabled={pendingTitles.some(Boolean)}
               />
             }
             onChange={(titles) => onChange({ titles })}
           />
           <CopyNotices notices={notices} field="titles" />
 
-          <HeadlineDialog
-            isOpen={generating}
-            onOpenChange={setGenerating}
-            business={business}
-            roles={roles}
-            roleFreeText={roleFreeText}
-            place={value.place?.name ?? value.addressString}
+          <BenefitsDialog
+            isOpen={titlesDialog}
+            onOpenChange={setTitlesDialog}
+            title="Überschriften generieren"
+            hint="Rollen und Ort kommen aus der Kampagne, der stärkste Benefit taugt als Aufmacher. Fünf kurze Überschriften mit verschiedenen Winkeln – bei mehreren Rollen zählt keine alle auf, das überlebt Metas Kürzung bei 40 Zeichen nicht. Generieren ersetzt alle fünf."
             benefits={benefits}
-            taken={value.titles}
-            free={freeTitleSlots(value.titles, MAX_ITEMS)}
-            onApply={(picked) =>
-              onChange({ titles: fillTitles(value.titles, picked, MAX_ITEMS) })
-            }
+            onBenefitsChange={setBenefits}
+            onGenerate={generateTitles}
           />
 
           {/* Mehrzeilig wie die Primary texts: hier stehen Aufzählungen mit
               Zeilenumbrüchen ("✔ 30 Tage Urlaub …"), keine Schlagzeile. Der
               Zähler kam bei HeroUI manuell in Label — TextArea zeigt ihn über
               maxLength selbst an, der Titel bleibt also schlicht. */}
-          <TextArea
-            label="Beschreibung"
-            value={value.description}
-            onChange={(description) => onChange({ description })}
-            rows={6}
-            maxLength={DESCRIPTION_LIMIT}
-            width="100%"
-            className="max-w-2xl"
-          />
+          {pendingDescription ? (
+            <div className="w-full max-w-2xl space-y-2">
+              <Text type="label" as="div">
+                Beschreibung
+              </Text>
+              {/* In Feldhöhe (rows={6}), damit beim Eintreffen nichts springt. */}
+              <div
+                className="border-line space-y-2 rounded-xl border p-3"
+                aria-label="Beschreibung wird generiert…"
+              >
+                <Skeleton className="h-4 w-2/5 rounded" />
+                <Skeleton className="h-4 w-3/5 rounded" />
+                <Skeleton className="h-4 w-1/2 rounded" />
+                <Skeleton className="h-4 w-3/5 rounded" />
+                <Skeleton className="h-4 w-4/5 rounded" />
+              </div>
+            </div>
+          ) : (
+            <TextArea
+              label="Beschreibung"
+              value={value.description}
+              onChange={(description) => onChange({ description })}
+              rows={6}
+              maxLength={DESCRIPTION_LIMIT}
+              width="100%"
+              className="max-w-2xl"
+            />
+          )}
           <div>
             <Button
               variant="secondary"
               size="sm"
               icon={<SparkleIcon size={14} weight="bold" />}
               label="Beschreibung generieren"
-              onClick={() => setGeneratingDescription(true)}
+              onClick={() => setDescriptionDialog(true)}
+              isDisabled={pendingDescription}
             />
           </div>
-          <DescriptionDialog
-            isOpen={generatingDescription}
-            onOpenChange={setGeneratingDescription}
-            business={business}
-            roles={roles}
-            roleFreeText={roleFreeText}
-            place={value.place?.name ?? value.addressString}
+          <BenefitsDialog
+            isOpen={descriptionDialog}
+            onOpenChange={setDescriptionDialog}
+            title="Beschreibung generieren"
+            hint="Die Beschreibung ist im Kern die Benefit-Liste – eine pro Zeile, sie werden als ✅-Zeilen formatiert. Generieren ersetzt die vorhandene Beschreibung."
             benefits={benefits}
             onBenefitsChange={setBenefits}
-            onApply={(description) => onChange({ description })}
+            onGenerate={generateDescription}
           />
           <CopyNotices notices={notices} field="description" />
         </div>

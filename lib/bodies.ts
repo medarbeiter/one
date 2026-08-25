@@ -1,10 +1,8 @@
 /**
- * Primärtexte per Mistral – anders als die Überschriften (lib/headlines.ts)
- * sind das keine Einzeiler, die eine Vorlage mit zwei Ersetzungen hergibt:
- * fünf verschiedene Erzählwinkel auf denselben Arbeitgeber, mit Benefits im
- * Fließtext. Die Vorlagen unten stammen aus einer echten Kampagne (AWO Greiz);
- * das Modell füllt die Platzhalter mit den Kampagnendaten und schreibt die
- * gefüllten Beispiele auf den neuen Kunden um.
+ * Anzeigentexte per Mistral: Primärtexte, Überschriften und Beschreibung.
+ * Die Primärtext-Vorlagen unten stammen aus einer echten Kampagne (AWO
+ * Greiz); das Modell füllt die Platzhalter mit den Kampagnendaten und
+ * schreibt die gefüllten Beispiele auf den neuen Kunden um.
  *
  * Ein Aufruf je Vorlage, nicht alle fünf in einem: die Texte sind unabhängig,
  * und fünf kurze Antworten trudeln einzeln ein statt als eine lange – der
@@ -190,28 +188,44 @@ export function parseBody(content: string): string {
   return text;
 }
 
+// small statt large: large brauchte ~40 s je Text – für Anzeigentexte nach
+// fester Vorlage reicht small und antwortet in wenigen Sekunden.
+const MODEL = "mistral-small-latest";
+
 /** Ein Prompt, eine Antwort als roher Text – geteilt von Text, Überschriften
- *  und Beschreibung. */
+ *  und Beschreibung.
+ *
+ *  429 wird mit Backoff wiederholt – anders als bei Metas Stundenbudget
+ *  (lib/graph.ts) ist Mistrals Limit ein Requests-pro-Sekunde-Fenster: die
+ *  fünf parallelen Aufrufe des Dialogs reißen es kurz, Sekunden später ist
+ *  es wieder frei. */
 async function mistral(promptText: string): Promise<string> {
   const key = process.env.MISTRAL_API_KEY;
   if (!key) throw new Error("MISTRAL_API_KEY fehlt in der Umgebung (.env.local).");
 
-  const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
-    body: JSON.stringify({
-      model: "mistral-large-latest",
-      temperature: 0.7,
-      messages: [{ role: "user", content: promptText }],
-    }),
-  });
-  if (!res.ok)
-    throw new Error(`Mistral antwortet mit ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        model: MODEL,
+        temperature: 0.7,
+        messages: [{ role: "user", content: promptText }],
+      }),
+    });
+    if (res.status === 429 && attempt < 4) {
+      const retryAfter = Number(res.headers.get("retry-after"));
+      await new Promise((r) => setTimeout(r, retryAfter > 0 ? retryAfter * 1000 : 1000 * 2 ** attempt));
+      continue;
+    }
+    if (!res.ok)
+      throw new Error(`Mistral antwortet mit ${res.status}: ${(await res.text()).slice(0, 300)}`);
 
-  const data = (await res.json()) as { choices?: { message?: { content?: unknown } }[] };
-  const content = data.choices?.[0]?.message?.content;
-  if (typeof content !== "string") throw new Error("Mistral hat keinen Text geliefert.");
-  return content;
+    const data = (await res.json()) as { choices?: { message?: { content?: unknown } }[] };
+    const content = data.choices?.[0]?.message?.content;
+    if (typeof content !== "string") throw new Error("Mistral hat keinen Text geliefert.");
+    return content;
+  }
 }
 
 /** Ein Primärtext nach einer der fünf Vorlagen (Index 0–4). */
@@ -220,14 +234,13 @@ export async function generateBody(input: BodiesInput, template: number): Promis
   return parseBody(await mistral(prompt(input, template)));
 }
 
-/** So viele KI-Überschriften stehen im Dialog. */
-export const TITLE_SUGGESTIONS = 10;
+/** So viele Überschriften rotiert Meta – ein Aufruf füllt alle fünf Felder. */
+export const TITLE_COUNT = 5;
 
 /**
  * Antwort robust lesen: JSON-Objekt mit "titel", zur Not mit Markdown-Zaun
- * drumherum. Zu Langes fällt weg statt gekürzt zu werden – dieselbe Antwort
- * wie in lib/headlines.ts: was Metas Kürzung nicht überlebt, wird gar nicht
- * erst angeboten.
+ * drumherum. Zu Langes fällt weg statt gekürzt zu werden – was Metas Kürzung
+ * nicht überlebt, kommt gar nicht erst ins Feld.
  */
 export function parseTitles(content: string): string[] {
   let data: unknown;
@@ -241,7 +254,7 @@ export function parseTitles(content: string): string[] {
     throw new Error("Mistral hat keine Überschriftenliste geliefert.");
   const out = titles.map((t) => t.trim()).filter((t) => t && t.length <= 40);
   if (!out.length) throw new Error("Alle Vorschläge waren zu lang für Metas Kürzung.");
-  return out.slice(0, TITLE_SUGGESTIONS);
+  return out.slice(0, TITLE_COUNT);
 }
 
 /**
@@ -260,11 +273,11 @@ function titlesPrompt(input: BodiesInput): string {
 
   return `Du schreibst Überschriften für Meta-Stellenanzeigen (Facebook/Instagram) in der Pflege.
 
-Schreibe ${TITLE_SUGGESTIONS} deutsche Überschriften für die folgende Kampagne.
+Schreibe genau ${TITLE_COUNT} deutsche Überschriften für die folgende Kampagne. Meta rotiert alle fünf in einer Anzeige – sie müssen fünf verschiedene Winkel abdecken, keine zwei dürfen sich ähneln.
 
 Regeln:
-- Höchstens 40 Zeichen je Überschrift (danach kürzt Meta), mindestens die Hälfte deutlich kürzer (15–25 Zeichen).
-- Bei mehreren gesuchten Rollen: NIE alle aufzählen – das wird zu lang. Nimm je Überschrift eine einzelne Rolle oder einen Sammelbegriff wie „Pflege-Jobs“.
+- Höchstens 40 Zeichen je Überschrift (danach kürzt Meta), mindestens zwei deutlich kürzer (15–25 Zeichen).
+- Bei mehreren gesuchten Rollen: NIE alle in einer Überschrift aufzählen – das wird zu lang. Nimm je Überschrift eine einzelne Rolle oder einen Sammelbegriff wie „Pflege-Jobs“; über die fünf verteilt dürfen verschiedene Rollen vorkommen.
 - Steht eine Rolle in der Überschrift, dann mit „(m/w/d)“ – außer es sprengt die 40 Zeichen.
 - Mische die Winkel: Rolle (+ Ort, wenn er kurz ist), Arbeitgebername (nur wenn kurz), der stärkste Benefit als Aufmacher (z. B. eine Gehaltszahl), Frage oder Aufforderung.
 - Duze. Keine erfundenen Fakten – nur genannte Rollen, Ort und Benefits. Keine Emojis.
@@ -275,7 +288,7 @@ ${fakten}
 Antworte ausschließlich mit JSON: {"titel": ["…", "…"]}`;
 }
 
-/** KI-Überschriften für den Dialog – kurz, gemischt, höchstens 40 Zeichen. */
+/** Die fünf Überschriften – kurz, gemischt, höchstens 40 Zeichen. */
 export async function generateTitles(input: BodiesInput): Promise<string[]> {
   return parseTitles(await mistral(titlesPrompt(input)));
 }

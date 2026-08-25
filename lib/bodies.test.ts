@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { parseBody, parseTitles, roleLabels } from "./bodies";
 
-test("parseTitles liest die Liste, wirft zu Lange weg und kappt bei zehn", () => {
+test("parseTitles liest die Liste, wirft zu Lange weg und kappt bei fünf", () => {
   expect(parseTitles('{"titel": ["Kurz", "  Pflege-Jobs (m/w/d)  "]}')).toEqual([
     "Kurz",
     "Pflege-Jobs (m/w/d)",
@@ -9,8 +9,8 @@ test("parseTitles liest die Liste, wirft zu Lange weg und kappt bei zehn", () =>
   const long = "x".repeat(41);
   expect(parseTitles(JSON.stringify({ titel: [long, "Ok"] }))).toEqual(["Ok"]);
   expect(() => parseTitles(JSON.stringify({ titel: [long] }))).toThrow("zu lang");
-  const twelve = Array.from({ length: 12 }, (_, i) => `Titel ${i}`);
-  expect(parseTitles(JSON.stringify({ titel: twelve }))).toHaveLength(10);
+  const seven = Array.from({ length: 7 }, (_, i) => `Titel ${i}`);
+  expect(parseTitles(JSON.stringify({ titel: seven }))).toHaveLength(5);
   expect(() => parseTitles("kein json")).toThrow("kein lesbares JSON");
   expect(() => parseTitles('{"titel": []}')).toThrow("keine Überschriftenliste");
 });
