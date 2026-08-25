@@ -21,6 +21,7 @@ import { instantFormsUrl } from "@/lib/forms";
 import { nextCreativeName } from "@/lib/media";
 import { fillTitles, freeTitleSlots, roleWord } from "@/lib/headlines";
 import { HeadlineDialog } from "./headline-dialog";
+import { BodyDialog } from "./body-dialog";
 import { plural } from "@/lib/labels";
 import { LocationField } from "./location-field";
 import { checkCopy, type CopyField, type Notice } from "@/lib/copy";
@@ -397,6 +398,7 @@ export function AdSetBlock({
   const [formIdInput, setFormIdInput] = useState("");
   const [pulling, setPulling] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [generatingBodies, setGeneratingBodies] = useState(false);
   const uploads = useUploads(value.id);
 
   // refresh=true nur beim Klick: der Cache soll beim Aufklappen weiter greifen,
@@ -848,9 +850,28 @@ export function AdSetBlock({
             values={value.bodies}
             limit={BODY_LIMIT}
             multiline
+            action={
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<SparkleIcon size={14} weight="bold" />}
+                label="Primärtexte generieren"
+                onClick={() => setGeneratingBodies(true)}
+              />
+            }
             onChange={(bodies) => onChange({ bodies })}
           />
           <CopyNotices notices={notices} field="bodies" />
+
+          <BodyDialog
+            isOpen={generatingBodies}
+            onOpenChange={setGeneratingBodies}
+            business={business}
+            roles={roles}
+            roleFreeText={roleFreeText}
+            place={value.place?.name ?? value.addressString}
+            onApply={(bodies) => onChange({ bodies })}
+          />
 
           {/* Meta lehnt eine UGC-Anzeige ab, bei der jedes Textfeld nur einen
               Eintrag hat – lieber hier sagen als mitten im Anlegen. */}

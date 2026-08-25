@@ -9,6 +9,7 @@ import { getLeadForm, listLeadForms, parseFormId, type LeadForm } from "@/lib/fo
 import { locationProblem, type GeoPlace } from "@/lib/geo";
 import { estimateReach, searchPlaces, type Reach } from "@/lib/geo-search";
 import { lastCampaignDefaults, type Prefill } from "@/lib/prefill";
+import { generateBodies, type BodiesInput } from "@/lib/bodies";
 
 export type LaunchResult = { ok?: string; error?: string };
 
@@ -154,6 +155,19 @@ export async function reachAction(
     return await estimateReach(adAccount, location);
   } catch (e) {
     return { error: (e as Error).message };
+  }
+}
+
+// Der Mistral-Key liegt in process.env – gleicher Server-Action-Umweg wie bei
+// listFormsAction, und der Fehlertext (Quota, ungültiger Key) muss beim
+// Bediener ankommen statt als generische Produktionsmeldung.
+export async function generateBodiesAction(
+  input: BodiesInput,
+): Promise<{ bodies: string[]; error?: string }> {
+  try {
+    return { bodies: await generateBodies(input) };
+  } catch (e) {
+    return { bodies: [], error: (e as Error).message };
   }
 }
 
