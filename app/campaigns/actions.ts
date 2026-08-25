@@ -9,7 +9,7 @@ import { getLeadForm, listLeadForms, parseFormId, type LeadForm } from "@/lib/fo
 import { locationProblem, type GeoPlace } from "@/lib/geo";
 import { estimateReach, searchPlaces, type Reach } from "@/lib/geo-search";
 import { lastCampaignDefaults, type Prefill } from "@/lib/prefill";
-import { generateBody, type BodiesInput } from "@/lib/bodies";
+import { generateBody, generateDescription, generateTitles, type BodiesInput } from "@/lib/bodies";
 
 export type LaunchResult = { ok?: string; error?: string };
 
@@ -169,6 +169,28 @@ export async function generateBodyAction(
 ): Promise<{ body?: string; error?: string }> {
   try {
     return { body: await generateBody(input, template) };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+}
+
+/** KI-Überschriften für den Überschriften-Dialog – kurz und Meta-gekürzt gedacht. */
+export async function generateTitlesAction(
+  input: BodiesInput,
+): Promise<{ titles: string[]; error?: string }> {
+  try {
+    return { titles: await generateTitles(input) };
+  } catch (e) {
+    return { titles: [], error: (e as Error).message };
+  }
+}
+
+/** Die Beschreibung – Benefits als ✅-Liste. */
+export async function generateDescriptionAction(
+  input: BodiesInput,
+): Promise<{ description?: string; error?: string }> {
+  try {
+    return { description: await generateDescription(input) };
   } catch (e) {
     return { error: (e as Error).message };
   }

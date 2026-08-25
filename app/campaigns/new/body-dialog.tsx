@@ -38,6 +38,8 @@ export function BodyDialog({
   roles,
   roleFreeText,
   place,
+  benefits,
+  onBenefitsChange,
   onApply,
 }: {
   isOpen: boolean;
@@ -47,9 +49,11 @@ export function BodyDialog({
   roleFreeText?: string;
   /** Ort der Anzeigengruppe – Stadt aus Metas Verzeichnis oder die Adresse. */
   place?: string;
+  /** Geteilt mit Überschriften- und Beschreibungs-Dialog (AdSetBlock). */
+  benefits: string;
+  onBenefitsChange: (benefits: string) => void;
   onApply: (bodies: string[]) => void;
 }) {
-  const [benefits, setBenefits] = useState("");
   // null: noch nie generiert – erst dann erscheinen die Slots.
   const [slots, setSlots] = useState<Slot[] | null>(null);
   // „Neu generieren“ mitten im Lauf: Antworten des alten Laufs dürfen die
@@ -86,7 +90,7 @@ export function BodyDialog({
               <TextArea
                 label="Benefits"
                 value={benefits}
-                onChange={setBenefits}
+                onChange={onBenefitsChange}
                 rows={5}
                 width="100%"
                 placeholder={"z. B.\nWeihnachts- & Urlaubsgeld\n30 Urlaubstage\nJobRad"}

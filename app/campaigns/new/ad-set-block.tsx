@@ -22,6 +22,7 @@ import { nextCreativeName } from "@/lib/media";
 import { fillTitles, freeTitleSlots, roleWord } from "@/lib/headlines";
 import { HeadlineDialog } from "./headline-dialog";
 import { BodyDialog } from "./body-dialog";
+import { DescriptionDialog } from "./description-dialog";
 import { plural } from "@/lib/labels";
 import { LocationField } from "./location-field";
 import { checkCopy, type CopyField, type Notice } from "@/lib/copy";
@@ -399,6 +400,10 @@ export function AdSetBlock({
   const [pulling, setPulling] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [generatingBodies, setGeneratingBodies] = useState(false);
+  const [generatingDescription, setGeneratingDescription] = useState(false);
+  // Ein Eingabefeld für drei Dialoge: Benefits stehen in keiner API, aber in
+  // Primärtexten, Überschriften und Beschreibung – einmal eintippen reicht.
+  const [benefits, setBenefits] = useState("");
   const uploads = useUploads(value.id);
 
   // refresh=true nur beim Klick: der Cache soll beim Aufklappen weiter greifen,
@@ -870,6 +875,8 @@ export function AdSetBlock({
             roles={roles}
             roleFreeText={roleFreeText}
             place={value.place?.name ?? value.addressString}
+            benefits={benefits}
+            onBenefitsChange={setBenefits}
             onApply={(bodies) => onChange({ bodies })}
           />
 
@@ -905,6 +912,8 @@ export function AdSetBlock({
             business={business}
             roles={roles}
             roleFreeText={roleFreeText}
+            place={value.place?.name ?? value.addressString}
+            benefits={benefits}
             taken={value.titles}
             free={freeTitleSlots(value.titles, MAX_ITEMS)}
             onApply={(picked) =>
@@ -924,6 +933,26 @@ export function AdSetBlock({
             maxLength={DESCRIPTION_LIMIT}
             width="100%"
             className="max-w-2xl"
+          />
+          <div>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<SparkleIcon size={14} weight="bold" />}
+              label="Beschreibung generieren"
+              onClick={() => setGeneratingDescription(true)}
+            />
+          </div>
+          <DescriptionDialog
+            isOpen={generatingDescription}
+            onOpenChange={setGeneratingDescription}
+            business={business}
+            roles={roles}
+            roleFreeText={roleFreeText}
+            place={value.place?.name ?? value.addressString}
+            benefits={benefits}
+            onBenefitsChange={setBenefits}
+            onApply={(description) => onChange({ description })}
           />
           <CopyNotices notices={notices} field="description" />
         </div>

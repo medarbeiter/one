@@ -190,11 +190,11 @@ export function parseBody(content: string): string {
   return text;
 }
 
-/** Ein Primärtext nach einer der fünf Vorlagen (Index 0–4). */
-export async function generateBody(input: BodiesInput, template: number): Promise<string> {
+/** Ein Prompt, eine Antwort als roher Text – geteilt von Text, Überschriften
+ *  und Beschreibung. */
+async function mistral(promptText: string): Promise<string> {
   const key = process.env.MISTRAL_API_KEY;
   if (!key) throw new Error("MISTRAL_API_KEY fehlt in der Umgebung (.env.local).");
-  if (!TEMPLATES[template]) throw new Error(`Unbekannte Vorlage ${template}.`);
 
   const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
     method: "POST",
@@ -202,7 +202,7 @@ export async function generateBody(input: BodiesInput, template: number): Promis
     body: JSON.stringify({
       model: "mistral-large-latest",
       temperature: 0.7,
-      messages: [{ role: "user", content: prompt(input, template) }],
+      messages: [{ role: "user", content: promptText }],
     }),
   });
   if (!res.ok)
@@ -211,5 +211,92 @@ export async function generateBody(input: BodiesInput, template: number): Promis
   const data = (await res.json()) as { choices?: { message?: { content?: unknown } }[] };
   const content = data.choices?.[0]?.message?.content;
   if (typeof content !== "string") throw new Error("Mistral hat keinen Text geliefert.");
-  return parseBody(content);
+  return content;
+}
+
+/** Ein Primärtext nach einer der fünf Vorlagen (Index 0–4). */
+export async function generateBody(input: BodiesInput, template: number): Promise<string> {
+  if (!TEMPLATES[template]) throw new Error(`Unbekannte Vorlage ${template}.`);
+  return parseBody(await mistral(prompt(input, template)));
+}
+
+/** So viele KI-Überschriften stehen im Dialog. */
+export const TITLE_SUGGESTIONS = 10;
+
+/**
+ * Antwort robust lesen: JSON-Objekt mit "titel", zur Not mit Markdown-Zaun
+ * drumherum. Zu Langes fällt weg statt gekürzt zu werden – dieselbe Antwort
+ * wie in lib/headlines.ts: was Metas Kürzung nicht überlebt, wird gar nicht
+ * erst angeboten.
+ */
+export function parseTitles(content: string): string[] {
+  let data: unknown;
+  try {
+    data = JSON.parse(content.replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, ""));
+  } catch {
+    throw new Error("Mistral hat kein lesbares JSON geliefert.");
+  }
+  const titles = Array.isArray(data) ? data : (data as { titel?: unknown }).titel;
+  if (!Array.isArray(titles) || !titles.every((t) => typeof t === "string") || titles.length === 0)
+    throw new Error("Mistral hat keine Überschriftenliste geliefert.");
+  const out = titles.map((t) => t.trim()).filter((t) => t && t.length <= 40);
+  if (!out.length) throw new Error("Alle Vorschläge waren zu lang für Metas Kürzung.");
+  return out.slice(0, TITLE_SUGGESTIONS);
+}
+
+/**
+ * Überschriften, an Metas Anzeige gemessen: nach 40 Zeichen kürzt Meta, die
+ * kürzeste laufende liegt im Median bei 14. Fünf gesuchte Rollen passen da
+ * nie hinein – das sagt der Prompt ausdrücklich, statt es zu hoffen.
+ */
+function titlesPrompt(input: BodiesInput): string {
+  const rollen = roleLabels(input.roles, input.roleFreeText);
+  const fakten = [
+    `Arbeitgeber: ${input.business.trim() || "unbekannt"}`,
+    `Gesuchte Rollen: ${rollen.length ? rollen.join(", ") : "keine angegeben"}`,
+    `Ort: ${input.place?.trim() || "keiner angegeben"}`,
+    `Benefits laut Arbeitgeber: ${input.benefits.trim() || "keine angegeben"}`,
+  ].join("\n");
+
+  return `Du schreibst Überschriften für Meta-Stellenanzeigen (Facebook/Instagram) in der Pflege.
+
+Schreibe ${TITLE_SUGGESTIONS} deutsche Überschriften für die folgende Kampagne.
+
+Regeln:
+- Höchstens 40 Zeichen je Überschrift (danach kürzt Meta), mindestens die Hälfte deutlich kürzer (15–25 Zeichen).
+- Bei mehreren gesuchten Rollen: NIE alle aufzählen – das wird zu lang. Nimm je Überschrift eine einzelne Rolle oder einen Sammelbegriff wie „Pflege-Jobs“.
+- Steht eine Rolle in der Überschrift, dann mit „(m/w/d)“ – außer es sprengt die 40 Zeichen.
+- Mische die Winkel: Rolle (+ Ort, wenn er kurz ist), Arbeitgebername (nur wenn kurz), der stärkste Benefit als Aufmacher (z. B. eine Gehaltszahl), Frage oder Aufforderung.
+- Duze. Keine erfundenen Fakten – nur genannte Rollen, Ort und Benefits. Keine Emojis.
+
+KAMPAGNENFAKTEN:
+${fakten}
+
+Antworte ausschließlich mit JSON: {"titel": ["…", "…"]}`;
+}
+
+/** KI-Überschriften für den Dialog – kurz, gemischt, höchstens 40 Zeichen. */
+export async function generateTitles(input: BodiesInput): Promise<string[]> {
+  return parseTitles(await mistral(titlesPrompt(input)));
+}
+
+/**
+ * Die Beschreibung unter der Überschrift: im Kern die Benefits als Liste.
+ * Eine je Zeile mit einheitlichem Zeichen – dieselbe Formatregel wie bei den
+ * Primärtexten, nur ohne Fließtext drumherum.
+ */
+function descriptionPrompt(input: BodiesInput): string {
+  return `Du schreibst die Beschreibung einer Meta-Stellenanzeige (Facebook/Instagram) in der Pflege – der kurze Block, der unter der Überschrift steht.
+
+Formatiere die folgenden Benefits als Liste: eine kurze Kopfzeile wie „Freue Dich auf...“, dann JEDER Benefit auf einer eigenen Zeile mit ✅ am Anfang. Niemals mehrere Benefits in eine Zeile zusammenziehen, keinen Benefit weglassen, keinen erfinden. Danach eine Schlusszeile mit Aufforderung, sich in 60 Sekunden ohne Anschreiben und Lebenslauf zu bewerben. Duze.
+
+BENEFITS:
+${input.benefits.trim() || "keine angegeben – schreibe zwei kurze Zeilen über das Team und die Bewerbung in 60 Sekunden"}
+
+Antworte ausschließlich mit der fertigen Beschreibung – ohne Anführungszeichen drumherum, ohne Erklärung.`;
+}
+
+/** Die Beschreibung – Benefits sauber als ✅-Liste formatiert. */
+export async function generateDescription(input: BodiesInput): Promise<string> {
+  return parseBody(await mistral(descriptionPrompt(input)));
 }
