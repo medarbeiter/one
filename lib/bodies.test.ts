@@ -1,18 +1,13 @@
 import { expect, test } from "bun:test";
-import { parseBodies, roleLabels } from "./bodies";
+import { parseBody, roleLabels } from "./bodies";
 
-test("parseBodies liest das JSON-Objekt und toleriert einen Markdown-Zaun", () => {
-  const texts = ["Text eins", "Text zwei"];
-  expect(parseBodies(JSON.stringify({ texte: texts }))).toEqual(texts);
-  expect(parseBodies("```json\n" + JSON.stringify({ texte: texts }) + "\n```")).toEqual(texts);
-});
-
-test("parseBodies kappt bei fünf und lehnt Antworten ohne Textliste ab", () => {
-  const seven = ["1", "2", "3", "4", "5", "6", "7"];
-  expect(parseBodies(JSON.stringify({ texte: seven }))).toHaveLength(5);
-  expect(() => parseBodies("kein json")).toThrow("kein lesbares JSON");
-  expect(() => parseBodies('{"texte": []}')).toThrow("keine Textliste");
-  expect(() => parseBodies('{"texte": [1, 2]}')).toThrow("keine Textliste");
+test("parseBody nimmt reinen Text und streift Zaun und Anführungszeichen ab", () => {
+  expect(parseBody("Du bist Pflegefachkraft?\n\nDann komm zu uns.")).toBe(
+    "Du bist Pflegefachkraft?\n\nDann komm zu uns.",
+  );
+  expect(parseBody('```\n"Komm zu uns."\n```')).toBe("Komm zu uns.");
+  expect(parseBody("„Komm zu uns.“")).toBe("Komm zu uns.");
+  expect(() => parseBody("```\n```")).toThrow("keinen Text");
 });
 
 test("roleLabels übersetzt Kürzel und hängt den Freitext an", () => {

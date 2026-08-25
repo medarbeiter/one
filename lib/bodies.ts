@@ -6,6 +6,10 @@
  * das Modell füllt die Platzhalter mit den Kampagnendaten und schreibt die
  * gefüllten Beispiele auf den neuen Kunden um.
  *
+ * Ein Aufruf je Vorlage, nicht alle fünf in einem: die Texte sind unabhängig,
+ * und fünf kurze Antworten trudeln einzeln ein statt als eine lange – der
+ * Dialog füllt jeden Slot, sobald seiner fertig ist.
+ *
  * Läuft nur auf dem Server – der Key steht in process.env.MISTRAL_API_KEY.
  */
 
@@ -37,7 +41,9 @@ export function roleLabels(roles: string[], roleFreeText?: string): string[] {
 
 // Die fünf Vorlagen: die erste mit Platzhaltern, die vier weiteren als fertige
 // Beispiele derselben Kampagne – sie zeigen Ton, Länge und Emoji-Gebrauch.
-const TEMPLATES = `VORLAGE 1 (mit Platzhaltern):
+// Ein Eintrag je Primärtext-Slot im Dialog.
+const TEMPLATES = [
+  `VORLAGE (mit Platzhaltern):
 Du bist {Bezeichnung/en} in {Ort} oder Umgebung?
 
 Dann bist Du bei {Arbeitgeber} genau richtig! Wir suchen motivierte Verstärkung.
@@ -48,7 +54,7 @@ Bei uns erwarten Dich…
 
 🏖️ {Benefit 1}
 🚲 {Benefit 2}
-🎄 {Benefit 3 und mehr ...}
+🎄 {Benefit 3 – je Benefit eine eigene Zeile mit eigenem, passendem Emoji; die Liste wird so lang wie die Benefit-Liste}
 
 Hast Du Lust auf ein tolles Miteinander und möchtest Dich weiterentwickeln?
 
@@ -59,9 +65,9 @@ Klicke dazu einfach auf "Jetzt bewerben"
 Wir haben aktuell noch Stellen offen für:
 
 ✅ {Offene Stelle 1}
-✅ {Offene Stelle 2, wenn zutreffend und mehr...}
+✅ {Offene Stelle 2, wenn zutreffend und mehr...}`,
 
-BEISPIEL 2 (Stellen-Aufmacher mit Benefit-Liste):
+  `BEISPIEL (Stellen-Aufmacher mit Benefit-Liste):
 Pflegefachkraft (m/w/d) oder stellvertretende Pflegedienstleitung (m/w/d) in Greiz gesucht!
 
 Der AWO Kreisverband Greiz e.V. sucht Verstärkung für den ambulanten Pflegedienst.
@@ -85,9 +91,9 @@ Klicke dazu einfach auf "Jetzt bewerben"
 Wir haben aktuell noch Stellen offen für:
 
 ✅ Pflegefachkraft für den ambulanten Dienst
-✅ Stellvertretende Pflegedienstleitung für den ambulanten Dienst
+✅ Stellvertretende Pflegedienstleitung für den ambulanten Dienst`,
 
-BEISPIEL 3 (kurz und direkt):
+  `BEISPIEL (kurz und direkt):
 Werde Pflegefachkraft (m/w/d) oder stellvertretende Pflegedienstleitung (sPDL) (m/w/d) beim AWO Kreisverband Greiz e.V. in Greiz!! 📍💪
 
 Wir suchen engagierte Mitarbeitende, die unser freundliches und familiäres Team im ambulanten Pflegedienst unterstützen. 🤝
@@ -95,9 +101,9 @@ Wir suchen engagierte Mitarbeitende, die unser freundliches und familiäres Team
 Wir haben aktuell noch Stellen offen für:
 
 ✅ Pflegefachkraft für den ambulanten Dienst
-✅ Stellvertretende Pflegedienstleitung für den ambulanten Dienst
+✅ Stellvertretende Pflegedienstleitung für den ambulanten Dienst`,
 
-BEISPIEL 4 (Wertewelt, drei Absätze mit ✅):
+  `BEISPIEL (Wertewelt, drei Absätze mit ✅):
 Träumst du nicht auch davon, in einer Umgebung zu arbeiten, die genau das verkörpert?
 
 ✅ Ein Team, das Zusammenhalt und gegenseitige Unterstützung lebt:
@@ -118,9 +124,9 @@ Bis gleich :)
 Wir haben aktuell noch Stellen offen für:
 
 ✅ Pflegefachkraft für den ambulanten Dienst
-✅ Stellvertretende Pflegedienstleitung für den ambulanten Dienst
+✅ Stellvertretende Pflegedienstleitung für den ambulanten Dienst`,
 
-BEISPIEL 5 (emotionaler Einstieg, Du-Ansprache):
+  `BEISPIEL (emotionaler Einstieg, Du-Ansprache):
 Du gibst jeden Tag dein Bestes in der Pflege – aber wer sorgt eigentlich für Dich? 💬
 
 Wenn Du Pflegefachkraft (m/w/d) oder stellvertretende Pflegedienstleitung (m/w/d) aus Greiz oder Umgebung bist und Dir ein echtes WIR-Gefühl, faire Bedingungen und ein wertschätzendes Miteinander wichtig sind, dann lies jetzt unbedingt weiter:
@@ -141,9 +147,13 @@ Herz, Verstand – und den Wunsch, Menschen mit Engagement, Empathie und Teamgei
 
 📲 Bewirb Dich jetzt in nur 60 Sekunden – ganz ohne Anschreiben oder Lebenslauf.
 
-Denn manchmal beginnt der beste Job einfach mit einem Klick. 👇`;
+Denn manchmal beginnt der beste Job einfach mit einem Klick. 👇`,
+];
 
-function prompt({ business, roles, roleFreeText, place, benefits }: BodiesInput): string {
+/** Ein Slot je Vorlage – der Dialog zeigt so viele Skelette. */
+export const BODY_TEMPLATE_COUNT = TEMPLATES.length;
+
+function prompt({ business, roles, roleFreeText, place, benefits }: BodiesInput, template: number): string {
   const rollen = roleLabels(roles, roleFreeText);
   const fakten = [
     `Arbeitgeber: ${business.trim() || "unbekannt – schreibe neutral von „uns“ und „unserem Team“"}`,
@@ -152,40 +162,39 @@ function prompt({ business, roles, roleFreeText, place, benefits }: BodiesInput)
     `Benefits laut Arbeitgeber: ${benefits.trim() || "keine angegeben – nenne keine konkreten Benefits, bleibe bei Team und Miteinander"}`,
   ].join("\n");
 
-  return `Du schreibst Primärtexte für Meta-Stellenanzeigen (Facebook/Instagram) einer Personalmarketing-Agentur für Pflegeeinrichtungen.
+  return `Du schreibst den Primärtext einer Meta-Stellenanzeige (Facebook/Instagram) einer Personalmarketing-Agentur für Pflegeeinrichtungen.
 
-Schreibe genau 5 deutsche Primärtexte für die folgende Kampagne – einen je Vorlage/Beispiel unten, im jeweiligen Stil und ähnlicher Länge. Ersetze alle Platzhalter und alle AWO-Greiz-spezifischen Angaben durch die Kampagnenfakten. Duze die Lesenden. Erfinde keine Fakten: nur die genannten Rollen, den genannten Ort und die genannten Benefits verwenden. Jeder Text endet mit einer Aufforderung, auf „Jetzt bewerben“ zu klicken (außer der Kurzform, dort ist sie optional). Emojis wie in den Vorlagen.
+Schreibe genau einen deutschen Primärtext für die folgende Kampagne, im Stil und in ähnlicher Länge der Vorlage unten. Ersetze alle Platzhalter und alle AWO-Greiz-spezifischen Angaben durch die Kampagnenfakten. Duze die Lesenden. Erfinde keine Fakten: nur die genannten Rollen, den genannten Ort und die genannten Benefits verwenden. Der Text endet mit einer Aufforderung, auf „Jetzt bewerben“ zu klicken (bei der Kurzform optional).
+
+Formatierung: Übernimm die Formatierung der Vorlage exakt – Absätze, Leerzeilen, Emojis und vor allem den Listenstil. Enthält die Vorlage eine Benefit-Liste, bekommt JEDER Benefit eine eigene Zeile mit genau einem Aufzählungszeichen im Stil der Vorlage (✅, ✔ oder ein thematisch passendes Emoji je Zeile – bei Emoji-Listen für jeden Benefit ein anderes, inhaltlich passendes). Niemals mehrere Benefits in eine Zeile zusammenziehen; die Liste wird so lang wie die Benefit-Liste in den Kampagnenfakten.
 
 KAMPAGNENFAKTEN:
 ${fakten}
 
-VORLAGEN:
-${TEMPLATES}
+${TEMPLATES[template]}
 
-Antworte ausschließlich mit JSON: {"texte": ["Text 1", "Text 2", "Text 3", "Text 4", "Text 5"]}`;
+Antworte ausschließlich mit dem fertigen Primärtext – ohne Anführungszeichen drumherum, ohne Überschrift, ohne Erklärung.`;
 }
 
 /**
- * Antwort robust lesen: response_format=json_object verspricht JSON, aber ein
- * Markdown-Zaun drumherum kommt trotzdem vor – der fliegt vorher raus.
+ * Antwort robust lesen: verlangt ist reiner Text, aber ein Markdown-Zaun oder
+ * umschließende Anführungszeichen kommen trotzdem vor – die fliegen raus.
  */
-export function parseBodies(content: string): string[] {
-  let data: unknown;
-  try {
-    data = JSON.parse(content.replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, ""));
-  } catch {
-    throw new Error("Mistral hat kein lesbares JSON geliefert.");
-  }
-  const texts = Array.isArray(data) ? data : (data as { texte?: unknown }).texte;
-  if (!Array.isArray(texts) || texts.length === 0 || !texts.every((t) => typeof t === "string"))
-    throw new Error("Mistral hat keine Textliste geliefert.");
-  // Meta rotiert höchstens 5 – mehr wird still gekappt statt abgelehnt.
-  return texts.slice(0, 5).map((t) => t.trim());
+export function parseBody(content: string): string {
+  const text = content
+    .replace(/^\s*```[a-z]*\s*|\s*```\s*$/g, "")
+    .trim()
+    .replace(/^["„]|["“]$/g, "")
+    .trim();
+  if (!text) throw new Error("Mistral hat keinen Text geliefert.");
+  return text;
 }
 
-export async function generateBodies(input: BodiesInput): Promise<string[]> {
+/** Ein Primärtext nach einer der fünf Vorlagen (Index 0–4). */
+export async function generateBody(input: BodiesInput, template: number): Promise<string> {
   const key = process.env.MISTRAL_API_KEY;
   if (!key) throw new Error("MISTRAL_API_KEY fehlt in der Umgebung (.env.local).");
+  if (!TEMPLATES[template]) throw new Error(`Unbekannte Vorlage ${template}.`);
 
   const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
     method: "POST",
@@ -193,8 +202,7 @@ export async function generateBodies(input: BodiesInput): Promise<string[]> {
     body: JSON.stringify({
       model: "mistral-large-latest",
       temperature: 0.7,
-      response_format: { type: "json_object" },
-      messages: [{ role: "user", content: prompt(input) }],
+      messages: [{ role: "user", content: prompt(input, template) }],
     }),
   });
   if (!res.ok)
@@ -203,5 +211,5 @@ export async function generateBodies(input: BodiesInput): Promise<string[]> {
   const data = (await res.json()) as { choices?: { message?: { content?: unknown } }[] };
   const content = data.choices?.[0]?.message?.content;
   if (typeof content !== "string") throw new Error("Mistral hat keinen Text geliefert.");
-  return parseBodies(content);
+  return parseBody(content);
 }

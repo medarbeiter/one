@@ -9,7 +9,7 @@ import { getLeadForm, listLeadForms, parseFormId, type LeadForm } from "@/lib/fo
 import { locationProblem, type GeoPlace } from "@/lib/geo";
 import { estimateReach, searchPlaces, type Reach } from "@/lib/geo-search";
 import { lastCampaignDefaults, type Prefill } from "@/lib/prefill";
-import { generateBodies, type BodiesInput } from "@/lib/bodies";
+import { generateBody, type BodiesInput } from "@/lib/bodies";
 
 export type LaunchResult = { ok?: string; error?: string };
 
@@ -160,14 +160,17 @@ export async function reachAction(
 
 // Der Mistral-Key liegt in process.env – gleicher Server-Action-Umweg wie bei
 // listFormsAction, und der Fehlertext (Quota, ungültiger Key) muss beim
-// Bediener ankommen statt als generische Produktionsmeldung.
-export async function generateBodiesAction(
+// Bediener ankommen statt als generische Produktionsmeldung. Ein Aufruf je
+// Vorlage: der Dialog feuert fünf parallel und füllt jeden Slot, sobald
+// seiner fertig ist.
+export async function generateBodyAction(
   input: BodiesInput,
-): Promise<{ bodies: string[]; error?: string }> {
+  template: number,
+): Promise<{ body?: string; error?: string }> {
   try {
-    return { bodies: await generateBodies(input) };
+    return { body: await generateBody(input, template) };
   } catch (e) {
-    return { bodies: [], error: (e as Error).message };
+    return { error: (e as Error).message };
   }
 }
 
