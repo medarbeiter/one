@@ -56,6 +56,16 @@ const figtree = Figtree({ subsets: ["latin"], variable: "--font-figtree", displa
 /** Schon geloggte Abgleich-Fehler; lebt so lange wie der Serverprozess. */
 const gemeldet = new Set<string>();
 
+/**
+ * Der Abgleich lief für jedes Rendering – und jede Navigation, jeder
+ * router.refresh() der Poller feuerte damit hunderte Graph-Aufrufe (alle
+ * Kunden × alle Edges). Genau das hat das Stundenbudget der App geleert.
+ * Höchstens einmal je Viertelstunde und Prozess; Echtzeit kommt ohnehin über
+ * den Webhook, der Abgleich heilt nur Lücken.
+ */
+const RECONCILE_EVERY_MS = 15 * 60_000;
+let nextReconcileAt = 0;
+
 export default async function RootLayout({ children }: LayoutProps<"/">) {
   // Wer arbeitet hier? Der Proxy lässt ohne gültige Sitzung niemanden bis
   // hierher – null gibt es trotzdem, etwa wenn die Sitzung zwischen Proxy und
@@ -75,13 +85,15 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   // Abgleich, also frühestens beim nächsten Seitenaufruf.
   after(() => ensureWebhooksOnce(customers.filter((c) => c.page).map((c) => ({ id: c.page!.id, name: c.name }))));
   // Derselbe Rhythmus wie ensureAssigned: läuft nach der Antwort, ein
-  // Graph-Aussetzer darf die Seite nicht zerlegen. Läuft für jedes
-  // Rendering – bun:sqlite ist ein warmer, lokaler Prozess, keine Kosten wie
-  // bei einem entfernten Dienst; ein doppelter Lauf schreibt nur dieselben
-  // Zeilen erneut.
+  // Graph-Aussetzer darf die Seite nicht zerlegen. Aber nicht für jedes
+  // Rendering – siehe nextReconcileAt oben.
   after(async () => {
     if (INBOX_FETCH_PAUSED) return;
     if (process.env.NEXT_PHASE === "phase-production-build") return;
+    if (Date.now() < nextReconcileAt) return;
+    // Vor dem Lauf gesetzt, nicht danach: ein langsamer Abgleich darf keinen
+    // zweiten neben sich starten.
+    nextReconcileAt = Date.now() + RECONCILE_EVERY_MS;
     try {
       const { failed } = await reconcile(openDb(), customers);
       for (const f of failed) {

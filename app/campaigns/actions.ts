@@ -1,6 +1,7 @@
 "use server";
 
 import { updateTag } from "next/cache";
+import { graph } from "@/lib/graph";
 import { setDailyBudget, setStatus } from "@/lib/campaigns";
 import type { Receipt } from "@/lib/launch";
 import type { Check } from "@/lib/verify";
@@ -33,6 +34,23 @@ export async function refreshCampaignsAction(): Promise<void> {
  */
 export async function refreshAssetsAction(): Promise<void> {
   updateTag("assets");
+}
+
+/**
+ * Nur das eine Feld der einen Seite – die 30-s-Schleife im Wizard las vorher
+ * bei jedem Tick das ganze Portfolio neu (Tag-Wurf + vier ungecachte
+ * Graph-Aufrufe). Ein Fehler zählt als „noch nicht angenommen“: die Schleife
+ * fragt in 30 s wieder, und die Meldung im Wizard bleibt bis dahin stehen.
+ */
+export async function leadgenTosAcceptedAction(pageId: string): Promise<boolean> {
+  try {
+    const page = await graph<{ leadgen_tos_accepted?: boolean }>(pageId, {
+      params: { fields: "leadgen_tos_accepted" },
+    });
+    return page.leadgen_tos_accepted === true;
+  } catch {
+    return false;
+  }
 }
 
 export async function setStatusAction(

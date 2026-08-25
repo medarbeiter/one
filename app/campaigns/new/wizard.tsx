@@ -54,7 +54,7 @@ import { Angaben, Infotafel } from "./angaben";
 import { Stepper } from "./stepper";
 import { Preview } from "./preview";
 import { ReceiptPanel } from "./receipt";
-import { prefillAction, refreshAssetsAction, type WizardSubmission } from "../actions";
+import { leadgenTosAcceptedAction, prefillAction, refreshAssetsAction, type WizardSubmission } from "../actions";
 import { useLaunch } from "./use-launch";
 import {
   fuzzyCustomerMatch,
@@ -396,11 +396,12 @@ function WizardSteps({
   // Die Annahme der Lead-Bedingungen passiert in Metas Oberfläche, in einem
   // anderen Tab (siehe LeadgenTosAlert) – dieser hier erfährt davon nur durch
   // Nachlesen. Solange die gewählte Seite blockt: bei Fokus (der Moment der
-  // Rückkehr aus Metas Tab) und alle 30 s den Portfolio-Cache wegwerfen und neu
-  // rendern. Sobald leadgen_tos_accepted stimmt, kommt needsLeadgenTos als
-  // false herein und Meldung samt offenem Punkt verschwinden von allein.
-  // needsLeadgenTos ist der einzige Blocker aus Server-Daten; alle anderen sind
-  // lokaler Formularzustand, an dem Nachlesen nichts ändert.
+  // Rückkehr aus Metas Tab) und alle 30 s leadgen_tos_accepted der einen Seite
+  // lesen. Erst wenn es stimmt, Portfolio-Cache wegwerfen und neu rendern –
+  // dann kommt needsLeadgenTos als false herein und Meldung samt offenem
+  // Punkt verschwinden von allein. needsLeadgenTos ist der einzige Blocker aus
+  // Server-Daten; alle anderen sind lokaler Formularzustand, an dem Nachlesen
+  // nichts ändert.
   const router = useRouter();
   // Ein Kunde entsteht im Business Manager (Seite dem System User zuweisen),
   // nicht hier. Der Knopf holt danach nur die Liste: ohne den Tag-Wurf hielte
@@ -412,18 +413,24 @@ function WizardSteps({
       router.refresh();
     });
   const needsTos = client?.needsLeadgenTos ?? false;
+  const tosPageId = client?.pageId;
   useEffect(() => {
-    if (!needsTos) return;
-    const check = () => refreshAssetsAction().then(() => router.refresh());
-    // ponytail: 30 s festes Intervall gegen Metas Graph – Backoff erst, falls
-    // Rate-Limits real werden.
+    if (!needsTos || !tosPageId) return;
+    // Ein Graph-Aufruf je Tick, nicht das ganze Portfolio: Tag-Wurf und
+    // router.refresh() erst, wenn die Annahme wirklich da ist – vorher warf
+    // jeder Tick den 5-Minuten-Cache für alle weg.
+    const check = async () => {
+      if (!(await leadgenTosAcceptedAction(tosPageId))) return;
+      await refreshAssetsAction();
+      router.refresh();
+    };
     const id = setInterval(check, 30_000);
     window.addEventListener("focus", check);
     return () => {
       clearInterval(id);
       window.removeEventListener("focus", check);
     };
-  }, [needsTos, router]);
+  }, [needsTos, tosPageId, router]);
 
   // Das Instagram-Konto hängt an der Seite des beworbenen Kunden, nicht am
   // zahlenden Konto. Es kommt mit der Kundenoption vom Server und ist deshalb

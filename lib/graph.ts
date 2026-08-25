@@ -201,12 +201,18 @@ export async function graph<T = any>(path: string, opts: GraphOpts = {}): Promis
 
   // ponytail: drei Versuche, fester Backoff. Auf einen Token-Bucket erst
   // umbauen, wenn Rate-Limits im Normalbetrieb auftreten statt in Spitzen.
+  //
+  // Rate-Limits ausgenommen: Metas Stundenbudget erholt sich nicht in den
+  // Sekunden eines Backoffs, der Retry verdreifachte nur den Verkehr genau
+  // dann, wenn das Budget schon leer ist. retryable bleibt am Fehler dran –
+  // ein Aufrufer mit echtem, langem Backoff darf anders entscheiden.
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(url, init);
     const json = await res.json();
     if (res.ok) return json as T;
     const failure = mapGraphError(json?.error, res.status);
-    if (!failure.retryable || attempt >= 2) throw new GraphError(failure);
+    if (!failure.retryable || failure.kind === "rate" || attempt >= 2)
+      throw new GraphError(failure);
     await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
   }
 }

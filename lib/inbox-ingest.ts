@@ -390,7 +390,17 @@ export async function reconcileCustomer(db: Database, customer: Customer, sinceI
 export async function reconcile(db: Database, customers: Customer[]): Promise<{ ok: number; failed: { customerId: string; message: string }[] }> {
   const since = reconcileWindow();
   const targets = customers.filter((c) => c.page);
-  const settled = await Promise.allSettled(targets.map((c) => reconcileCustomer(db, c, since)));
+  // Nacheinander statt parallel: bei ~200 Kunden feuerte Promise.allSettled
+  // hunderte Graph-Aufrufe auf einmal ab – genau der Burst, der die App ins
+  // Rate-Limit trieb. Die Summe bleibt gleich, nur ohne die Spitze.
+  const settled: PromiseSettledResult<string[]>[] = [];
+  for (const c of targets) {
+    try {
+      settled.push({ status: "fulfilled", value: await reconcileCustomer(db, c, since) });
+    } catch (e) {
+      settled.push({ status: "rejected", reason: e });
+    }
+  }
 
   const failed: { customerId: string; message: string }[] = [];
   let ok = 0;

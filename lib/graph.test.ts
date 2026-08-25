@@ -136,17 +136,27 @@ test("Objekte werden als JSON serialisiert, Token gesetzt", async () => {
   expect(calls[0].searchParams.has("skip")).toBe(false);
 });
 
-test("Rate-Limit wird wiederholt, Berechtigungsfehler nicht", async () => {
+test("Vorübergehendes wird wiederholt, Rate-Limits und Berechtigungsfehler nicht", async () => {
   let n = 0;
   stub(() => {
     n++;
     return n < 3
-      ? { status: 400, body: { error: { code: 17, message: "limit" } } }
+      ? { status: 400, body: { error: { code: 2, is_transient: true, message: "later" } } }
       : { body: { ok: 1 } };
   });
   const result = await graph("x");
   expect(result).toEqual({ ok: 1 });
   expect(n).toBe(3);
+
+  // Ein leeres Stundenbudget erholt sich nicht im Backoff – der Retry
+  // verdreifachte nur den Verkehr im schlechtesten Moment.
+  n = 0;
+  stub(() => {
+    n++;
+    return { status: 400, body: { error: { code: 17, message: "limit" } } };
+  });
+  await expect(graph("x2")).rejects.toThrow("limit");
+  expect(n).toBe(1);
 
   n = 0;
   stub(() => {
