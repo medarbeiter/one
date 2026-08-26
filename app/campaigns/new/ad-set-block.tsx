@@ -51,7 +51,9 @@ const DESCRIPTION_LIMIT = 1500;
 const MAX_ITEMS = 5;
 
 /** Was der Browser an Dateien annimmt – der Route Handler lehnt alles andere ab. */
-const ACCEPT = "video/*,image/jpeg,image/png";
+// .zip als Endung, nicht als MIME-Typ: Windows meldet ZIPs je nach Programm
+// als application/x-zip-compressed, die Endung greift überall.
+const ACCEPT = "video/*,image/jpeg,image/png,.zip";
 
 /** Ein Lead-Formular, verpackt für den Typeahead — id verdoppelt sich als
  *  Suchbegriff, damit eine kopierte Formular-ID genau wie der Name greift. */
@@ -92,7 +94,7 @@ function FilePicker({ onFiles }: { onFiles: (files: FileList) => void }) {
         Videos werden von allein zu UGC-Anzeigen. Fotos werden 9:16 + 1:1 gepaart — passende
         Nummern („Creative 3“, „Creative 4“) werden automatisch gepaart, alles andere ziehst du
         selbst zusammen. iPhone- und Schnittexporte (HEVC, ProRes) werden vor dem Upload zu
-        H.264/MP4 konvertiert.
+        H.264/MP4 konvertiert. ZIP-Archive werden ausgepackt.
       </Text>
     </div>
   );

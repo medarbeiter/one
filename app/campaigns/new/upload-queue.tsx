@@ -7,6 +7,7 @@ import { createConvoy, type Convoy } from "@/lib/convoy";
 import { createGate } from "@/lib/gate";
 import { orientationOf, type Orientation } from "@/lib/media";
 import { toMetaReady } from "@/lib/transcode";
+import { unzipMedia } from "@/lib/unzip";
 import type { WizardLooseAsset } from "./state";
 
 /**
@@ -251,13 +252,36 @@ export function drainArrived(): Map<string, WizardLooseAsset[]> {
 /**
  * Alles, was ausgewählt wurde, geht gleichzeitig los – ein ganzer Ordner als ein
  * Schwung. Der Auswahlknopf bleibt dabei offen: nachgelegte Dateien starten
- * sofort mit, statt auf den laufenden Schwung zu warten.
+ * sofort mit, statt auf den laufenden Schwung zu warten. ZIPs werden vorher
+ * ausgepackt; ihre Medien reihen sich ein wie direkt gewählte Dateien.
  */
 export function enqueue(files: File[], target: Target): void {
   // Eine neue Auswahl räumt die Fehler des letzten Durchgangs weg; ein zweiter
   // Versuch (retryUploads) darf das nicht, sonst nähme er den übrigen
   // Fehlschlägen ihren eigenen Knopf.
-  start(files, target, true);
+  void withZipsExpanded(files).then((all) => start(all, target, true));
+}
+
+/** ZIPs durch ihren Medieninhalt ersetzen – ein unlesbares Archiv wird zum
+ *  Toast, nicht zum Abbruch der übrigen Dateien. */
+async function withZipsExpanded(files: File[]): Promise<File[]> {
+  if (!files.some((file) => /\.zip$/i.test(file.name))) return files;
+  const out: File[] = [];
+  for (const file of files) {
+    if (!/\.zip$/i.test(file.name)) {
+      out.push(file);
+      continue;
+    }
+    try {
+      out.push(...(await unzipMedia(file)));
+    } catch (e) {
+      showToast?.({
+        type: "error",
+        body: <div>{`„${file.name}“: ${(e as Error).message}`}</div>,
+      });
+    }
+  }
+  return out;
 }
 
 /**
