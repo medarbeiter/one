@@ -100,6 +100,35 @@ test("eine gemessene Bitrate wird ganzzahlig weitergereicht", () => {
   expect(Number.isInteger(encodeTarget({ container: MOV, video: "hevc", audio: "aac", bitrate: 20_077_949.7 }).bitrate!)).toBe(true);
 });
 
+/**
+ * Instagrams Minimum: unter 500 px Breite lehnt Meta das Video nach dem
+ * Upload ab. Zu Kleines wird deshalb neu kodiert und auf HD hochskaliert.
+ */
+test("unter Instagrams Minimum wird neu kodiert", () => {
+  expect(
+    planConversion({ container: "MP4", video: "avc", audio: "aac", bitrate: 2e6, width: 480, height: 854 }),
+  ).toBe("transcode");
+  // Genau auf dem Minimum ist in Ordnung.
+  expect(
+    planConversion({ container: "MP4", video: "avc", audio: "aac", bitrate: 2e6, width: 500, height: 888 }),
+  ).toBe("passthrough");
+});
+
+test("hochskaliert wird auf HD, ohne die geerbte Mini-Bitrate", () => {
+  // 480×854 → kurze Kante Richtung 1080, lange Kante deckelt bei 1920.
+  expect(
+    encodeTarget({ container: "MP4", video: "avc", audio: "aac", bitrate: 800_000, width: 480, height: 854 }),
+  ).toEqual({ width: 1080, height: 1920 });
+  // Quadratisch: 1080×1080, die 1920-Decke greift nicht.
+  expect(
+    encodeTarget({ container: "MP4", video: "avc", audio: "aac", width: 400, height: 400 }),
+  ).toEqual({ width: 1080, height: 1080 });
+  // Ohne bekannte Maße wird nicht geraten und nicht skaliert.
+  expect(encodeTarget({ container: "MP4", video: "hevc", audio: "aac", bitrate: 3e6 })).toEqual({
+    bitrate: 3_000_000,
+  });
+});
+
 test("herunterskaliert wird auf die lange Kante, im Seitenverhältnis", () => {
   expect(
     encodeTarget({ container: "MP4", video: "avc", audio: "aac", bitrate: 30e6, width: 3840, height: 2160 }),

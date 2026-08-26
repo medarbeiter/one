@@ -21,6 +21,17 @@ const META_AUDIO = "aac";
 const MAX_BITRATE = 8_000_000;
 const MAX_EDGE = 1920;
 
+/**
+ * Instagrams Minimum: unter 500 Pixel Breite lehnt Meta das Video für
+ * Instagram-Platzierungen ab (Feed 500×500, Story/Reel 500×888) – erst nach
+ * dem Upload, mit einer Fehlermeldung am fertigen Anzeigenentwurf. Zu kleine
+ * Videos werden deshalb vorher auf HD hochskaliert: Schärfe kommt dabei keine
+ * dazu, aber verloren geht auch nichts – und Meta nimmt sie an.
+ */
+const MIN_EDGE = 500;
+/** Worauf hochskaliert wird: kurze Kante 1080, lange gedeckelt bei MAX_EDGE. */
+const HD_EDGE = 1080;
+
 export type Action = "passthrough" | "remux" | "transcode";
 
 export type Probe = {
@@ -47,6 +58,9 @@ export function planConversion(probe: Probe): Action {
   // Der Codec kann stimmen und die Datei trotzdem nicht hochgehen. Eine Drohnen-
   // aufnahme ist H.264 in MP4 – und mit 20 Mbit/s zu groß für einen Upload.
   if (tooBig(probe)) return "transcode";
+  // Und zu klein geht auch nicht: unter Instagrams Minimum hilft nur
+  // Hochskalieren, und das heißt neu kodieren.
+  if (tooSmall(probe)) return "transcode";
   // MOV nähme Meta zwar an, aber Apple legt Edit-Lists hinein, die die Spec
   // ausdrücklich ausschließt. Der Containerwechsel schreibt sie weg und kostet
   // fast nichts: die Packets werden kopiert, nicht neu kodiert.
@@ -57,6 +71,11 @@ export function planConversion(probe: Probe): Action {
 function tooBig({ bitrate, width, height }: Probe): boolean {
   if (bitrate !== undefined && bitrate > MAX_BITRATE) return true;
   return Math.max(width ?? 0, height ?? 0) > MAX_EDGE;
+}
+
+/** Unter Instagrams Minimum – nur bei bekannten Maßen, geraten wird nicht. */
+export function tooSmall({ width, height }: Probe): boolean {
+  return !!width && !!height && Math.min(width, height) < MIN_EDGE;
 }
 
 /** Was am Encoder eingestellt wird. Leer heißt: nimm, was mediabunny vorschlägt. */
@@ -79,6 +98,14 @@ export function encodeTarget({ bitrate, width, height }: Probe): Target {
     const scale = MAX_EDGE / Math.max(width, height);
     target.width = even(width * scale);
     target.height = even(height * scale);
+  } else if (width && height && Math.min(width, height) < MIN_EDGE) {
+    // Hochskalieren auf HD: kurze Kante Richtung 1080, lange Kante nie über
+    // MAX_EDGE hinaus. Die Quell-Bitrate wäre für die vervielfachte Fläche
+    // viel zu knapp und ergäbe Matsch – der Encoder wählt selbst.
+    const scale = Math.min(HD_EDGE / Math.min(width, height), MAX_EDGE / Math.max(width, height));
+    target.width = even(width * scale);
+    target.height = even(height * scale);
+    delete target.bitrate;
   }
   return target;
 }
@@ -168,8 +195,17 @@ export async function toMetaReady(
   if (action === "transcode") {
     const blocker = await cannotHandle(mb, videoTrack, target);
     // Lieber das Original hochladen als den Upload zu verweigern: bisher ging
-    // die Datei ja auch unverändert raus.
-    if (blocker) return { file, action: "passthrough", note: blocker };
+    // die Datei ja auch unverändert raus. Ein zu kleines Video wird Meta für
+    // Instagram allerdings ablehnen – das steht dann dran, statt später als
+    // Rätsel im Anzeigenentwurf aufzutauchen.
+    if (blocker)
+      return {
+        file,
+        action: "passthrough",
+        note: tooSmall(probe)
+          ? `Auflösung unter Instagrams Minimum (${MIN_EDGE} px), Hochskalieren nicht möglich – ${blocker}`
+          : blocker,
+      };
   }
 
   const output = new mb.Output({
