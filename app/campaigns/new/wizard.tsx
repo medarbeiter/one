@@ -1071,6 +1071,11 @@ function WizardSteps({
             frage="Passt alles?"
             satz="Kampagne, Anzeigengruppen und Anzeigen werden pausiert angelegt — es läuft nichts los und kostet nichts, bevor du sie bei Meta startest."
           >
+            {/* Zwei Spalten, sobald Platz ist: links die Prüfliste, rechts das
+                Telefon. Untereinander ließ die Vorschau die halbe Seite leer –
+                und wer prüft, will Zahlen und Anzeige gleichzeitig sehen. */}
+            <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)]">
+            <div className="flex min-w-0 flex-col gap-6">
             {/* Der Kampagnenname ist der Titel dieser Tafel und nicht eine Zeile
                 darin: er ist das, was gleich bei Meta stehen wird. */}
             <Angaben
@@ -1109,39 +1114,6 @@ function WizardSteps({
               </List>
             </Infotafel>
 
-            {/* Die Anzeige, wie sie später aussieht – erst hier, weil die Texte
-                fertig sind. Bei mehreren Standorten eine Vorschau mit Auswahl
-                statt einer Reihe untereinander: die Texte unterscheiden sich
-                meist nur in einer Zeile. Mit Überschrift: ohne sie stand das
-                Telefonbild ohne ein Wort dazu zwischen zwei Aufzählungen und
-                sah aus wie eine schon angelegte Anzeige. */}
-            {previewSet && (
-              <section className="flex flex-col gap-3">
-                <Text type="large" weight="medium" as="h3">
-                  Vorschau
-                </Text>
-                {state.adSets.length > 1 && (
-                  <Selector
-                    label="Standort für die Vorschau"
-                    isLabelHidden
-                    options={state.adSets.map((s) => ({ value: s.id, label: s.name }))}
-                    value={previewSet.id}
-                    onChange={setPreviewSetId}
-                    className="max-w-xs"
-                    width="100%"
-                  />
-                )}
-                <div className="max-w-sm">
-                  <Preview
-                    adSet={previewSet}
-                    pageName={client?.pageName ?? ""}
-                    pageId={client?.pageId ?? ""}
-                    adAccount={state.adAccount}
-                  />
-                </div>
-              </section>
-            )}
-
             {/* Was Meta ohnehin ablehnen würde – hier kostet es einen Klick, dort
                 einen halb angelegten Kampagnenbaum. */}
             {blocked && (
@@ -1177,6 +1149,37 @@ function WizardSteps({
             {submission && (
               <ReceiptPanel state={result} submission={submission} onRetry={submitWizard} />
             )}
+            </div>
+
+            {/* Die Anzeige, wie sie später aussieht – erst hier, weil die Texte
+                fertig sind. Bei mehreren Standorten eine Vorschau mit Auswahl
+                statt einer Reihe untereinander: die Texte unterscheiden sich
+                meist nur in einer Zeile. Klebt beim Rollen oben, damit die
+                Anzeige neben jeder Zeile der Prüfliste sichtbar bleibt. */}
+            {previewSet && (
+              <section className="flex min-w-0 flex-col gap-3 lg:sticky lg:top-6">
+                <Text type="large" weight="medium" as="h3">
+                  Vorschau
+                </Text>
+                {state.adSets.length > 1 && (
+                  <Selector
+                    label="Standort für die Vorschau"
+                    isLabelHidden
+                    options={state.adSets.map((s) => ({ value: s.id, label: s.name }))}
+                    value={previewSet.id}
+                    onChange={setPreviewSetId}
+                    width="100%"
+                  />
+                )}
+                <Preview
+                  adSet={previewSet}
+                  pageName={client?.pageName ?? ""}
+                  pageId={client?.pageId ?? ""}
+                  adAccount={state.adAccount}
+                />
+              </section>
+            )}
+            </div>
           </Step>
         )}
 

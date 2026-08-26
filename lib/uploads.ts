@@ -113,24 +113,30 @@ function phase<T = unknown>(
   return graph<T>(`${acct}/advideos`, { method: "POST", body: fd });
 }
 
-// ponytail: 5s-Polling, Decke bei ~5 Min. Erst auf Job-Queue umbauen, wenn Videos
-// regelmäßig länger encodieren oder mehrere parallel hochgeladen werden.
-async function waitForVideo(id: string, tries = 60) {
-  for (let i = 0; i < tries; i++) {
+// ponytail: Polling mit wachsendem Abstand (5s → 30s), Decke bei ~5 Min. Das
+// feste 5s-Raster stand mit ~60 Status-Reads je Video ganz oben in Metas
+// Rate-Limit-Statistik; so sind es höchstens ~14. Erst auf Job-Queue umbauen,
+// wenn Videos regelmäßig länger encodieren oder mehrere parallel hochladen.
+async function waitForVideo(id: string, timeoutMs = 5 * 60_000) {
+  const started = Date.now();
+  for (let delay = 5000; ; delay = Math.min(delay * 1.5, 30_000)) {
     const { status } = await graph<{ status: { video_status: string } }>(id, {
       params: { fields: "status" },
     });
     if (status?.video_status === "ready") return;
     if (status?.video_status === "error")
       throw new Error(`Video ${id}: processing failed`);
-    await new Promise((r) => setTimeout(r, 5000));
+    if (Date.now() - started >= timeoutMs)
+      throw new Error(`Video ${id} still not processed after 5 minutes`);
+    await new Promise((r) => setTimeout(r, delay));
   }
-  throw new Error(`Video ${id} still not processed after 5 minutes`);
 }
 
 export async function videoThumbnail(videoId: string): Promise<string> {
+  // Thumbnails eines fertigen Videos ändern sich nicht mehr – jeder Read
+  // danach ist derselbe. Ein Tag gecacht; die Adresse ist signiert und hält.
   const { data } = await graph<{
     data: { uri: string; is_preferred: boolean }[];
-  }>(`${videoId}/thumbnails`);
+  }>(`${videoId}/thumbnails`, { revalidate: 3600, tags: ["video"] });
   return (data.find((t) => t.is_preferred) ?? data[0]).uri;
 }

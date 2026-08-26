@@ -112,6 +112,27 @@ function Media({
   return <img src={url} alt="" className={`h-full w-full ${fit}`} />;
 }
 
+/** Der angeschnittene nächste Beitrag unter der Anzeige: füllt die restliche
+ *  Displayhöhe wie ein echter Feed, statt sie grau leer zu lassen. */
+function GhostPost() {
+  return (
+    <div aria-hidden className="mt-2 rounded-lg bg-white p-3 shadow-sm">
+      <div className="flex items-center gap-2">
+        <div className="size-10 rounded-full bg-[#E4E6EB]" />
+        <div className="space-y-1.5">
+          <div className="h-2.5 w-28 rounded bg-[#E4E6EB]" />
+          <div className="h-2 w-16 rounded bg-[#E4E6EB]" />
+        </div>
+      </div>
+      <div className="mt-3 space-y-1.5">
+        <div className="h-2.5 w-full rounded bg-[#E4E6EB]" />
+        <div className="h-2.5 w-3/4 rounded bg-[#E4E6EB]" />
+      </div>
+      <div className="mt-3 aspect-video rounded bg-[#E4E6EB]" />
+    </div>
+  );
+}
+
 /** Kein Medium gewählt – die Fläche sagt, was hierher gehört. */
 function EmptyMedia({ dark }: { dark?: boolean }) {
   return (
@@ -256,6 +277,7 @@ function FeedSurface({
           ))}
         </div>
       </div>
+      <GhostPost />
     </div>
   );
 }
@@ -420,10 +442,11 @@ export function Preview({
           />
         )}
 
-        {/* Der Telefonrahmen: schwarze Blende, 9:18 – hoch genug für den
-            ganzen Feed-Beitrag, ohne die Karte zu sprengen. */}
-        <div className="mx-auto w-full max-w-[300px] overflow-hidden rounded-[2rem] border-[6px] border-black bg-black shadow-lg">
-          <div className="relative aspect-[9/18] overflow-hidden">
+        {/* Der Telefonrahmen: schwarze Blende, 9:16 wie ein echtes Display.
+            Der Feed füllt die Höhe mit dem angeschnittenen nächsten Beitrag,
+            Story und Reel füllen sie ohnehin. */}
+        <div className="mx-auto w-full max-w-[340px] overflow-hidden rounded-[2rem] border-[6px] border-black bg-black shadow-lg">
+          <div className="relative aspect-[9/16] overflow-hidden">
             {surface === "feed" ? (
               <FeedSurface {...shared} body={body} title={title} description={adSet.description} />
             ) : surface === "story" ? (

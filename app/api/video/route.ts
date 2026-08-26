@@ -16,11 +16,21 @@ export async function GET(request: Request) {
     return Response.json({ error: "id fehlt oder ist keine Video-ID." }, { status: 400 });
 
   try {
-    const { source } = await graph<{ source?: string }>(id, { params: { fields: "source" } });
+    // 5 Minuten gecacht – auf dem Server wie im Browser. Die CDN-Adresse ist
+    // signiert und läuft nach Stunden ab, nicht nach Minuten; ohne Cache
+    // kostete jedes Abspielen in der Vorschau einen frischen Graph-Read
+    // (gr:get:Video stand damit ganz oben in Metas Rate-Limit-Statistik).
+    const { source } = await graph<{ source?: string }>(id, {
+      params: { fields: "source" },
+      revalidate: 300,
+      tags: ["video", `video:${id}`],
+    });
     if (!source)
       return Response.json({ error: "Video noch nicht abrufbar." }, { status: 404 });
-    // Nicht cachen: die CDN-Adresse ist signiert und läuft ab.
-    return Response.redirect(source, 302);
+    return new Response(null, {
+      status: 302,
+      headers: { location: source, "cache-control": "private, max-age=300" },
+    });
   } catch (e) {
     return Response.json({ error: (e as Error).message }, { status: 500 });
   }
