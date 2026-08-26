@@ -1135,6 +1135,7 @@ function WizardSteps({
                   <Preview
                     adSet={previewSet}
                     pageName={client?.pageName ?? ""}
+                    pageId={client?.pageId ?? ""}
                     adAccount={state.adAccount}
                   />
                 </div>
