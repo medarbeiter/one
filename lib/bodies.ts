@@ -52,7 +52,7 @@ Bei uns erwarten Dich…
 
 🏖️ {Benefit 1}
 🚲 {Benefit 2}
-🎄 {Benefit 3 – je Benefit eine eigene Zeile mit eigenem, passendem Emoji; die Liste wird so lang wie die Benefit-Liste}
+🎄 {Benefit 3 – je Benefit eine eigene Zeile mit eigenem, passendem Emoji; höchstens 5 Zeilen, bei mehr Benefits die stärksten wählen und mit „Und mehr…“ schließen}
 
 Hast Du Lust auf ein tolles Miteinander und möchtest Dich weiterentwickeln?
 
@@ -162,9 +162,11 @@ function prompt({ business, roles, roleFreeText, place, benefits }: BodiesInput,
 
   return `Du schreibst den Primärtext einer Meta-Stellenanzeige (Facebook/Instagram) einer Personalmarketing-Agentur für Pflegeeinrichtungen.
 
-Schreibe genau einen deutschen Primärtext für die folgende Kampagne, im Stil und in ähnlicher Länge der Vorlage unten. Ersetze alle Platzhalter und alle AWO-Greiz-spezifischen Angaben durch die Kampagnenfakten. Duze die Lesenden. Erfinde keine Fakten: nur die genannten Rollen, den genannten Ort und die genannten Benefits verwenden. Der Text endet mit einer Aufforderung, auf „Jetzt bewerben“ zu klicken (bei der Kurzform optional).
+Schreibe genau einen deutschen Primärtext für die folgende Kampagne, im Stil und in ähnlicher Länge der Vorlage unten. Ersetze alle Platzhalter und alle AWO-Greiz-spezifischen Angaben durch die Kampagnenfakten. Du darfst die Formulierungen der Vorlage frei umschreiben, damit nicht jede Anzeige gleich klingt – Struktur, Ton und Länge bleiben erhalten. Duze die Lesenden. Erfinde keine Fakten: nur die genannten Rollen, den genannten Ort und die genannten Benefits verwenden. Gegen Ende steht eine Aufforderung, auf „Jetzt bewerben“ zu klicken (bei der Kurzform optional).
 
-Formatierung: Übernimm die Formatierung der Vorlage exakt – Absätze, Leerzeilen, Emojis und vor allem den Listenstil. Enthält die Vorlage eine Benefit-Liste, bekommt JEDER Benefit eine eigene Zeile mit genau einem Aufzählungszeichen im Stil der Vorlage (✅, ✔ oder ein thematisch passendes Emoji je Zeile – bei Emoji-Listen für jeden Benefit ein anderes, inhaltlich passendes). Niemals mehrere Benefits in eine Zeile zusammenziehen; die Liste wird so lang wie die Benefit-Liste in den Kampagnenfakten.
+Der Text endet IMMER mit dem Block der offenen Stellen – auch wenn die Vorlage keinen hat: eine Zeile wie „Wir haben aktuell noch Stellen offen für:“ (darf umformuliert sein, nie weggelassen), darunter je gesuchte Rolle eine eigene Zeile mit ✅ am Anfang.
+
+Formatierung: Reiner Text – Meta unterstützt KEIN Markdown. Keine **Sternchen**, keine #-Überschriften, keine Markdown-Listen mit - oder *; nur Absätze, Leerzeilen und Emojis wie in der Vorlage. Übernimm den Listenstil der Vorlage: JEDER genannte Benefit bekommt eine eigene Zeile mit genau einem Aufzählungszeichen im Stil der Vorlage (✅, ✔ oder ein thematisch passendes Emoji je Zeile – bei Emoji-Listen für jeden Benefit ein anderes, inhaltlich passendes). Niemals mehrere Benefits in eine Zeile zusammenziehen. Höchstens 5 Benefit-Zeilen: Stehen mehr Benefits in den Kampagnenfakten, wähle die stärksten aus und schließe die Liste mit einer Zeile wie „Und mehr…“ ab.
 
 KAMPAGNENFAKTEN:
 ${fakten}
@@ -181,6 +183,8 @@ Antworte ausschließlich mit dem fertigen Primärtext – ohne Anführungszeiche
 export function parseBody(content: string): string {
   const text = content
     .replace(/^\s*```[a-z]*\s*|\s*```\s*$/g, "")
+    // Meta rendert kein Markdown – **fett** aus dem Modell wäre sichtbarer Müll.
+    .replace(/\*\*/g, "")
     .trim()
     .replace(/^["„]|["“]$/g, "")
     .trim();
