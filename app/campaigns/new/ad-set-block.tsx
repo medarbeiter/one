@@ -491,14 +491,10 @@ export function AdSetBlock({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageId]);
 
-  // Laut Spec nur Bestätigung, keine Auswahl – aber buildCreative() braucht den
-  // Wert im State, sonst kommt er nie in der Kampagne an.
-  useEffect(() => {
-    if (instagramUserId && value.instagramUserId !== instagramUserId) {
-      onChange({ instagramUserId });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [instagramUserId]);
+  // Laut Spec nur Bestätigung, keine Auswahl. Der Wert selbst reist nicht mehr
+  // über diesen Block in den State: die Submission setzt ihn aus dem Kunden auf
+  // jede Anzeigengruppe (wizard.tsx, onCreate) – ein Mount-Effekt hier erreichte
+  // nur Blöcke, die auch aufgeklappt wurden.
 
   /**
    * Der ganze Ordner geht auf einmal los, und zwar außerhalb dieser Komponente:

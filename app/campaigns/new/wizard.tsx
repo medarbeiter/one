@@ -284,8 +284,16 @@ function WizardSteps({
   defaultAccount,
   defaultBusiness,
 }: WizardProps) {
-  const { state, setState, loaded, restored, others, resume, remove, discard, forget } =
+  const { state, setState, loaded, restored, others, save, resume, remove, discard, forget } =
     useWizardState(initialState(defaultAccount, defaultBusiness));
+  // Kurz „Gespeichert“ zeigen, dann zurück – ein Knopf ohne Reaktion sieht
+  // kaputt aus, ein Toast wäre für diese eine Bestätigung zu viel Apparat.
+  const [justSaved, setJustSaved] = useState(false);
+  const saveDraft = () => {
+    save();
+    setJustSaved(true);
+    setTimeout(() => setJustSaved(false), 2000);
+  };
   const [step, setStep] = useState("0");
   const customerFieldRef = useRef<HTMLDivElement>(null);
   // ⇧K öffnet die Kundensuche von überall, außer jemand tippt gerade in ein
@@ -578,6 +586,11 @@ function WizardSteps({
       // einzelnen Anzeigen ab.
       adSets: state.adSets.map(({ id: _id, loose: _loose, ads, ...rest }) => ({
         ...rest,
+        // Aus dem Kunden, nicht aus dem Ad-Set-State: der wurde früher per
+        // Mount-Effekt im Block befüllt – ein Standort, dessen Block nie
+        // aufging, startete dann ohne Instagram-Konto und fiel erst bei Meta
+        // durch („Wähle ein Instagram-Konto oder eine Facebook-Seite aus …“).
+        instagramUserId: instagram?.id,
         ads: ads.map(toAdInput),
       })),
     });
@@ -1208,6 +1221,17 @@ function WizardSteps({
             />
 
             <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-3">
+              {/* Von Hand speichern, ohne auf die automatische Speicherung zu
+                  warten – gerade vor dem Schließen des Tabs will man das sicher
+                  wissen. aria-live sagt den Wechsel zu „Gespeichert“ an. */}
+              <span aria-live="polite">
+                <Button
+                  variant="ghost"
+                  label={justSaved ? "Gespeichert ✓" : "Entwurf speichern"}
+                  isDisabled={pending || justSaved}
+                  onClick={saveDraft}
+                />
+              </span>
               {/* aria-live: der Satz wechselt, während man in einem Feld tippt –
                   wer nicht hinsieht, erführe die Änderung sonst nicht. */}
               {fussHinweis && (

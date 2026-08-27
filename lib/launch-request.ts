@@ -10,8 +10,8 @@ import {
 } from "./customers";
 import { locationKey, locationProblem } from "./geo";
 import { estimateReach as realEstimateReach } from "./geo-search";
-import { GraphError, LESS_PERSONALIZED_ADS, graph as realGraph } from "./graph";
-import type { AdSetInput, LaunchInput, LaunchProgress, Receipt } from "./launch";
+import { GraphError, LESS_PERSONALIZED_ADS, batch as realBatch, graph as realGraph } from "./graph";
+import { buildCreative, type AdSetInput, type LaunchInput, type LaunchProgress, type Receipt } from "./launch";
 import type { Check } from "./verify";
 
 export type WizardSubmission = Omit<LaunchInput, "adAccount" | "pageId"> & {
@@ -138,7 +138,66 @@ export type ResolveLaunchDeps = {
   listCustomers?: typeof realListCustomers;
   estimateReach?: typeof realEstimateReach;
   graph?: typeof realGraph;
+  batch?: typeof realBatch;
 };
+
+/**
+ * Jede Anzeigengestaltung, wie sie später wirklich an Meta geht, einmal mit
+ * execution_options=['validate_only'] durchspielen – ein Batch-Aufruf, es
+ * entsteht nichts. Die Identitätsprobe darüber prüft nur Seite und Instagram-
+ * Konto; was an der konkreten Gestaltung scheitert (Formular, Medium, Texte,
+ * fehlende Instagram-Identität bei Instagram-Platzierungen), fiele sonst erst
+ * auf, wenn Kampagne und Anzeigengruppen schon bei Meta stehen.
+ *
+ * Und wie bei den Proben darüber: nur ein endgültiges Nein hält auf. Ein
+ * Rate-Limit oder Aussetzer ist ein Befund über den Moment, nicht über die
+ * Anzeige – und ein Fehler des Batch-Aufrufs selbst erst recht.
+ */
+async function rejectedCreative(
+  adSets: AdSetInput[],
+  adAccount: string,
+  pageId: string,
+  deps: ResolveLaunchDeps,
+): Promise<string | undefined> {
+  const batch = deps.batch ?? realBatch;
+  const jobs = adSets.flatMap((s) =>
+    s.ads.map((ad) => ({ setName: s.name, adName: ad.name, set: s, ad })),
+  );
+  const reqs = jobs.map(({ set, ad }) => ({
+    method: "POST" as const,
+    relative_url: `${adAccount}/adcreatives`,
+    body: {
+      name: ad.name,
+      ...buildCreative({
+        pageId,
+        instagramUserId: set.instagramUserId,
+        formId: set.formId,
+        bodies: set.bodies,
+        titles: set.titles,
+        description: set.description,
+        ad,
+      }),
+      execution_options: ["validate_only"],
+    },
+  }));
+
+  let items: PromiseSettledResult<unknown>[];
+  try {
+    items = await batch(reqs);
+  } catch {
+    return undefined;
+  }
+  for (const [i, item] of items.entries()) {
+    if (item.status !== "rejected") continue;
+    const e = item.reason;
+    if (!(e instanceof GraphError) || e.retryable || e.kind === "rate") continue;
+    return (
+      `Meta lehnt die Anzeige „${jobs[i].adName}“ in „${jobs[i].setName}“ ab: „${e.message}“ ` +
+      `Es wurde nichts angelegt — behebe das zuerst, sonst stünde die Kampagne halb bei Meta.`
+    );
+  }
+  return undefined;
+}
 
 /**
  * Konto und Seite werden hier neu aufgelöst, nicht vom Client übernommen –
@@ -247,6 +306,11 @@ export async function resolveLaunch(
             `Instagram-Konto dem System User und diesem Werbekonto zugewiesen sind.`,
     };
   }
+
+  // Zuletzt, nach den Identitätsproben: deren Meldungen sind die besseren
+  // (kuratierter Text samt Link), wenn beide denselben Zustand träfen.
+  const rejected = await rejectedCreative(input.adSets, adAccount, client.page.id, deps);
+  if (rejected) return { error: rejected };
 
   return { adAccount, pageId: client.page.id };
 }

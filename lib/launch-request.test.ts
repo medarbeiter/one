@@ -20,12 +20,14 @@ const fakeCustomer: Customer = {
   issues: [],
 };
 
-// estimateReach() und graph() aus demselben Grund: Standort- und
-// Identitätsprüfung fragen sonst Meta.
+// estimateReach(), graph() und batch() aus demselben Grund: Standort-,
+// Identitäts- und Creative-Prüfung fragen sonst Meta.
 const deps = {
   listCustomers: async () => ({ customers: [fakeCustomer], errors: [], issues: [] }),
   estimateReach: async () => ({ ready: true as const, lower: 100_000, upper: 200_000 }),
   graph: async () => ({ success: true }) as any,
+  batch: (async (reqs: any[]) =>
+    reqs.map(() => ({ status: "fulfilled" as const, value: { success: true } }))) as any,
 };
 
 const ugcAd: AdInput = {
@@ -301,6 +303,65 @@ test("eine fehlende Zuweisung wird als solche erklärt, nicht als Werbepräferen
   });
   expect((result as { error: string }).error).toContain("Business Manager");
   expect((result as { error: string }).error).not.toContain("Werbepräferenzen");
+});
+
+test("jede Gestaltung wird mit validate_only durchgespielt – ein endgültiges Nein hält auf", async () => {
+  // Der Fall aus der Praxis: die Identitätsprobe (nur Seite + Instagram) ging
+  // durch, aber die echte Gestaltung fiel durch („Wähle ein Instagram-Konto
+  // oder eine Facebook-Seite aus …“) – nachdem Kampagne und Anzeigengruppen
+  // schon standen. Die Probe muss deshalb die echten Creatives spielen.
+  let sent: any[] = [];
+  const zwei: WizardSubmission = {
+    ...base,
+    adSets: [base.adSets[0], { ...base.adSets[0], name: "Ads 2", ads: [splitAd] }],
+  };
+  const result = await resolveLaunch(zwei, {
+    ...deps,
+    batch: (async (reqs: any[]) => {
+      sent = reqs;
+      return reqs.map((_, i) =>
+        i === 1
+          ? {
+              status: "rejected" as const,
+              reason: new GraphError({
+                kind: "unknown",
+                message: "Wähle ein Instagram-Konto oder eine Facebook-Seite aus.",
+                retryable: false,
+              }),
+            }
+          : { status: "fulfilled" as const, value: { success: true } },
+      );
+    }) as any,
+  });
+  // Eine Anfrage je Anzeige, jede als validate_only – es entsteht nichts.
+  expect(sent).toHaveLength(2);
+  for (const r of sent) expect(r.body.execution_options).toEqual(["validate_only"]);
+  const { error } = result as { error: string };
+  expect(error).toContain("„s.jpg“");
+  expect(error).toContain("„Ads 2“");
+  expect(error).toContain("Wähle ein Instagram-Konto");
+});
+
+test("scheitert die Creative-Probe selbst oder nur vorübergehend, hält sie nichts auf", async () => {
+  // Ein Rate-Limit oder ein Aussetzer ist ein Befund über den Moment.
+  expect(
+    await resolveLaunch(base, {
+      ...deps,
+      batch: (async (reqs: any[]) =>
+        reqs.map(() => ({
+          status: "rejected" as const,
+          reason: new GraphError({ kind: "rate", message: "später", retryable: true }),
+        }))) as any,
+    }),
+  ).toEqual({ adAccount: "act_1", pageId: "p1" });
+  expect(
+    await resolveLaunch(base, {
+      ...deps,
+      batch: (async () => {
+        throw new Error("network down");
+      }) as any,
+    }),
+  ).toEqual({ adAccount: "act_1", pageId: "p1" });
 });
 
 test("scheitert die Identitätsprüfung selbst, hält sie nichts auf", async () => {

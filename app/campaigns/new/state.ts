@@ -533,6 +533,19 @@ export function useWizardState(defaults: WizardState) {
     setDrafts(next);
   }, [state, loaded]);
 
+  /**
+   * Sofort speichern, ohne die Zwei-Änderungen-Hürde – der Knopf im Assistenten.
+   * Danach zählt der Tab als Entwurf und jede weitere Änderung speichert von
+   * selbst (shouldSave mit hasDraft=true).
+   */
+  const save = () => {
+    const id = (current.current ??= crypto.randomUUID());
+    sessionStorage.setItem(CURRENT_KEY, id);
+    const next = upsertDraft(readDrafts(), { id, savedAt: Date.now(), state });
+    writeDrafts(next);
+    setDrafts(next);
+  };
+
   /** Diesen Tab von vorn beginnen lassen; der bisherige Entwurf bleibt liegen. */
   const detach = () => {
     current.current = undefined;
@@ -604,6 +617,7 @@ export function useWizardState(defaults: WizardState) {
     loaded,
     restored,
     others: drafts.filter((d) => d.id !== current.current),
+    save,
     resume,
     remove,
     discard,
