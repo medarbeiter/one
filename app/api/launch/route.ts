@@ -26,7 +26,17 @@ export async function POST(request: Request) {
     const resolved = await resolveLaunch(input);
     if ("error" in resolved) return sink.push({ type: "result", error: resolved.error });
 
-    const plan = { ...input, ...resolved };
+    // resolved.instagramUserId ist die PBIA der Seite: die Identität, mit der
+    // Anzeigengruppen ohne Instagram-Konto auf Instagram auftreten. Sie muss in
+    // genau diese Gruppen – resolveLaunch() hat mit ihr geprobt, und ohne sie
+    // lehnt Meta jede Anzeige mit Instagram-Platzierungen ab.
+    const plan = {
+      ...input,
+      ...resolved,
+      adSets: input.adSets.map((s) =>
+        s.instagramUserId ? s : { ...s, instagramUserId: resolved.instagramUserId },
+      ),
+    };
     // Der Nenner steht vor dem ersten Aufruf fest, damit die Anzeige nicht bei
     // "1 von 1" beginnt und sich dann nach hinten verschiebt.
     const total = launchSteps(plan);

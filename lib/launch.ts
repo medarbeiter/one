@@ -84,18 +84,15 @@ export function buildCreative(i: CreativeInput) {
     throw new Error("Meta erlaubt höchstens 5 Primärtexte und 5 Überschriften.");
   if (!i.formId) throw new Error("Ein Lead-Formular muss ausgewählt sein.");
 
-  const creative =
-    i.ad.type === "ugc"
-      ? ugcCreative(i, i.ad)
-      : i.ad.type === "single"
-        ? singleCreative(i, i.ad)
-        : splitCreative(i, i.ad);
-  // Kunde ohne verknüpftes Instagram-Konto: Meta nutzt die Seite NICHT von
-  // selbst als Instagram-Identität – jede Anzeige mit Instagram-Platzierungen
-  // fällt dann durch („Wähle ein Instagram-Konto oder eine Facebook-Seite
-  // aus …“). use_page_actor_override sagt genau das Fehlende: präsentiere die
-  // Facebook-Seite auf Instagram (Page-Backed Instagram Account).
-  return i.instagramUserId ? creative : { ...creative, use_page_actor_override: true };
+  // instagramUserId ist immer gesetzt, wenn Instagram-Platzierungen laufen
+  // sollen – ohne verknüpftes Konto ist es die PBIA der Seite, die
+  // resolveLaunch() einsetzt. use_page_actor_override stand hier einmal als
+  // Ersatz: Meta speichert das Feld am Creative, wertet es beim Anlegen der
+  // Anzeige aber nicht – jede Anzeige fiel mit „Wähle ein Instagram-Konto …“
+  // (subcode 1772103) durch. Nachgestellt am 27.8.2026 gegen v26.0.
+  if (i.ad.type === "ugc") return ugcCreative(i, i.ad);
+  if (i.ad.type === "single") return singleCreative(i, i.ad);
+  return splitCreative(i, i.ad);
 }
 
 /**

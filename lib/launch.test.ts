@@ -42,16 +42,19 @@ const input = {
   ad: ugcAd,
 };
 
-test("ohne Instagram-Konto tritt die Seite selbst auf Instagram auf", () => {
-  // Kunde ohne verknüpftes Instagram (z. B. MeVita): ohne diese Flagge lehnt
-  // Meta jede Anzeige mit Instagram-Platzierungen ab – „Wähle ein Instagram-
-  // Konto oder eine Facebook-Seite aus …“. Mit Konto darf sie nicht stehen,
-  // sonst überstimmte die Seite das echte Instagram-Konto.
+test("use_page_actor_override steht nie am Creative", () => {
+  // Der Ersatz für ein fehlendes Instagram-Konto stand einmal hier: Meta
+  // speichert das Feld, wertet es beim Anlegen der Anzeige aber nicht – jede
+  // Anzeige fiel mit „Wähle ein Instagram-Konto …“ (1772103) durch. Die
+  // Identität kommt seitdem immer als instagram_user_id (ohne Konto: die PBIA
+  // der Seite, siehe resolveLaunch); ohne sie bleibt das Feld schlicht weg.
   for (const ad of [ugcAd, splitAd, singleAd]) {
     const ohne = buildCreative({ ...input, instagramUserId: undefined, ad }) as any;
-    expect(ohne.use_page_actor_override).toBe(true);
+    expect("use_page_actor_override" in ohne).toBe(false);
+    expect("instagram_user_id" in ohne.object_story_spec).toBe(false);
     const mit = buildCreative({ ...input, ad }) as any;
     expect("use_page_actor_override" in mit).toBe(false);
+    expect(mit.object_story_spec.instagram_user_id).toBe("17841436659257779");
   }
 });
 

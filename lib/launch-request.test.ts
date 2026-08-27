@@ -21,11 +21,15 @@ const fakeCustomer: Customer = {
 };
 
 // estimateReach(), graph() und batch() aus demselben Grund: Standort-,
-// Identitäts- und Creative-Prüfung fragen sonst Meta.
+// Identitäts- und Creative-Prüfung fragen sonst Meta. Die PBIA-Edge antwortet
+// mit einer Id: base hat kein Instagram-Konto, also holt resolveLaunch() die
+// Instagram-Identität der Seite, bevor irgendetwas anderes gefragt wird.
+const pbiaAnswer = (path: string): any =>
+  path.endsWith("page_backed_instagram_accounts") ? { data: [{ id: "pbia1" }] } : undefined;
 const deps = {
   listCustomers: async () => ({ customers: [fakeCustomer], errors: [], issues: [] }),
   estimateReach: async () => ({ ready: true as const, lower: 100_000, upper: 200_000 }),
-  graph: async () => ({ success: true }) as any,
+  graph: (async (path: string) => pbiaAnswer(path) ?? { success: true }) as any,
   batch: (async (reqs: any[]) =>
     reqs.map(() => ({ status: "fulfilled" as const, value: { success: true } }))) as any,
 };
@@ -63,7 +67,7 @@ const base: WizardSubmission = {
 };
 
 test("eine gültige Anzeigengruppe kommt durch", async () => {
-  expect(await resolveLaunch(base, deps)).toEqual({ adAccount: "act_1", pageId: "p1" });
+  expect(await resolveLaunch(base, deps)).toEqual({ adAccount: "act_1", pageId: "p1", instagramUserId: "pbia1" });
 });
 
 test("ein Radius, den Meta nicht annimmt, hält vor der ersten Anfrage auf", async () => {
@@ -105,7 +109,7 @@ test("eine Anzeigengruppe ohne Adresse braucht einen Ort", async () => {
       },
     ],
   };
-  expect(await resolveLaunch(mitOrt, deps)).toEqual({ adAccount: "act_1", pageId: "p1" });
+  expect(await resolveLaunch(mitOrt, deps)).toEqual({ adAccount: "act_1", pageId: "p1", instagramUserId: "pbia1" });
 });
 
 test("eine Seite ohne angenommene Lead-Bedingungen wird vor Meta abgefangen", async () => {
@@ -135,7 +139,7 @@ test("eine Seite mit unlesbarem Bedingungs-Status wird nicht blockiert", async (
   // "nicht angenommen": im echten Bestand betrifft es rund fünfzig Seiten,
   // deren Bedingungen längst stehen, und die dürfen weiter Kampagnen bekommen.
   expect(fakeCustomer.page?.leadgen_tos_accepted).toBeUndefined();
-  expect(await resolveLaunch(base, deps)).toEqual({ adAccount: "act_1", pageId: "p1" });
+  expect(await resolveLaunch(base, deps)).toEqual({ adAccount: "act_1", pageId: "p1", instagramUserId: "pbia1" });
 });
 
 test("genau fünf Primärtexte und Überschriften sind das erlaubte Maximum, kein Fehler", async () => {
@@ -148,7 +152,7 @@ test("genau fünf Primärtexte und Überschriften sind das erlaubte Maximum, kei
     ...base,
     adSets: [{ ...base.adSets[0], bodies: Array(5).fill("b"), titles: Array(5).fill("t") }],
   };
-  expect(await resolveLaunch(atMax, deps)).toEqual({ adAccount: "act_1", pageId: "p1" });
+  expect(await resolveLaunch(atMax, deps)).toEqual({ adAccount: "act_1", pageId: "p1", instagramUserId: "pbia1" });
 });
 
 test("eine Anzeigengruppe ohne Primärtext oder Überschrift wird vor Meta abgefangen", async () => {
@@ -235,7 +239,7 @@ test("scheitert die Prüfung selbst, hält sie nichts auf", async () => {
         throw new Error("(#80004) rate limit");
       },
     }),
-  ).toEqual({ adAccount: "act_1", pageId: "p1" });
+  ).toEqual({ adAccount: "act_1", pageId: "p1", instagramUserId: "pbia1" });
 });
 
 /**
@@ -255,7 +259,10 @@ const lpa = () => {
 };
 
 test("weniger personalisierte Werbung hält vor dem ersten Schreibzugriff auf", async () => {
-  const result = await resolveLaunch(base, { ...deps, graph: lpa as any });
+  const result = await resolveLaunch(base, {
+    ...deps,
+    graph: (async (path: string) => pbiaAnswer(path) ?? lpa()) as any,
+  });
   expect(result).toHaveProperty("error");
   const { error } = result as { error: string };
   // Metas eigener Wortlaut muss durchkommen: nur er nennt das Konto, das die
@@ -292,7 +299,9 @@ test("die Identität wird mit validate_only gefragt – es entsteht nichts", asy
 test("eine fehlende Zuweisung wird als solche erklärt, nicht als Werbepräferenz", async () => {
   const result = await resolveLaunch(base, {
     ...deps,
-    graph: (() => {
+    graph: (async (path: string) => {
+      const pbia = pbiaAnswer(path);
+      if (pbia) return pbia;
       throw new GraphError({
         kind: "permission",
         code: 200,
@@ -353,7 +362,7 @@ test("scheitert die Creative-Probe selbst oder nur vorübergehend, hält sie nic
           reason: new GraphError({ kind: "rate", message: "später", retryable: true }),
         }))) as any,
     }),
-  ).toEqual({ adAccount: "act_1", pageId: "p1" });
+  ).toEqual({ adAccount: "act_1", pageId: "p1", instagramUserId: "pbia1" });
   expect(
     await resolveLaunch(base, {
       ...deps,
@@ -361,7 +370,7 @@ test("scheitert die Creative-Probe selbst oder nur vorübergehend, hält sie nic
         throw new Error("network down");
       }) as any,
     }),
-  ).toEqual({ adAccount: "act_1", pageId: "p1" });
+  ).toEqual({ adAccount: "act_1", pageId: "p1", instagramUserId: "pbia1" });
 });
 
 test("scheitert die Identitätsprüfung selbst, hält sie nichts auf", async () => {
@@ -371,9 +380,65 @@ test("scheitert die Identitätsprüfung selbst, hält sie nichts auf", async () 
     expect(
       await resolveLaunch(base, {
         ...deps,
-        graph: (() => {
+        graph: (async (path: string) => {
+          const pbia = pbiaAnswer(path);
+          if (pbia) return pbia;
           throw new GraphError({ kind, message: "gerade nicht", retryable: kind === "rate" });
         }) as any,
       }),
-    ).toEqual({ adAccount: "act_1", pageId: "p1" });
+    ).toEqual({ adAccount: "act_1", pageId: "p1", instagramUserId: "pbia1" });
+});
+
+test("ohne Instagram-Konto probt und startet die Kampagne mit der PBIA der Seite", async () => {
+  // Die Wurzel des „Wähle ein Instagram-Konto …“-Fehlers (1772103): ohne
+  // instagram_user_id am Creative lehnt Meta jede Anzeige mit Instagram-
+  // Platzierungen ab, und use_page_actor_override wird beim Anlegen der
+  // Anzeige nicht gewertet. Die Identitätsprobe muss deshalb mit derselben
+  // PBIA fragen, die der Aufrufer später in die Anzeigengruppen einträgt.
+  const calls: { path: string; params: any }[] = [];
+  const result = await resolveLaunch(base, {
+    ...deps,
+    graph: (async (path: string, opts: any) => {
+      calls.push({ path, params: opts?.params });
+      return pbiaAnswer(path) ?? { success: true };
+    }) as any,
+  });
+  expect(result).toEqual({ adAccount: "act_1", pageId: "p1", instagramUserId: "pbia1" });
+  const probe = calls.find((c) => c.path === "act_1/adcreatives");
+  expect(probe?.params.object_story_spec).toMatchObject({
+    page_id: "p1",
+    instagram_user_id: "pbia1",
+  });
+});
+
+test("hat die Seite noch keine PBIA, wird sie angelegt", async () => {
+  const methods: string[] = [];
+  const result = await resolveLaunch(base, {
+    ...deps,
+    graph: (async (path: string, opts: any) => {
+      if (path.endsWith("page_backed_instagram_accounts")) {
+        methods.push(opts?.method ?? "GET");
+        return opts?.method === "POST" ? { id: "pbia2" } : { data: [] };
+      }
+      return { success: true };
+    }) as any,
+  });
+  expect(methods).toEqual(["GET", "POST"]);
+  expect(result).toEqual({ adAccount: "act_1", pageId: "p1", instagramUserId: "pbia2" });
+});
+
+test("ist die PBIA nicht zu bekommen, hält das auf – jede Anzeige fiele sonst durch", async () => {
+  // Anders als bei den Proben ist das hier kein Befund über den Moment: die Id
+  // steht später in jeder Anzeige, ohne sie kommt exakt der Fehler zurück, den
+  // dieser Weg behebt – nachdem Kampagne und Anzeigengruppen schon stünden.
+  const result = await resolveLaunch(base, {
+    ...deps,
+    graph: (async (path: string) => {
+      if (path.endsWith("page_backed_instagram_accounts"))
+        throw new GraphError({ kind: "rate", message: "gerade nicht", retryable: true });
+      return { success: true };
+    }) as any,
+  });
+  expect(result).toHaveProperty("error");
+  expect((result as { error: string }).error).toContain("Instagram");
 });

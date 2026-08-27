@@ -46,7 +46,61 @@ function needsSecondText(s: AdSetInput): boolean {
   );
 }
 
-export type Resolved = { error: string } | { adAccount: string; pageId: string };
+export type Resolved =
+  | { error: string }
+  | {
+      adAccount: string;
+      pageId: string;
+      /** Page-Backed Instagram Account der Seite – gesetzt, wenn mindestens
+       *  eine Anzeigengruppe ohne Instagram-Konto kam. Der Aufrufer trägt ihn
+       *  in genau diese Anzeigengruppen ein, bevor launch() läuft. */
+      instagramUserId?: string;
+    };
+
+/**
+ * Die Instagram-Identität einer Seite ohne verknüpftes Instagram-Konto: ihr
+ * Page-Backed Instagram Account (PBIA) – unsichtbar für die Seite, nutzbar nur
+ * in Anzeigen. Fast jede Seite des Portfolios hat schon einen (Meta legt ihn
+ * beim ersten Schalten über die Oberfläche an); fehlt er, wird er hier angelegt.
+ *
+ * Warum nicht use_page_actor_override: Meta speichert das Feld am Creative,
+ * wertet es beim Anlegen der Anzeige aber nicht – jede Anzeige mit
+ * Instagram-Platzierungen fällt mit „Wähle ein Instagram-Konto …“ (subcode
+ * 1772103) durch. Nachgestellt am 27.8.2026 gegen v26.0; mit der PBIA als
+ * instagram_user_id ging dieselbe Anzeige durch.
+ *
+ * Ein Fehler hier blockt – anders als bei den Proben: ohne die Id fiele später
+ * jede Anzeige mit Instagram-Platzierungen durch, genau der Fehler, den dieser
+ * Weg behebt.
+ */
+async function pageBackedInstagram(
+  page: { id: string; name: string },
+  deps: ResolveLaunchDeps,
+): Promise<{ id: string } | { error: string }> {
+  const graph = deps.graph ?? realGraph;
+  const edge = `${page.id}/page_backed_instagram_accounts`;
+  try {
+    const existing = await graph<{ data?: { id: string }[] }>(edge, { asPage: page.id });
+    const id =
+      existing.data?.[0]?.id ??
+      (await graph<{ id?: string }>(edge, { method: "POST", asPage: page.id })).id;
+    if (id) return { id };
+  } catch (e) {
+    return {
+      error:
+        `„${page.name}“ hat kein verknüpftes Instagram-Konto, und Meta gibt das Instagram-Auftreten ` +
+        `der Seite (Page-Backed Instagram Account) nicht her: „${e instanceof Error ? e.message : String(e)}“ ` +
+        `Ohne diese Identität lehnt Meta jede Anzeige mit Instagram-Platzierungen ab. Prüfe im ` +
+        `Business Manager, ob die Seite dem System User zugewiesen ist (Aufgabe: MANAGE oder LEADS).`,
+    };
+  }
+  return {
+    error:
+      `„${page.name}“ hat kein verknüpftes Instagram-Konto, und Meta hat auch kein Instagram-Auftreten ` +
+      `der Seite (Page-Backed Instagram Account) eingerichtet — ohne diese Identität lehnt Meta jede ` +
+      `Anzeige mit Instagram-Platzierungen ab.`,
+  };
+}
 
 /**
  * Der einzige Weg, eine getippte Adresse vor dem Anlegen zu prüfen: Meta selbst
@@ -125,9 +179,6 @@ async function forbiddenIdentity(
           // link ist bei Lead-Ads ein Platzhalter – siehe buildCreative().
           link_data: { link: "http://fb.me/", message: "Identitätsprüfung" },
         },
-        // Dieselbe Identität wie in buildCreative(): ohne Instagram-Konto tritt
-        // die Seite selbst auf Instagram auf – die Probe muss das mitfragen.
-        ...(instagramUserId ? {} : { use_page_actor_override: true }),
         execution_options: ["validate_only"],
       },
     });
@@ -287,15 +338,32 @@ export async function resolveLaunch(
   const badLocation = await unresolvableLocation(input.adSets, adAccount, deps);
   if (badLocation) return { error: badLocation };
 
+  // Ohne verknüpftes Instagram-Konto tritt die Seite über ihre PBIA auf – hier
+  // aufgelöst, damit die Proben darunter dieselbe Identität fragen, die später
+  // in den Anzeigen steht. input bleibt unangetastet (die Testfixtures wären
+  // sonst über Testläufe hinweg verändert); der Aufrufer bekommt die Id über
+  // Resolved zurück.
+  let pbiaId: string | undefined;
+  if (input.adSets.some((s) => !s.instagramUserId)) {
+    const pbia = await pageBackedInstagram(client.page, deps);
+    if ("error" in pbia) return pbia;
+    pbiaId = pbia.id;
+  }
+  const adSets = pbiaId
+    ? input.adSets.map((s) => (s.instagramUserId ? s : { ...s, instagramUserId: pbiaId }))
+    : input.adSets;
+
   // Je Instagram-Konto einmal, nicht je Anzeigengruppe – in aller Regel ist das
   // genau eines. Der Grund für die Schleife ist trotzdem echt: die Identität
   // hängt am Ad Set, nicht an der Kampagne.
-  for (const igId of new Set(input.adSets.map((s) => s.instagramUserId))) {
+  for (const igId of new Set(adSets.map((s) => s.instagramUserId))) {
     const denied = await forbiddenIdentity(adAccount, client.page.id, igId, deps);
     if (!denied) continue;
-    const identity = igId
-      ? `„${client.page.name}“ oder das verknüpfte Instagram-Konto`
-      : `„${client.page.name}“`;
+    // Die PBIA ist kein „verknüpftes Konto“ – sie ist die Seite selbst.
+    const identity =
+      igId && igId !== pbiaId
+        ? `„${client.page.name}“ oder das verknüpfte Instagram-Konto`
+        : `„${client.page.name}“`;
     return {
       error:
         denied.code === LESS_PERSONALIZED_ADS
@@ -312,8 +380,8 @@ export async function resolveLaunch(
 
   // Zuletzt, nach den Identitätsproben: deren Meldungen sind die besseren
   // (kuratierter Text samt Link), wenn beide denselben Zustand träfen.
-  const rejected = await rejectedCreative(input.adSets, adAccount, client.page.id, deps);
+  const rejected = await rejectedCreative(adSets, adAccount, client.page.id, deps);
   if (rejected) return { error: rejected };
 
-  return { adAccount, pageId: client.page.id };
+  return { adAccount, pageId: client.page.id, instagramUserId: pbiaId };
 }
