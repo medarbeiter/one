@@ -84,9 +84,18 @@ export function buildCreative(i: CreativeInput) {
     throw new Error("Meta erlaubt höchstens 5 Primärtexte und 5 Überschriften.");
   if (!i.formId) throw new Error("Ein Lead-Formular muss ausgewählt sein.");
 
-  if (i.ad.type === "ugc") return ugcCreative(i, i.ad);
-  if (i.ad.type === "single") return singleCreative(i, i.ad);
-  return splitCreative(i, i.ad);
+  const creative =
+    i.ad.type === "ugc"
+      ? ugcCreative(i, i.ad)
+      : i.ad.type === "single"
+        ? singleCreative(i, i.ad)
+        : splitCreative(i, i.ad);
+  // Kunde ohne verknüpftes Instagram-Konto: Meta nutzt die Seite NICHT von
+  // selbst als Instagram-Identität – jede Anzeige mit Instagram-Platzierungen
+  // fällt dann durch („Wähle ein Instagram-Konto oder eine Facebook-Seite
+  // aus …“). use_page_actor_override sagt genau das Fehlende: präsentiere die
+  // Facebook-Seite auf Instagram (Page-Backed Instagram Account).
+  return i.instagramUserId ? creative : { ...creative, use_page_actor_override: true };
 }
 
 /**

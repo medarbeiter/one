@@ -42,6 +42,19 @@ const input = {
   ad: ugcAd,
 };
 
+test("ohne Instagram-Konto tritt die Seite selbst auf Instagram auf", () => {
+  // Kunde ohne verknüpftes Instagram (z. B. MeVita): ohne diese Flagge lehnt
+  // Meta jede Anzeige mit Instagram-Platzierungen ab – „Wähle ein Instagram-
+  // Konto oder eine Facebook-Seite aus …“. Mit Konto darf sie nicht stehen,
+  // sonst überstimmte die Seite das echte Instagram-Konto.
+  for (const ad of [ugcAd, splitAd, singleAd]) {
+    const ohne = buildCreative({ ...input, instagramUserId: undefined, ad }) as any;
+    expect(ohne.use_page_actor_override).toBe(true);
+    const mit = buildCreative({ ...input, ad }) as any;
+    expect("use_page_actor_override" in mit).toBe(false);
+  }
+});
+
 // ---------------------------------------------------------------- UGC creative
 
 test("the lead form hangs off the story spec, not the feed spec", () => {

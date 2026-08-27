@@ -125,6 +125,9 @@ async function forbiddenIdentity(
           // link ist bei Lead-Ads ein Platzhalter – siehe buildCreative().
           link_data: { link: "http://fb.me/", message: "Identitätsprüfung" },
         },
+        // Dieselbe Identität wie in buildCreative(): ohne Instagram-Konto tritt
+        // die Seite selbst auf Instagram auf – die Probe muss das mitfragen.
+        ...(instagramUserId ? {} : { use_page_actor_override: true }),
         execution_options: ["validate_only"],
       },
     });

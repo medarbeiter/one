@@ -45,7 +45,9 @@ test("the year is two digits, unlike formatDate", () => {
 test("every role code has a label", () => {
   expect(ROLES.length).toBeGreaterThan(0);
   for (const r of ROLES) {
-    expect(r.code).toMatch(/^[A-Z]+$/);
+    // Kürzel wie "Stv. PDL" und "Koch" stehen so im Kampagnennamen – erlaubt
+    // ist alles Kompakte ohne Randleerzeichen, nicht nur Versalien.
+    expect(r.code).toMatch(/^\S(.*\S)?$/);
     expect(r.label.length).toBeGreaterThan(0);
   }
 });

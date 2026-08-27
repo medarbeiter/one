@@ -17,21 +17,34 @@ export const formatDate = (d: Date) =>
   `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`;
 
 /**
- * Aus echten Kampagnennamen abgelesen. Kombinationen sind normal, deshalb ist
- * die Auswahl mehrfach – und der Freitext bleibt, weil es Einzelfälle wie
- * "Koch" oder "Verwaltungskraft" gibt, die in kein Kürzel passen.
- * ponytail: Die Langtexte sind Vermutung außer FK und HK; sie stehen nur im UI,
- * nicht im Kampagnennamen, und sind hier in einer Zeile korrigierbar.
+ * Aus echten Kampagnennamen abgelesen und um die gängigen Pflege-Rollen
+ * ergänzt. Kombinationen sind normal, deshalb ist die Auswahl mehrfach – und
+ * der Freitext bleibt für Einzelfälle wie "Verwaltungskraft", die in kein
+ * Kürzel passen. `code` steht im Kampagnennamen, `label` im UI.
+ *
+ * `prompt` ist die Fassung für die Textgenerierung, wo sie vom Label abweichen
+ * muss: "Quereinsteiger" heißt für die KI, dass praktisch jede und jeder
+ * angesprochen wird – ohne den Zusatz schriebe sie Texte für eine Fachrolle.
  */
-export const ROLES = [
+export const ROLES: readonly { code: string; label: string; prompt?: string }[] = [
   { code: "FK", label: "Fachkräfte" },
   { code: "HK", label: "Hilfskräfte" },
   { code: "PFK", label: "Pflegefachkraft" },
   { code: "PDL", label: "Pflegedienstleitung" },
+  { code: "Stv. PDL", label: "Stv. Pflegedienstleitung" },
   { code: "MA", label: "Mitarbeiter" },
   { code: "PA", label: "Pflegeassistenz" },
   { code: "PH", label: "Pflegehelfer" },
-] as const;
+  {
+    code: "QE",
+    label: "Quereinsteiger",
+    prompt:
+      "Quereinsteiger – gesucht wird praktisch jede und jeder, keine Ausbildung oder Pflege-Erfahrung nötig",
+  },
+  { code: "BK", label: "Betreuungskraft" },
+  { code: "HW", label: "Hauswirtschaftskraft" },
+  { code: "Koch", label: "Koch" },
+];
 
 /**
  * Initialen sind pro Person, nicht pro Installation – eine einzelne

@@ -26,10 +26,12 @@ export type BodiesInput = {
   benefits: string;
 };
 
-/** Rollenkürzel zu den Wörtern, die in einer Anzeige stehen können. */
+/** Rollenkürzel zu den Wörtern, die in einer Anzeige stehen können. `prompt`
+ * vor `label`: die KI-Fassung darf mehr sagen als das UI (siehe ROLES). */
 export function roleLabels(roles: string[], roleFreeText?: string): string[] {
   const labels: string[] = roles.flatMap((code) => {
-    const label = ROLES.find((r) => r.code === code)?.label;
+    const role = ROLES.find((r) => r.code === code);
+    const label = role?.prompt ?? role?.label;
     return label ? [label] : [];
   });
   const free = roleFreeText?.trim();
@@ -52,7 +54,7 @@ Bei uns erwarten Dich…
 
 🏖️ {Benefit 1}
 🚲 {Benefit 2}
-🎄 {Benefit 3 – je Benefit eine eigene Zeile mit eigenem, passendem Emoji; höchstens 5 Zeilen, bei mehr Benefits die stärksten wählen und mit „Und mehr…“ schließen}
+🎄 {Benefit 3 – je Benefit eine eigene Zeile mit eigenem, passendem Emoji; 3–5 Zeilen, nur die stärksten (konkret schlägt weich), bei Auswahl mit „Und mehr…“ schließen}
 
 Hast Du Lust auf ein tolles Miteinander und möchtest Dich weiterentwickeln?
 
@@ -164,9 +166,11 @@ function prompt({ business, roles, roleFreeText, place, benefits }: BodiesInput,
 
 Schreibe genau einen deutschen Primärtext für die folgende Kampagne, im Stil und in ähnlicher Länge der Vorlage unten. Ersetze alle Platzhalter und alle AWO-Greiz-spezifischen Angaben durch die Kampagnenfakten. Du darfst die Formulierungen der Vorlage frei umschreiben, damit nicht jede Anzeige gleich klingt – Struktur, Ton und Länge bleiben erhalten. Duze die Lesenden. Erfinde keine Fakten: nur die genannten Rollen, den genannten Ort und die genannten Benefits verwenden. Gegen Ende steht eine Aufforderung, auf „Jetzt bewerben“ zu klicken (bei der Kurzform optional).
 
-Der Text endet IMMER mit dem Block der offenen Stellen – auch wenn die Vorlage keinen hat: eine Zeile wie „Wir haben aktuell noch Stellen offen für:“ (darf umformuliert sein, nie weggelassen), darunter je gesuchte Rolle eine eigene Zeile mit ✅ am Anfang.
+Der Text endet IMMER mit dem Block der offenen Stellen – auch wenn die Vorlage keinen hat: eine Zeile wie „Wir haben aktuell noch Stellen offen für:“ (darf umformuliert sein, nie weggelassen, trägt selbst KEIN Emoji), darunter je gesuchte Rolle eine eigene Zeile, die IMMER mit ✅ beginnt. In diesem Block ist ✅ das einzige erlaubte Zeichen – nie ein anderes Emoji, kein ✔, kein 👉, auch wenn die Benefit-Liste weiter oben andere Emojis nutzt.
 
-Formatierung: Reiner Text – Meta unterstützt KEIN Markdown. Keine **Sternchen**, keine #-Überschriften, keine Markdown-Listen mit - oder *; nur Absätze, Leerzeilen und Emojis wie in der Vorlage. Übernimm den Listenstil der Vorlage: JEDER genannte Benefit bekommt eine eigene Zeile mit genau einem Aufzählungszeichen im Stil der Vorlage (✅, ✔ oder ein thematisch passendes Emoji je Zeile – bei Emoji-Listen für jeden Benefit ein anderes, inhaltlich passendes). Niemals mehrere Benefits in eine Zeile zusammenziehen. Höchstens 5 Benefit-Zeilen: Stehen mehr Benefits in den Kampagnenfakten, wähle die stärksten aus und schließe die Liste mit einer Zeile wie „Und mehr…“ ab.
+Formatierung: Reiner Text – Meta unterstützt KEIN Markdown. Keine **Sternchen**, keine #-Überschriften, keine Markdown-Listen mit - oder *; nur Absätze, Leerzeilen und Emojis wie in der Vorlage. Übernimm den Listenstil der Vorlage: JEDER genannte Benefit bekommt eine eigene Zeile mit genau einem Aufzählungszeichen im Stil der Vorlage (✅, ✔ oder ein thematisch passendes Emoji je Zeile – bei Emoji-Listen für jeden Benefit ein anderes, inhaltlich passendes). Niemals mehrere Benefits in eine Zeile zusammenziehen.
+
+Benefit-Auswahl: 3–5 Zeilen, weniger ist besser als mehr. Nimm NICHT einfach die ersten aus der Liste, sondern wähle die stärksten: Konkretes und Messbares (Geld, Zuschläge, Urlaubstage, Dienstwagen/JobRad, planbare Arbeitszeiten) schlägt Weiches (nettes Team, Wertschätzung, flache Hierarchien) – das Weiche steht ohnehin im Fließtext und wäre in der Liste doppelt. Stärkster Benefit zuerst. Bleiben Benefits übrig, schließe die Liste mit einer Zeile wie „Und mehr…“ ab.
 
 KAMPAGNENFAKTEN:
 ${fakten}
