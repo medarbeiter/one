@@ -59,32 +59,30 @@ test("ohne Ort bleibt es bei der Adresse als custom_location", () => {
   });
 });
 
-test("Städte haben eine andere Untergrenze als Adressen", () => {
-  // 15 km um eine Stadt liefert bei Meta 0 ohne estimate_ready, 16 km eine Zahl.
-  expect(radiusRange(hamburg)).toEqual({ min: 16, max: 80 });
-  expect(radiusRange(undefined)).toEqual({ min: 1, max: 80 });
+test("die Untergrenze ist überall 17 km – Facebook lehnt alles darunter ab", () => {
+  expect(radiusRange(hamburg)).toEqual({ min: 17, max: 80 });
+  expect(radiusRange(undefined)).toEqual({ min: 17, max: 80 });
   // Ein Ort ohne Radius hat auch keine Grenze, die man verletzen könnte.
   expect(radiusRange(plz)).toBeUndefined();
 
-  expect(locationProblem({ addressString: "", radiusKm: 15, place: hamburg })).toMatch(/16 und 80/);
-  expect(locationProblem({ addressString: "", radiusKm: 16, place: hamburg })).toBeUndefined();
-  expect(locationProblem({ addressString: "x", radiusKm: 1 })).toBeUndefined();
-  expect(locationProblem({ addressString: "x", radiusKm: 0.5 })).toMatch(/1 und 80/);
+  expect(locationProblem({ addressString: "", radiusKm: 16, place: hamburg })).toMatch(/17 und 80/);
+  expect(locationProblem({ addressString: "", radiusKm: 17, place: hamburg })).toBeUndefined();
+  expect(locationProblem({ addressString: "x", radiusKm: 17 })).toBeUndefined();
+  expect(locationProblem({ addressString: "x", radiusKm: 16 })).toMatch(/17 und 80/);
   expect(locationProblem({ addressString: "  ", radiusKm: 17 })).toMatch(/adresse/i);
   // Der Radius eines radiuslosen Orts darf nichts aufhalten – er wird gar nicht
   // mitgeschickt, egal was im Feld steht.
   expect(locationProblem({ addressString: "", radiusKm: 999, place: plz })).toBeUndefined();
 });
 
-test("beim Wechsel zur Stadt wächst ein zu kleiner Radius mit", () => {
-  // 5 km um eine Adresse ist erlaubt, 5 km um eine Stadt nicht – ohne diesen
-  // Sprung stünde nach der Auswahl eine Anzeigengruppe da, die nie ausliefert.
-  expect(fitRadius(5, hamburg)).toBe(16);
+test("ein zu kleiner Radius wächst auf die Untergrenze mit", () => {
+  // Ohne diesen Sprung stünde nach der Auswahl eine Anzeigengruppe da, die
+  // Facebook beim Anlegen ablehnt.
+  expect(fitRadius(5, hamburg)).toBe(17);
   expect(fitRadius(30, hamburg)).toBe(30);
   expect(fitRadius(90, hamburg)).toBe(80);
-  expect(fitRadius(5, undefined)).toBe(5);
-  // Ein Ort ohne Radius lässt den Wert stehen: er wird ohnehin nicht geschickt,
-  // und beim Zurückwechseln auf eine Adresse ist er wieder der richtige.
+  expect(fitRadius(5, undefined)).toBe(17);
+  // Ein Ort ohne Radius lässt den Wert stehen: er wird ohnehin nicht geschickt.
   expect(fitRadius(5, plz)).toBe(5);
 });
 

@@ -51,13 +51,14 @@ const KIND: Record<GeoPlaceType, string> = {
 export const supportsRadius = (type: GeoPlaceType) => type === "city";
 
 /**
- * Metas Grenzen, an der Kante abgetastet. Für Städte liegt die Untergrenze bei
- * 16 km (10 Meilen): 15 km liefert 0 ohne estimate_ready, 16 km liefert eine
- * Zahl. Für Adressen gilt 1–80 km, 81 km fällt durch.
+ * Metas Grenzen. Die Untergrenze ist überall 17 km: Facebook validiert beim
+ * Anlegen der Anzeigengruppe und lehnt alles darunter ab – auch um Adressen,
+ * obwohl delivery_estimate dort kleinere Werte noch beantwortet. Obergrenze
+ * an der Kante abgetastet: 80 km geht durch, 81 km fällt durch.
  */
 export const RADIUS_KM = {
-  address: { min: 1, max: 80 },
-  city: { min: 16, max: 80 },
+  address: { min: 17, max: 80 },
+  city: { min: 17, max: 80 },
 } as const;
 
 export const radiusRange = (place?: GeoPlace) =>

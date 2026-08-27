@@ -52,7 +52,7 @@ const base: WizardSubmission = {
     {
       name: "Ads",
       addressString: "Hauptstr. 1, Dresden",
-      radiusKm: 10,
+      radiusKm: 17,
       formId: "f1",
       bodies: ["b1", "b2"],
       titles: ["t1"],
@@ -81,13 +81,13 @@ test("ein Radius, den Meta nicht annimmt, hält vor der ersten Anfrage auf", asy
     ],
   };
   expect(await resolveLaunch(zuKlein, deps)).toEqual({
-    error: "„Ads“: Radius muss zwischen 16 und 80 km liegen.",
+    error: "„Ads“: Radius muss zwischen 17 und 80 km liegen.",
   });
 
-  // Derselbe Radius um eine Adresse ist dagegen in Ordnung.
+  // Auch um eine Adresse: Facebook lehnt beim Anlegen alles unter 17 km ab.
   expect(
     await resolveLaunch({ ...base, adSets: [{ ...base.adSets[0], radiusKm: 5 }] }, deps),
-  ).toEqual({ adAccount: "act_1", pageId: "p1" });
+  ).toEqual({ error: "„Ads“: Radius muss zwischen 17 und 80 km liegen." });
 });
 
 test("eine Anzeigengruppe ohne Adresse braucht einen Ort", async () => {

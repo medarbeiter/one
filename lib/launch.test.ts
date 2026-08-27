@@ -367,7 +367,7 @@ const twoAdSets = {
     {
       name: "Ads – Dresden",
       addressString: "Bahnhofstr. 2, Dresden",
-      radiusKm: 10,
+      radiusKm: 17,
       formId: "f2",
       bodies: ["b2", "b3"],
       titles: ["t2"],

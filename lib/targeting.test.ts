@@ -63,9 +63,10 @@ test("age and gender are never sent — EMPLOYMENT forbids them", () => {
   expect(t.genders).toBeUndefined();
 });
 
-test("radius outside Meta's 1-80 km range is rejected", () => {
-  expect(() => buildTargeting({ ...base, radiusKm: 0.5 })).toThrow(/1 und 80/);
-  expect(() => buildTargeting({ ...base, radiusKm: 81 })).toThrow(/1 und 80/);
+test("radius outside Meta's 17-80 km range is rejected", () => {
+  // Facebook validiert beim Anlegen der Anzeigengruppe: unter 17 km lehnt es ab.
+  expect(() => buildTargeting({ ...base, radiusKm: 16 })).toThrow(/17 und 80/);
+  expect(() => buildTargeting({ ...base, radiusKm: 81 })).toThrow(/17 und 80/);
 });
 
 test("a blank address is rejected before it reaches Graph", () => {
