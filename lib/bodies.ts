@@ -198,7 +198,7 @@ export function parseBody(content: string): string {
 
 // small statt large: large brauchte ~40 s je Text – für Anzeigentexte nach
 // fester Vorlage reicht small und antwortet in wenigen Sekunden.
-const MODEL = "mistral-small-latest";
+const MODEL = "mistral-medium-latest";
 
 /** Ein Prompt, eine Antwort als roher Text – geteilt von Text, Überschriften
  *  und Beschreibung.
