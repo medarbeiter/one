@@ -69,8 +69,8 @@ export function adSetName(index: number, city?: string): string {
 
 /**
  * Das Kürzel im Kampagnennamen kommt aus dem Namen der angemeldeten Person –
- * vorher aus KNOWN_INITIALS und dem localStorage, also aus einer Liste, die bei
- * jeder neuen Kollegin nachzupflegen war. Erster und letzter Namensteil, denn
+ * vorher aus einer festen Liste und dem localStorage, die bei jeder neuen
+ * Kollegin nachzupflegen war. Erster und letzter Namensteil, denn
  * „Maria Anna Huber“ zeichnet als MH; ein einzelnes Wort gibt seine ersten
  * zwei Buchstaben. Wer anders zeichnet, ändert es im Assistenten unter Optional.
  */

@@ -45,6 +45,15 @@ bun test         # Checks für lib/meta.ts
    `/data/inbox.sqlite` steht schon in `compose.yaml`.
    Die Meta-Werte nicht als Build Variables markieren: Der Build braucht sie
    nicht, und so landen die Geheimnisse nicht in Image-Metadaten.
+
+   `CLICKUP_API_TOKEN` speist den Auftragseingang des Kampagnen-Assistenten
+   (`lib/clickup.ts`): er liest offene Aufgaben im Status „kampagne anlegen“
+   und schiebt erledigte auf „abnahme kampagne“ – das Token braucht dafür
+   Schreibrecht, ein reines Leserecht reicht nicht. Die Onboarding-Tabelle im
+   Kundenordner, aus der die Benefits kommen, muss eigens mit dem
+   Drive-Dienstkonto geteilt sein, genau wie der Ordner selbst; fehlt die
+   Freigabe, meldet der Assistent nur eine Warnung und lässt die Benefits
+   leer.
 4. Deployen. Coolify hängt den Service an sein verwaltetes Netzwerk und erzeugt
    Traefik-Routing sowie TLS-Zertifikate aus der Domain. Deshalb enthält Compose
    bewusst weder eigene Netzwerke noch statische Traefik-Labels.
