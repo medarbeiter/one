@@ -10,6 +10,8 @@ import { locationProblem, type GeoPlace } from "@/lib/geo";
 import { estimateReach, searchPlaces, type Reach } from "@/lib/geo-search";
 import { lastCampaignDefaults, type Prefill } from "@/lib/prefill";
 import { generateBody, generateDescription, generateTitles, type BodiesInput } from "@/lib/bodies";
+import { closeBrief, listOpenBriefs, type Brief } from "@/lib/clickup";
+import { assembleBrief, type AssembledBrief } from "@/lib/brief";
 
 export type LaunchResult = { ok?: string; error?: string };
 
@@ -202,6 +204,51 @@ export async function setBudgetAction(id: string, euros: number): Promise<Launch
     await setDailyBudget(id, Math.round(euros * 100));
     updateTag("campaigns");
     return { ok: "Tagesbudget aktualisiert." };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+}
+
+// Derselbe Umweg wie bei den Mistral-Aktionen: das ClickUp-Token liegt in
+// process.env, und der Fehlertext (Token abgelaufen, kein Zugriff auf die
+// Liste) muss beim Bediener ankommen statt als generische Produktionsmeldung.
+export async function briefsAction(): Promise<{ briefs: Brief[]; error?: string }> {
+  try {
+    return { briefs: await listOpenBriefs() };
+  } catch (e) {
+    return { briefs: [], error: (e as Error).message };
+  }
+}
+
+/** Der Auftrag samt allem, was sich dazu lesen lässt – siehe lib/brief.ts. */
+export async function briefAction(taskId: string): Promise<{ brief?: AssembledBrief; error?: string }> {
+  try {
+    return { brief: await assembleBrief(taskId) };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+}
+
+// Ads Manager erwartet die Konto-ID ohne "act_" – dieselbe Adresse wie in receipt.tsx.
+const adsManagerUrl = (adAccount: string, campaignId: string) =>
+  `https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=${adAccount.replace(/^act_/, "")}&selected_campaign_ids=${campaignId}`;
+
+/**
+ * Nach dem Anlegen: Aufgabe auf „abnahme kampagne“, Kommentar mit Name und
+ * Link. Ein Fehler hier ist eine Zeile in der Quittung – die Kampagne steht.
+ */
+export async function closeBriefAction(
+  taskId: string,
+  campaignName: string,
+  adAccount: string,
+  campaignId: string,
+): Promise<{ error?: string }> {
+  try {
+    await closeBrief(
+      taskId,
+      `Kampagne über One angelegt (pausiert): ${campaignName}\n${adsManagerUrl(adAccount, campaignId)}`,
+    );
+    return {};
   } catch (e) {
     return { error: (e as Error).message };
   }

@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { Blatt, Blattkopf } from "@/app/shell/blattkopf";
 import {
   clients,
@@ -6,12 +7,18 @@ import {
   payers,
   resolveClientByName,
 } from "@/lib/customers";
-import { KNOWN_INITIALS } from "@/lib/naming";
+import { initialsOf } from "@/lib/naming";
+import { openSession, SESSION_COOKIE, sessionSecret } from "@/lib/session";
 import { Wizard } from "./wizard";
 
 export default async function NewCampaignPage({ searchParams }: PageProps<"/campaigns/new">) {
   const sp = await searchParams;
   const { customers } = await listCustomers();
+
+  // Das Kürzel im Kampagnennamen kommt aus dem Login. Der Proxy lässt ohne
+  // Sitzung niemanden bis hierher; null bleibt möglich, wenn sie dazwischen
+  // abläuft – dann steht das Kürzel-Feld leer und wird unter Optional gefüllt.
+  const person = await openSession((await cookies()).get(SESSION_COOKIE)?.value, sessionSecret());
 
   // Zwei Achsen, zwei Listen: das Konto zahlt, die Seite veröffentlicht.
   // Ein Konto ohne Seite ist brauchbar (MedArbeiter zahlt für fremde Seiten),
@@ -66,14 +73,15 @@ export default async function NewCampaignPage({ searchParams }: PageProps<"/camp
       <Blattkopf
         titel="Neue Kampagne"
         meaning="add"
-        stand="Erstellt Kampagne, Anzeigengruppe und eine Anzeige pro Datei — alles pausiert."
+        stand="Wählt einen Auftrag aus ClickUp, baut den Vorschlag, legt alles pausiert an."
       />
 
       <Blatt>
         <Wizard
           accounts={accounts}
           clients={clientOptions}
-          knownInitials={[...KNOWN_INITIALS]}
+          initials={initialsOf(person?.name ?? "")}
+          email={person?.email ?? ""}
           defaultAccount={defaultAccount}
           defaultBusiness={defaultBusiness}
         />

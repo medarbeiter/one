@@ -46,13 +46,6 @@ export const ROLES: readonly { code: string; label: string; prompt?: string }[] 
   { code: "Koch", label: "Koch" },
 ];
 
-/**
- * Initialen sind pro Person, nicht pro Installation – eine einzelne
- * Umgebungsvariable wäre falsch. Aus 148 echten Kampagnennamen abgelesen;
- * der Picker fällt für alle anderen auf Freitext zurück.
- */
-export const KNOWN_INITIALS = ["KF", "MH", "PW"] as const;
-
 // Zweistelliges Jahr – formatDate bleibt vierstellig, das braucht die Anzeige.
 const shortDate = (d: Date) =>
   `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${String(d.getFullYear()).slice(-2)}`;

@@ -265,7 +265,8 @@ function Step({
 type WizardProps = {
   accounts: WizardAccount[];
   clients: WizardClient[];
-  knownInitials: string[];
+  initials: string;
+  email: string;
   defaultAccount: string;
   defaultBusiness: string;
 };
@@ -280,12 +281,12 @@ export function Wizard(props: WizardProps) {
 function WizardSteps({
   accounts,
   clients,
-  knownInitials,
+  initials,
   defaultAccount,
   defaultBusiness,
 }: WizardProps) {
   const { state, setState, loaded, restored, others, save, resume, remove, discard, forget } =
-    useWizardState(initialState(defaultAccount, defaultBusiness));
+    useWizardState(initialState(defaultAccount, defaultBusiness, initials));
   // Kurz „Gespeichert“ zeigen, dann zurück – ein Knopf ohne Reaktion sieht
   // kaputt aus, ein Toast wäre für diese eine Bestätigung zu viel Apparat.
   const [justSaved, setJustSaved] = useState(false);
@@ -933,24 +934,12 @@ function WizardSteps({
               {/* Gedeckelt: Ein Feld, in das zwei Buchstaben gehören, war über
                   die halbe Karte breit und sah aus, als fehle darin etwas. */}
               <div className="grid max-w-xl gap-4 sm:grid-cols-2">
-                {/* Astryx' Selector nimmt Optionen als Daten statt als
-                    ListBox-Kinder; blanke Strings sind ein gültiger
-                    Optionstyp, also bleibt knownInitials, wie es ist. */}
-                <Selector
-                  label="Kürzel im Namen"
-                  options={knownInitials}
-                  value={knownInitials.includes(state.initials) ? state.initials : undefined}
-                  onChange={(initials) => setState((s) => ({ ...s, initials }))}
-                  placeholder="Kürzel wählen…"
-                  description="Steht am Ende des Namens."
-                  width="100%"
-                />
                 <TextInput
-                  label="Anderes Kürzel"
+                  label="Kürzel im Namen"
                   value={state.initials}
                   onChange={(initials) => setState((s) => ({ ...s, initials }))}
                   placeholder="z. B. MW"
-                  description="Für alle, die noch in keiner Kampagne stehen."
+                  description="Steht am Ende des Namens."
                   width="100%"
                 />
               </div>
