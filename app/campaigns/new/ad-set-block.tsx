@@ -585,12 +585,17 @@ export function AdSetBlock({
   // Muster wie die Lead-TOS-Schleife in wizard.tsx. Das erste, das vorher
   // nicht da war, wird gewählt; danach ist Ruhe.
   const formId = value.formId;
+  // Während refreshForms(true) läuft, kann von Hand gewählt werden – der Ref
+  // ist bei jedem Render aktuell, die Prop formId (Closure) nicht.
+  const formIdRef = useRef(formId);
+  formIdRef.current = formId;
   useEffect(() => {
     if (!pageId || formId) return;
     const check = async () => {
       const before = seen.current;
       if (!before) return;
       const list = await refreshForms(true);
+      if (formIdRef.current) return;
       const fresh = newlyAppeared(before, list);
       if (!fresh) return;
       onChange({ formId: fresh.id });
