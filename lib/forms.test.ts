@@ -4,6 +4,7 @@
  * with a Page Access Token".
  */
 import { expect, test } from "bun:test";
+import type { LeadForm } from "./forms";
 
 process.env.META_ACCESS_TOKEN = "SYSTEM";
 
@@ -143,7 +144,7 @@ test("ein fehlgeschlagener Tausch wird nicht eingebrannt", async () => {
   expect(calls.at(-1)!.searchParams.get("access_token")).toBe("PAGE-444");
 });
 
-const form = (id: string, name: string): typeof import("./forms").LeadForm => ({
+const form = (id: string, name: string): LeadForm => ({
   id,
   name,
   status: "ACTIVE",
