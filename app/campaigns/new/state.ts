@@ -124,6 +124,14 @@ export type WizardAdSet = Omit<AdSetInput, "ads"> & {
   id: string;
   ads: WizardAd[];
   loose: WizardLooseAsset[];
+  /**
+   * Ein Spiegel-Standort: führt alle eigenen Anzeigen der genannten
+   * Anzeigengruppe als Leihen mit – auch die, die dort erst später ankommen.
+   * So legt der Auftrag „Renningen und Stuttgart“ zwei Gruppen an, und wer die
+   * Videos einmal in die erste zieht, hat sie in beiden. Fällt weg, sobald
+   * jemand die Anzeigen dieses Standorts selbst anfasst (wizard.tsx).
+   */
+  mirrorOf?: string;
 };
 
 // Auch für den Prefill-Vergleich in wizard.tsx: nur wenn der Radius noch auf
@@ -194,14 +202,29 @@ export function applyBrief(state: WizardState, brief: AssembledBrief): WizardSta
     next.spendCapEuros = brief.spendCapEuros.value;
     sources.spendCap = brief.spendCapEuros.source;
   }
+  // Der erste Standort in die erste Gruppe, jeder weitere in eine eigene, die
+  // die Anzeigen der ersten spiegelt (mirrorOf). Nur, solange noch niemand
+  // einen Standort angefasst hat – sonst bleibt alles, wie es ist.
   const first = state.adSets[0];
-  if (brief.location && first && first.addressString === "" && !first.place) {
-    next.adSets = state.adSets.map((set, i) =>
-      i === 0 ? { ...set, addressString: brief.location!.value.addressString } : set,
-    );
-    sources.location = brief.location.source;
+  const [head, ...more] = brief.locations?.value ?? [];
+  if (head && first && state.adSets.length === 1 && first.addressString === "" && !first.place) {
+    next.adSets = [
+      { ...first, addressString: head },
+      ...more.map((addressString, i) => ({
+        ...emptyAdSet(i + 1, cityOf(addressString)),
+        addressString,
+        mirrorOf: first.id,
+      })),
+    ];
+    sources.location = brief.locations!.source;
   }
   return { ...next, sources };
+}
+
+/** „Mühlgasse 24, 71272 Renningen“ → „Renningen“; ohne PLZ der Text selbst. */
+export function cityOf(addressString: string): string {
+  const m = /\b\d{5}\s+([^,]+)/.exec(addressString);
+  return (m?.[1] ?? addressString.split(",").pop() ?? addressString).trim();
 }
 
 /** Eine Änderung von Hand: der Wert wechselt, das Herkunftsetikett fällt. */
@@ -258,7 +281,24 @@ export const borrowersOf = (adSets: WizardAdSet[], adSetId: string, adId: string
  * seinen Inhalt und steht ab sofort für sich. Fremder Inhalt wird nie als
  * Nebenwirkung gelöscht; die Assets liegen ohnehin schon im Werbekonto.
  */
-export function syncLinkedAds(adSets: WizardAdSet[]): WizardAdSet[] {
+export function syncLinkedAds(input: WizardAdSet[]): WizardAdSet[] {
+  // Spiegel zuerst: jede eigene Anzeige der Quelle bekommt im Spiegel eine
+  // Leihe, die es noch nicht gibt; Leihen auf verschwundene Quellen fallen
+  // unten durch detachAd zurück auf sich selbst.
+  const adSets = input.map((set) => {
+    if (!set.mirrorOf) return set;
+    const src = input.find((s) => s.id === set.mirrorOf);
+    if (!src) return { ...set, mirrorOf: undefined };
+    const have = new Set(set.ads.filter((a) => a.source?.adSetId === src.id).map((a) => a.source!.adId));
+    const fresh = src.ads
+      .filter((a) => !a.source && !have.has(a.id))
+      .map((a): WizardAd => {
+        const { id: _id, ...content } = a;
+        return { ...content, id: crypto.randomUUID(), source: { adSetId: src.id, adId: a.id } };
+      });
+    return fresh.length ? { ...set, ads: [...set.ads, ...fresh] } : set;
+  });
+
   // Nur eigene Anzeigen taugen als Quelle – sonst hinge eine Leihe an einer Leihe.
   const source = (adSetId: string, adId: string) =>
     adSets.find((s) => s.id === adSetId)?.ads.find((a) => a.id === adId && !a.source);

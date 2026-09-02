@@ -31,9 +31,18 @@ export type StepperStep = {
   issues: number;
 };
 
-type StepState = "done" | "current" | "todo" | "locked";
+type StepState = "done" | "current" | "todo" | "locked" | "building";
 
-function stateOf(index: number, current: number, locked: boolean, issues: number): StepState {
+function stateOf(
+  index: number,
+  current: number,
+  locked: boolean,
+  issues: number,
+  building: boolean,
+): StepState {
+  // Der Schritt, der gerade gebaut wird, ist noch gesperrt – aber nicht still:
+  // die Marke atmet, solange der Vorschlag entsteht.
+  if (building) return "building";
   if (locked) return "locked";
   if (index === current) return "current";
   // Erledigt ist nur, was hinter einem liegt *und* nichts offen hat – sonst
@@ -77,6 +86,14 @@ function Mark({ state, number }: { state: StepState; number: number }) {
         <LockSimpleIcon size={13} weight="bold" />
       </span>
     );
+  if (state === "building")
+    return (
+      // Goldwäsche mit Bronze-Haarstrich (Gold braucht eine Kante), der Hof
+      // pulst: dieselbe Marke wie „laufend“, nur noch nicht betreten.
+      <span aria-hidden className={`${base} werk-puls border-gold-600 bg-gold-100 text-gold-700`}>
+        {number}
+      </span>
+    );
   return (
     <span aria-hidden className={`${base} border-line-strong bg-surface-secondary text-ink-500`}>
       {number}
@@ -90,11 +107,14 @@ export function Stepper({
   onSelect,
   /** Ab hier ist noch nichts auszufüllen – ohne Kunde trägt kein Schritt etwas. */
   lockedFrom = steps.length,
+  /** Der Schritt, dessen Inhalt gerade zusammengesetzt wird (der Vorschlag beim Lesen des Auftrags). */
+  building,
 }: {
   steps: StepperStep[];
   current: number;
   onSelect: (index: number) => void;
   lockedFrom?: number;
+  building?: number;
 }) {
   return (
     // px-4 + der Innenabstand des Knopfs (px-2) ergeben die 24 px, mit denen
@@ -112,7 +132,7 @@ export function Stepper({
       <ol className="flex items-stretch">
         {steps.map((step, i) => {
           const locked = i >= lockedFrom;
-          const state = stateOf(i, current, locked, step.issues);
+          const state = stateOf(i, current, locked, step.issues, building === i);
           const showsIssues = step.issues > 0 && !locked;
           return (
             <Fragment key={step.label}>
@@ -123,7 +143,9 @@ export function Stepper({
                   aria-current={state === "current" ? "step" : undefined}
                   aria-label={
                     `Schritt ${i + 1} von ${steps.length}: ${step.label}` +
-                    (locked
+                    (state === "building"
+                      ? ", wird gerade zusammengesetzt"
+                      : locked
                       ? ", noch gesperrt"
                       : showsIssues
                         ? step.issues === 1
@@ -155,7 +177,9 @@ export function Stepper({
                         ? "text-ink-900 font-semibold"
                         : state === "locked"
                           ? "text-ink-300 font-medium"
-                          : "text-ink-500 font-medium",
+                          : state === "building"
+                            ? "text-gold-700 font-medium"
+                            : "text-ink-500 font-medium",
                     ].join(" ")}
                   >
                     {step.label}

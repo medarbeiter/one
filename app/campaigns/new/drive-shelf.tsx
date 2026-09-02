@@ -18,6 +18,7 @@ import type { DriveFile } from "@/lib/drive";
 import { plural } from "@/lib/labels";
 import { DriveDialog } from "./drive-dialog";
 import { fetchDriveFiles } from "./drive-fetch";
+import { report } from "./activity";
 
 const FOLDER = "application/vnd.google-apps.folder";
 const isMedia = (f: DriveFile) => f.mimeType !== FOLDER;
@@ -48,16 +49,33 @@ export function DriveShelf({
     let cancelled = false;
     setLoading(true);
     setError(undefined);
+    const label = "Drive-Regal";
+    report({ id: "regal", label, status: "running", detail: "öffnet den Kundenordner, holt Videos und Bilder…" });
     const params: Record<string, string> = folderId ? { land: folderId } : { q: business.trim() };
     fetch(`/api/drive?${new URLSearchParams(params)}`)
       .then(async (res) => {
         const json = (await res.json()) as DriveSearch & { error?: string };
         if (!res.ok || json.error) throw new Error(json.error ?? `HTTP ${res.status}`);
         if (cancelled) return;
-        setPath(json.landed?.path ?? []);
-        setEntries(json.landed?.entries ?? []);
+        const path = json.landed?.path ?? [];
+        const entries = json.landed?.entries ?? [];
+        setPath(path);
+        setEntries(entries);
+        const n = entries.filter(isMedia).length;
+        report({
+          id: "regal",
+          label,
+          status: path.length ? "done" : "failed",
+          detail: path.length
+            ? `${path.map((p) => p.name).join(" › ")} · ${plural(n, "Datei", "Dateien")}`
+            : "kein Ordner gefunden – Dateien unten hineinziehen",
+        });
       })
-      .catch((e: Error) => !cancelled && setError(e.message))
+      .catch((e: Error) => {
+        if (cancelled) return;
+        setError(e.message);
+        report({ id: "regal", label, status: "failed", detail: e.message });
+      })
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;

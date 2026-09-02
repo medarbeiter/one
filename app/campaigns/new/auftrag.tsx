@@ -33,6 +33,7 @@ import { fuzzyCustomerMatch, leadgenTosUrl, type InstagramAccount } from "@/lib/
 import { briefsAction } from "../actions";
 import { Angaben } from "./angaben";
 import { Herkunft } from "./herkunft";
+import { Aufbau } from "./werkstatt";
 
 const money = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" });
 
@@ -102,6 +103,25 @@ export function Auftrag({
     const rest = sorted.filter((b) => b.taskId !== directId && passes(b));
     return direct ? [direct, ...rest] : rest;
   }, [sorted, mineOnly, query, mine, directId]);
+
+  // Während der Vorschlag entsteht, weicht die Liste der Werkstatt: der
+  // gewählte Auftrag als Kopf, darunter die Quellen, wie sie gelesen werden.
+  if (picking)
+    return (
+      <Card elevation="low" padding={0}>
+        <Section padding={6} paddingBlock={4}>
+          <div className="flex flex-col gap-1">
+            <Heading level={2}>Der Vorschlag entsteht</Heading>
+            <Text type="supporting" color="secondary" as="p" className="max-w-prose">
+              Jede Zeile eine Quelle. Was gefunden wird, steht gleich mit Herkunftsetikett am Feld
+              — du prüfst, statt zu tippen.
+            </Text>
+          </div>
+        </Section>
+        <Divider />
+        <Aufbau task={briefs?.find((b) => b.taskId === picking)} taskId={picking} />
+      </Card>
+    );
 
   return (
     <Card elevation="low" padding={0}>

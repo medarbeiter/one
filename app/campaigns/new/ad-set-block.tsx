@@ -6,6 +6,7 @@ import {
   Button,
   createStaticSource,
   Divider,
+  Heading,
   DropdownMenu,
   Skeleton,
   Text,
@@ -20,8 +21,10 @@ import type { LeadForm } from "@/lib/forms";
 import { instantFormsUrl, matchFormHint, newlyAppeared } from "@/lib/forms";
 import type { Source } from "@/lib/brief";
 import { cleanStem, nextCreativeName } from "@/lib/media";
+import { cityOf } from "./state";
 import { DriveShelf } from "./drive-shelf";
 import { Herkunft } from "./herkunft";
+import { report } from "./activity";
 import { BODY_TEMPLATE_COUNT, TITLE_COUNT } from "@/lib/bodies";
 import { plural } from "@/lib/labels";
 import { LocationField } from "./location-field";
@@ -230,7 +233,10 @@ function TextListField({
   const remove = (i: number) => onChange(values.filter((_, idx) => idx !== i));
 
   return (
-    <div role="group" aria-label={labelText} className="space-y-2">
+    <div role="group" aria-label={labelText} className="space-y-4">
+      {/* Ein Kopf, eine Zeile: Name und Zähler links, rechts leise die zwei
+          Handlungen. „Hinzufügen“ steht nur, wenn noch Platz ist – ein
+          ausgegrauter Knopf an fünf von fünf Listen war nur ein Kasten mehr. */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Text type="label" as="div">
           {labelText}{" "}
@@ -238,26 +244,31 @@ function TextListField({
             {values.length}/{MAX_ITEMS}
           </span>
         </Text>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1">
           {action}
-          <Button
-            variant="secondary"
-            size="sm"
-            icon={<PlusIcon size={14} weight="bold" />}
-            label={`${singular} hinzufügen`}
-            onClick={add}
-            isDisabled={values.length >= MAX_ITEMS || anyPending}
-          />
+          {values.length < MAX_ITEMS && (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<PlusIcon size={14} weight="bold" />}
+              label={singular}
+              onClick={add}
+              isDisabled={anyPending}
+            />
+          )}
         </div>
       </div>
 
       {/* Rand statt Vorgabe-Innenpolster: der Fokusring liegt außerhalb des
-          Feldrands und würde am Rand des Scrollbereichs sonst abgeschnitten. */}
-      <div className="scroll-fade max-h-[32rem] px-0.5 py-1">
-        <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
+          Feldrands. Kein eigener Scrollbereich mehr – fünf Felder in zwei
+          Spalten passen, und ein Fenster im Fenster machte den Abschnitt eng. */}
+      <div className="px-0.5 py-1">
+        <div className="grid gap-x-6 gap-y-6 sm:grid-cols-2">
           {values.map((v, i) => (
-            <div key={i} className="min-w-0 space-y-1">
-              <div className="flex items-center justify-between gap-2">
+            // Der Entfernen-Knopf erscheint erst beim Überfahren oder Fokus:
+            // fünf X in einer Reihe sind fünf Angebote, etwas wegzuwerfen.
+            <div key={i} className="group min-w-0 space-y-1.5">
+              <div className="flex h-7 items-center justify-between gap-2">
                 <span className="text-ink-500 text-xs font-medium">
                   {singular} {i + 1}
                   {/* TextInput hat keinen eingebauten Zeichenzähler; die
@@ -276,15 +287,19 @@ function TextListField({
                     </span>
                   )}
                 </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  isIconOnly
-                  icon={<XIcon size={14} weight="bold" />}
-                  label={`${singular} ${i + 1} entfernen`}
-                  onClick={() => remove(i)}
-                  isDisabled={values.length === 1 || anyPending}
-                />
+                {values.length > 1 && (
+                  <span className="opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 focus-within:opacity-100">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      isIconOnly
+                      icon={<XIcon size={14} weight="bold" />}
+                      label={`${singular} ${i + 1} entfernen`}
+                      onClick={() => remove(i)}
+                      isDisabled={anyPending}
+                    />
+                  </span>
+                )}
               </div>
               {pending?.[i] ? (
                 // Skeleton misst sich über width/height-Props (StyleX-Vars),
@@ -351,14 +366,36 @@ function TextListField({
  * CSS-Override nötig. Die Maße (flex-Spalte mit gap-6, Legende in
  * text-base/medium) sind aus fieldset.styles.ts übernommen.
  */
-function FieldsetSection({ legend, children }: { legend: ReactNode; children: ReactNode }) {
+function FieldsetSection({
+  legend,
+  satz,
+  action,
+  children,
+}: {
+  legend: ReactNode;
+  /** Ein Satz unter dem Titel: was der Abschnitt entscheidet. */
+  satz?: ReactNode;
+  /** Die eine Handlung des Abschnitts, rechts vom Titel. */
+  action?: ReactNode;
+  children: ReactNode;
+}) {
   return (
-    <fieldset className="flex shrink grow basis-0 flex-col gap-6">
-      <legend className="w-full">
-        <Text type="large" weight="medium" as="span">
-          {legend}
-        </Text>
-      </legend>
+    // Der Kopf steht außerhalb der <legend>: die darf nur Fließtext tragen,
+    // und der Kopf ist Titel, Satz und Knopf in einer Zeile. Die Legende
+    // bleibt für Vorleser da, unsichtbar.
+    <fieldset className="flex flex-col gap-8">
+      <legend className="sr-only">{legend}</legend>
+      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+        <div className="flex flex-col gap-1.5">
+          <Heading level={3}>{legend}</Heading>
+          {satz && (
+            <Text type="supporting" color="secondary" as="p" className="max-w-prose">
+              {satz}
+            </Text>
+          )}
+        </div>
+        {action}
+      </div>
       {children}
     </fieldset>
   );
@@ -381,6 +418,8 @@ export function AdSetBlock({
   benefitsSource,
   onBenefitsChange,
   autoGenerate,
+  primary,
+  stage,
   formHint,
   driveFolderId,
   locationSource,
@@ -414,6 +453,14 @@ export function AdSetBlock({
   onBenefitsChange: (benefits: string) => void;
   /** Beim ersten Anzeigen mit leeren Texten sofort generieren – der Vorschlag ist ein Vorschlag. */
   autoGenerate: boolean;
+  /** Die erste Anzeigengruppe: sie allein meldet die Formularliste ins Protokoll. */
+  primary: boolean;
+  /**
+   * „inhalt“: solange der Assistent liest und schreibt, steht nur der Inhalt –
+   * das Einzige, was in der Zeit von Hand zu tun ist. „alles“, sobald er fertig
+   * ist: Standort, Formular, Texte erscheinen mit dem Schritt-Einzug.
+   */
+  stage: "inhalt" | "alles";
   /** Aus der Aufgabe: nach welchem Namen oder Ort das Formular zu wählen ist. */
   formHint?: string;
   /** Aus ClickUp: das Regal startet dort statt bei der Namenssuche. */
@@ -446,11 +493,29 @@ export function AdSetBlock({
   // Ein Aufruf für alle fünf: Überschriften sind kurz, und ob „Pflege-Jobs in
   // Dresden“ neben „Pflegefachkraft (m/w/d) gesucht“ stehen darf, weiß nur,
   // wer beide sieht – fünf Einzelaufrufe schrieben fünfmal fast dasselbe.
+  // Woraus die Texte entstehen, in einem Halbsatz – steht im Protokoll der
+  // Werkstatt, damit sichtbar ist, was Mistral bekommen hat.
+  const textBasis = () =>
+    [
+      roles.length ? roles.join(", ") : roleFreeText || "ohne Rolle",
+      value.place?.name ?? value.addressString ?? "",
+      benefits.trim() ? `${benefits.trim().split("\n").length} Benefits` : "ohne Benefits",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+
+  // Bei mehreren Standorten trägt die Protokollzeile den Namen der Gruppe –
+  // sonst stünde dreimal „Primärtexte“ untereinander.
+  const named = (what: string) => (otherAdSets.length ? `${what} · ${cityOf(value.addressString) || value.name}` : what);
+  const aid = (what: string) => `${what}:${value.id}`;
+
   const generateTitles = async () => {
     const myRun = ++titlesRun.current;
     setGenErrors([]);
     setPendingTitles(Array(TITLE_COUNT).fill(true));
     onChange({ titles: Array(TITLE_COUNT).fill("") });
+    const label = named("Überschriften");
+    report({ id: aid("titel"), label, status: "running", detail: `Mistral schreibt ${TITLE_COUNT} Überschriften aus ${textBasis()}…` });
     const res = await generateTitlesAction({
       business,
       roles,
@@ -464,6 +529,12 @@ export function AdSetBlock({
         titles: set.titles.map((t, i) => res.titles[i] ?? t),
       }));
     if (res.error) setGenErrors((e) => [...e, `Überschriften: ${res.error}`]);
+    report({
+      id: aid("titel"),
+      label,
+      status: res.error ? "failed" : "done",
+      detail: res.error ?? `${res.titles.length} Überschriften aus ${textBasis()}`,
+    });
     setPendingTitles([]);
   };
 
@@ -475,16 +546,36 @@ export function AdSetBlock({
     // alter Text unter einem Skelett sähe aus wie ein Ergebnis.
     onChange({ bodies: Array(BODY_TEMPLATE_COUNT).fill("") });
     const input = { business, roles, roleFreeText, place: value.place?.name ?? value.addressString, benefits };
+    const label = named("Primärtexte");
+    let written = 0;
+    let failed = 0;
+    report({ id: aid("texte"), label, status: "running", detail: `Mistral schreibt 0 von ${BODY_TEMPLATE_COUNT} aus ${textBasis()}…` });
     await Promise.all(
       Array.from({ length: BODY_TEMPLATE_COUNT }, async (_, i) => {
         const res = await generateBodyAction(input, i);
         if (bodiesRun.current !== myRun) return;
         if (res.body) {
           const body = res.body;
+          written++;
           onChange((set) => ({ bodies: set.bodies.map((b, j) => (j === i ? body : b)) }));
         }
-        if (res.error) setGenErrors((e) => [...e, `Primärtext ${i + 1}: ${res.error}`]);
+        if (res.error) {
+          failed++;
+          setGenErrors((e) => [...e, `Primärtext ${i + 1}: ${res.error}`]);
+        }
         setPendingBodies((p) => p.map((v, j) => (j === i ? false : v)));
+        const settled = written + failed;
+        report({
+          id: aid("texte"),
+          label,
+          status: settled < BODY_TEMPLATE_COUNT ? "running" : failed ? "failed" : "done",
+          detail:
+            settled < BODY_TEMPLATE_COUNT
+              ? `Mistral schreibt ${settled} von ${BODY_TEMPLATE_COUNT} aus ${textBasis()}…`
+              : failed
+                ? `${failed} von ${BODY_TEMPLATE_COUNT} nicht geschrieben`
+                : `${written} Primärtexte aus ${textBasis()}`,
+        });
       }),
     );
   };
@@ -492,6 +583,8 @@ export function AdSetBlock({
   const generateDescription = async () => {
     const myRun = ++descriptionRun.current;
     setPendingDescription(true);
+    const label = named("Beschreibung");
+    report({ id: aid("beschreibung"), label, status: "running", detail: "Mistral schreibt die Zeile unter der Überschrift…" });
     const res = await generateDescriptionAction({
       business,
       roles,
@@ -502,7 +595,21 @@ export function AdSetBlock({
     if (descriptionRun.current !== myRun) return;
     if (res.description) onChange({ description: res.description });
     if (res.error) setGenErrors((e) => [...e, `Beschreibung: ${res.error}`]);
+    report({
+      id: aid("beschreibung"),
+      label,
+      status: res.error ? "failed" : "done",
+      detail: res.error ?? "eine Zeile unter der Überschrift",
+    });
     setPendingDescription(false);
+  };
+
+  const anyGenerating =
+    pendingBodies.some(Boolean) || pendingTitles.some(Boolean) || pendingDescription;
+  const generateAll = () => {
+    void generateBodies();
+    void generateTitles();
+    void generateDescription();
   };
 
   // Der Vorschlag füllt sich selbst: leere Texte beim ersten Anzeigen heißen
@@ -514,9 +621,7 @@ export function AdSetBlock({
     const empty = (xs: string[]) => xs.every((x) => !x.trim());
     if (!empty(value.bodies) || !empty(value.titles) || value.description.trim()) return;
     generated.current = true;
-    void generateBodies();
-    void generateTitles();
-    void generateDescription();
+    generateAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoGenerate]);
 
@@ -568,14 +673,34 @@ export function AdSetBlock({
   const [detected, setDetected] = useState<{ name: string; how: "neu" | "hinweis" }>();
   useEffect(() => {
     if (!pageId) return;
+    // Nur der erste Block meldet ins Protokoll – die weiteren Standorte lesen
+    // dieselbe Liste derselben Seite.
+    const label = "Lead-Formulare";
+    if (primary) report({ id: "formulare", label, status: "running", detail: "liest die Formulare der Seite…" });
     void refreshForms().then((list) => {
       seen.current = new Set(list.map((f) => f.id));
-      if (value.formId || !formHint) return;
-      const hit = matchFormHint(list, formHint);
+      const hit = value.formId || !formHint ? undefined : matchFormHint(list, formHint);
       if (hit) {
         onChange({ formId: hit.id });
         setDetected({ name: hit.name, how: "hinweis" });
       }
+      if (primary)
+        report({
+          id: "formulare",
+          label,
+          status: "done",
+          detail: [
+            plural(list.length, "Formular", "Formulare"),
+            hit
+              ? `„${hit.name}“ passt zum Hinweis „${formHint}“ – gewählt`
+              : formHint && !value.formId
+                ? `keins passt zu „${formHint}“ – bitte wählen`
+                : undefined,
+          ]
+            .filter(Boolean)
+            .join(" · "),
+          source: hit ? "clickup" : undefined,
+        });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageId]);
@@ -600,6 +725,12 @@ export function AdSetBlock({
       if (!fresh) return;
       onChange({ formId: fresh.id });
       setDetected({ name: fresh.name, how: "neu" });
+      report({
+        id: "formulare",
+        label: "Lead-Formulare",
+        status: "done",
+        detail: `Neu erkannt: „${fresh.name}“ – gewählt`,
+      });
     };
     const id = setInterval(check, 30_000);
     window.addEventListener("focus", check);
@@ -754,32 +885,23 @@ export function AdSetBlock({
   });
 
   return (
-    <div className="space-y-8">
+    // 48 px zwischen den Abschnitten, ein Haarstrich dazwischen: vier
+    // Abschnitte mit je einem Kopf brauchen Luft, sonst liest sich der Block
+    // als eine Spalte gleich schwerer Felder.
+    <div className="flex flex-col gap-12">
       {/* Dieselben offenen Punkte, die die Kopfzeile als Zahl trägt – hier
           ausgeschrieben, damit man nicht raten muss, welche gemeint sind. */}
-      {blockers.length > 0 && (
-        <Banner
-          status="warning"
-          title="Hier fehlt noch etwas"
-          description={
-            <ul className="list-disc space-y-1 pl-5">
-              {blockers.map((b) => (
-                <li key={b}>{b}</li>
-              ))}
-            </ul>
-          }
-        />
-      )}
-
-      <FieldsetSection legend="Inhalt">
-        {/* Rein informativ – die Auswahl passiert nicht hier, sondern folgt aus
-            der Seite des Kunden (siehe wizard.tsx). Fehlt das Instagram-Konto,
-            ist das kein Fehler: die Anzeige läuft dann nur über die Seite. */}
-        <Text type="supporting" as="div">
-          {instagramUserId
-            ? `Wird auf Instagram als ${instagramLabel ?? `Instagram-ID ${instagramUserId}`} veröffentlicht`
-            : "Nur Facebook-Seite — kein Instagram-Konto verbunden"}
-        </Text>
+      <FieldsetSection
+        legend="Inhalt"
+        // Rein informativ – die Auswahl passiert nicht hier, sondern folgt aus
+        // der Seite des Kunden (siehe wizard.tsx). Fehlt das Instagram-Konto,
+        // ist das kein Fehler: die Anzeige läuft dann nur über die Seite.
+        satz={
+          instagramUserId
+            ? `Videos werden UGC-Anzeigen, Bilder finden ihr Paar. Läuft auf Facebook und auf Instagram als ${instagramLabel ?? `Instagram-ID ${instagramUserId}`}.`
+            : "Videos werden UGC-Anzeigen, Bilder finden ihr Paar. Läuft nur über die Facebook-Seite — kein Instagram-Konto verbunden."
+        }
+      >
         <div className="w-full space-y-4">
         <DriveShelf
           business={business}
@@ -886,9 +1008,34 @@ export function AdSetBlock({
         )}
       </FieldsetSection>
 
+      {/* Alles nach dem Inhalt erst, wenn der Assistent fertig ist – mit dem
+          Einzug eines Schritts, denn genau das ist es: der Rest der Seite
+          kommt an. */}
+      {stage === "alles" && (
+        <div className="step-enter flex flex-col gap-12">
       <Divider />
 
-      <FieldsetSection legend="Standort und Umkreis">
+      {/* Dieselben offenen Punkte, die die Kopfzeile als Zahl trägt – hier
+          ausgeschrieben. Unter dem Inhalt, nicht darüber: die Meldung kommt
+          mit dem Rest der Seite an und schiebt den Inhalt nicht weg. */}
+      {blockers.length > 0 && (
+        <Banner
+          status="warning"
+          title="Hier fehlt noch etwas"
+          description={
+            <ul className="list-disc space-y-1 pl-5">
+              {blockers.map((b) => (
+                <li key={b}>{b}</li>
+              ))}
+            </ul>
+          }
+        />
+      )}
+
+      <FieldsetSection
+        legend="Standort und Umkreis"
+        satz="Wo die Anzeigen ausgespielt werden — eine Adresse oder ein Ort, dazu der Umkreis."
+      >
         <div className="w-full space-y-4">
           <TextInput
             label="Name der Anzeigengruppe"
@@ -914,10 +1061,28 @@ export function AdSetBlock({
           Seitennamen sah die Liste des falschen Kunden genauso aus wie die
           richtige. */}
       <FieldsetSection
-        legend={
-          <>
-            Lead-Formular {pageName && <span className="text-ink-500">· {pageName}</span>}
-          </>
+        legend="Lead-Formular"
+        satz={`Das Formular der Seite ${pageName || "des Kunden"}, das sich aus der Anzeige öffnet. Ein in Meta neu gebautes wird hier erkannt und gewählt.`}
+        action={
+          <div className="flex items-center gap-1">
+            {/* Ohne asset_id landet der Baukasten auf der Seite, die im Business
+                Manager zuletzt offen war – in der Praxis MedArbeiter statt des
+                Kunden. Lieber gar nicht anbieten als auf die falsche Seite. */}
+            <Button
+              variant="secondary"
+              size="sm"
+              isDisabled={!pageId}
+              label="In Meta bauen"
+              onClick={() => window.open(instantFormsUrl(pageId), "_blank")}
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              label={formsLoading ? "Wird aktualisiert…" : "Aktualisieren"}
+              onClick={() => refreshForms(true)}
+              isDisabled={formsLoading || !pageId}
+            />
+          </div>
         }
       >
         <div className="w-full space-y-4">
@@ -957,11 +1122,6 @@ export function AdSetBlock({
             {detected.how === "neu"
               ? `Neu erkannt: „${detected.name}“ – gerade in Meta gebaut.`
               : `Aus der Aufgabe gewählt: „${detected.name}“.`}
-          </Text>
-        )}
-        {!value.formId && pageId && (
-          <Text type="supporting" as="p">
-            Baue das Formular in Meta — sobald es dort steht, wird es hier erkannt und gewählt.
           </Text>
         )}
         {formsError && (
@@ -1008,43 +1168,48 @@ export function AdSetBlock({
           />
         </div>
         </div>
-
-        <div className="flex items-center gap-2 pt-1">
-          {/* Ohne asset_id landet der Baukasten auf der Seite, die im Business
-              Manager zuletzt offen war – in der Praxis MedArbeiter statt des
-              Kunden. Lieber gar nicht anbieten als auf die falsche Seite. */}
-          <Button
-            variant="secondary"
-            size="sm"
-            isDisabled={!pageId}
-            label="Formular in Meta bauen"
-            onClick={() => window.open(instantFormsUrl(pageId), "_blank")}
-          />
-          <Button
-            variant="secondary"
-            size="sm"
-            label={formsLoading ? "Wird aktualisiert…" : "Aktualisieren"}
-            onClick={() => refreshForms(true)}
-            isDisabled={formsLoading || !pageId}
-          />
-        </div>
       </FieldsetSection>
 
       <Divider />
 
-      <FieldsetSection legend="Texte">
-        <div className="w-full space-y-4">
-          <div className="max-w-2xl space-y-1">
+      <FieldsetSection
+        legend="Texte"
+        satz="Aus Rollen, Standort und Benefits geschrieben. Jede Zeile lässt sich ändern, jede Gruppe neu schreiben."
+        action={
+          <Button
+            variant="secondary"
+            icon={<SparkleIcon size={16} weight="fill" />}
+            label="Alle Texte neu schreiben"
+            onClick={generateAll}
+            isDisabled={anyGenerating}
+          />
+        }
+      >
+        {/* Vier Gruppen – Benefits, Primärtexte, Überschriften, Beschreibung –
+            mit 40 px dazwischen und 16 px innerhalb: Zusammengehöriges eng,
+            Getrenntes weit. Vorher stand alles im selben 16-px-Takt. */}
+        <div className="flex w-full flex-col gap-10">
+          <div className="max-w-2xl space-y-2">
+            {/* Etikett und Herkunft in einer Zeile über dem Feld: die Herkunft
+                gehört zum Namen des Werts, nicht unter den Kasten. */}
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <Text type="label" as="div">
+                Benefits des Arbeitgebers
+              </Text>
+              <Herkunft source={benefitsSource} />
+            </div>
             <TextArea
               label="Benefits des Arbeitgebers"
+              isLabelHidden
               value={benefits}
               onChange={onBenefitsChange}
               rows={5}
               width="100%"
-              description="Eine je Zeile – sie stehen wörtlich in Primärtexten, Überschriften und Beschreibung."
               placeholder={"z. B.\nWeihnachts- & Urlaubsgeld\n30 Urlaubstage\nJobRad"}
             />
-            <Herkunft source={benefitsSource} />
+            <Text type="supporting" as="p">
+              Eine je Zeile – sie stehen wörtlich in allen Texten.
+            </Text>
           </div>
 
           <TextListField
@@ -1056,10 +1221,10 @@ export function AdSetBlock({
             pending={pendingBodies}
             action={
               <Button
-                variant="secondary"
+                variant="ghost"
                 size="sm"
                 icon={<SparkleIcon size={14} weight="bold" />}
-                label="Primärtexte generieren"
+                label="Neu schreiben"
                 onClick={generateBodies}
                 isDisabled={pendingBodies.some(Boolean)}
               />
@@ -1093,10 +1258,10 @@ export function AdSetBlock({
             pending={pendingTitles}
             action={
               <Button
-                variant="secondary"
+                variant="ghost"
                 size="sm"
                 icon={<SparkleIcon size={14} weight="bold" />}
-                label="Überschriften generieren"
+                label="Neu schreiben"
                 onClick={generateTitles}
                 isDisabled={pendingTitles.some(Boolean)}
               />
@@ -1109,41 +1274,42 @@ export function AdSetBlock({
               Zeilenumbrüchen ("✔ 30 Tage Urlaub …"), keine Schlagzeile. Der
               Zähler kam bei HeroUI manuell in Label — TextArea zeigt ihn über
               maxLength selbst an, der Titel bleibt also schlicht. */}
-          {pendingDescription ? (
-            <div className="w-full max-w-2xl space-y-2">
+          <div role="group" aria-label="Beschreibung" className="max-w-2xl space-y-4">
+            {/* Derselbe Kopf wie an den Listen: Name links, die leise Handlung rechts. */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <Text type="label" as="div">
                 Beschreibung
               </Text>
-              {/* In Feldhöhe (rows={6}), damit beim Eintreffen nichts springt.
-                  width/height als Props, nicht als Klassen – siehe TextListField. */}
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<SparkleIcon size={14} weight="bold" />}
+                label="Neu schreiben"
+                onClick={generateDescription}
+                isDisabled={pendingDescription}
+              />
+            </div>
+            {pendingDescription ? (
+              // In Feldhöhe (rows={6}), damit beim Eintreffen nichts springt.
+              // width/height als Props, nicht als Klassen – siehe TextListField.
               <div className="ki-schimmer space-y-2" aria-label="Beschreibung wird generiert…">
                 {["40%", "60%", "50%", "60%", "80%"].map((w, i) => (
                   <Skeleton key={i} height={14} width={w} radius={1} index={i} />
                 ))}
               </div>
-            </div>
-          ) : (
-            <TextArea
-              label="Beschreibung"
-              value={value.description}
-              onChange={(description) => onChange({ description })}
-              rows={6}
-              maxLength={DESCRIPTION_LIMIT}
-              width="100%"
-              className="max-w-2xl"
-            />
-          )}
-          <div>
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={<SparkleIcon size={14} weight="bold" />}
-              label="Beschreibung generieren"
-              onClick={generateDescription}
-              isDisabled={pendingDescription}
-            />
+            ) : (
+              <TextArea
+                label="Beschreibung"
+                isLabelHidden
+                value={value.description}
+                onChange={(description) => onChange({ description })}
+                rows={6}
+                maxLength={DESCRIPTION_LIMIT}
+                width="100%"
+              />
+            )}
+            <CopyNotices notices={notices} field="description" />
           </div>
-          <CopyNotices notices={notices} field="description" />
         </div>
       </FieldsetSection>
 
@@ -1157,6 +1323,8 @@ export function AdSetBlock({
           <Button variant="secondary" label="Standort entfernen" onClick={onRemove} isDisabled={!canRemove} />
         }
       />
+        </div>
+      )}
     </div>
   );
 }

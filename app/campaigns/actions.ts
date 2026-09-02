@@ -7,11 +7,10 @@ import type { Receipt } from "@/lib/launch";
 import type { Check } from "@/lib/verify";
 import { getLeadForm, listLeadForms, parseFormId, type LeadForm } from "@/lib/forms";
 import { locationProblem, type GeoPlace } from "@/lib/geo";
-import { estimateReach, searchPlaces, type Reach } from "@/lib/geo-search";
+import { estimateReach, fitReachRadius, searchPlaces, type FittedRadius, type Reach } from "@/lib/geo-search";
 import { lastCampaignDefaults, type Prefill } from "@/lib/prefill";
 import { generateBody, generateDescription, generateTitles, type BodiesInput } from "@/lib/bodies";
 import { closeBrief, listOpenBriefs, type Brief } from "@/lib/clickup";
-import { assembleBrief, type AssembledBrief } from "@/lib/brief";
 
 export type LaunchResult = { ok?: string; error?: string };
 
@@ -147,6 +146,28 @@ export async function searchPlacesAction(q: string): Promise<GeoPlace[]> {
  * zurück, nicht still: die Zahl steht am Formular und ihr Fehlen sähe sonst aus
  * wie "0 Menschen im Umkreis".
  */
+/**
+ * Der Assistent wählt den Umkreis selbst: ab dem gegebenen Radius die Leiter
+ * hinauf, bis mindestens 150 000 Menschen erreicht sind (lib/geo-search.ts).
+ * Serverseitig in einem Aufruf – bis zu acht Schätzungen gegen Meta, die der
+ * Browser sonst einzeln abwarten müsste.
+ */
+export async function fitRadiusAction(
+  adAccount: string,
+  location: { addressString: string; radiusKm: number; place?: GeoPlace },
+): Promise<FittedRadius | { error: string }> {
+  const problem = locationProblem(location);
+  if (problem) return { error: problem };
+  try {
+    return await fitReachRadius(
+      (radiusKm) => estimateReach(adAccount, { ...location, radiusKm }),
+      location.radiusKm,
+    );
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+}
+
 export async function reachAction(
   adAccount: string,
   location: { addressString: string; radiusKm: number; place?: GeoPlace },
@@ -217,15 +238,6 @@ export async function briefsAction(): Promise<{ briefs: Brief[]; error?: string 
     return { briefs: await listOpenBriefs() };
   } catch (e) {
     return { briefs: [], error: (e as Error).message };
-  }
-}
-
-/** Der Auftrag samt allem, was sich dazu lesen lässt – siehe lib/brief.ts. */
-export async function briefAction(taskId: string): Promise<{ brief?: AssembledBrief; error?: string }> {
-  try {
-    return { brief: await assembleBrief(taskId) };
-  } catch (e) {
-    return { error: (e as Error).message };
   }
 }
 

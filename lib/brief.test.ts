@@ -5,11 +5,17 @@ import type { Brief } from "./clickup";
 test("parseLocationHint nimmt Adresse, Ort und Formular-Hinweis aus dem JSON", () => {
   expect(
     parseLocationHint('{"adresse":"Mühlgasse 24+26, 71272 Renningen","ort":"Renningen","formular":"Renningen"}'),
-  ).toEqual({ address: "Mühlgasse 24+26, 71272 Renningen", city: "Renningen", formHint: "Renningen" });
+  ).toEqual({ locations: ["Mühlgasse 24+26, 71272 Renningen"], formHint: "Renningen" });
 });
 
 test("parseLocationHint verträgt Markdown-Zaun und null-Werte", () => {
-  expect(parseLocationHint('```json\n{"adresse":null,"ort":null,"formular":null}\n```')).toEqual({});
+  expect(parseLocationHint('```json\n{"adresse":null,"ort":null,"formular":null}\n```')).toEqual({ locations: [] });
+});
+
+test("parseLocationHint nimmt mehrere Standorte, ohne Doppelte", () => {
+  expect(
+    parseLocationHint('{"standorte":["Renningen","Stuttgart","renningen"],"formular":null}'),
+  ).toEqual({ locations: ["Renningen", "Stuttgart"] });
 });
 
 test("parseLocationHint wirft bei Unlesbarem", () => {
@@ -82,10 +88,7 @@ test("assembleBrief: keine Adresse in der Aufgabe → Standort aus der Kundenüb
       },
     }),
   );
-  expect(out.location).toEqual({
-    value: { addressString: "Am Illgenberg 2, 76530 Baden-Baden" },
-    source: "clickup",
-  });
+  expect(out.locations).toEqual({ value: ["Am Illgenberg 2, 76530 Baden-Baden"], source: "clickup" });
 });
 
 test("assembleBrief: Adresse schon aus der Beschreibung → Kundenübersicht wird nicht angefragt", async () => {
@@ -100,7 +103,7 @@ test("assembleBrief: Adresse schon aus der Beschreibung → Kundenübersicht wir
       },
     }),
   );
-  expect(out.location).toEqual({ value: { addressString: "Mühlgasse 24, 71272 Renningen" }, source: "clickup" });
+  expect(out.locations).toEqual({ value: ["Mühlgasse 24, 71272 Renningen"], source: "clickup" });
   expect(calls).toBe(0);
 });
 
@@ -115,7 +118,7 @@ test("assembleBrief: Kundenübersicht nicht lesbar → Warnung, kein Standort", 
       },
     }),
   );
-  expect(out.location).toBeUndefined();
+  expect(out.locations).toBeUndefined();
   expect(out.warnings.join(" ")).toMatch(/Kundenübersicht/);
 });
 
@@ -142,7 +145,7 @@ test("assembleBrief füllt alles aus ClickUp und der Onboarding-Tabelle, mit Her
   expect(out.roles).toEqual({ value: ["FK"], source: "clickup" });
   expect(out.dailyBudgetEuros).toEqual({ value: 17.05, source: "clickup" });
   expect(out.spendCapEuros).toEqual({ value: 2435, source: "clickup" });
-  expect(out.location).toEqual({ value: { addressString: "Mühlgasse 24, 71272 Renningen" }, source: "clickup" });
+  expect(out.locations).toEqual({ value: ["Mühlgasse 24, 71272 Renningen"], source: "clickup" });
   expect(out.formHint).toEqual({ value: "Renningen", source: "clickup" });
   expect(out.benefits).toEqual({ value: "33 Urlaubstage\nJobrad", source: "onboarding" });
   expect(out.driveFolderId).toEqual({ value: "k", source: "clickup" });
@@ -180,7 +183,7 @@ test("assembleBrief: nur der Ort, wenn keine Adresse genannt ist", async () => {
           : '{"adresse":null,"ort":"Renningen","formular":null}',
     }),
   );
-  expect(out.location).toEqual({ value: { addressString: "Renningen" }, source: "clickup" });
+  expect(out.locations).toEqual({ value: ["Renningen"], source: "clickup" });
   expect(out.formHint).toBeUndefined();
 });
 
@@ -195,7 +198,7 @@ test("assembleBrief: jede Quelle darf ausfallen – Feld leer, Warnung dran, kei
     }),
   );
   expect(out.benefits).toBeUndefined();
-  expect(out.location).toBeUndefined();
+  expect(out.locations).toBeUndefined();
   expect(out.warnings).toHaveLength(2);
   expect(out.warnings.join(" ")).toMatch(/Drive-Ordner/);
   expect(out.warnings.join(" ")).toMatch(/Standort/);
@@ -222,4 +225,33 @@ test("assembleBrief: ohne Tabelle im Ordner eine Warnung, der Ordner bleibt", as
   const out = await assembleBrief("t1", deps({ findSheet: async () => undefined }));
   expect(out.driveFolderId?.value).toBe("k");
   expect(out.warnings.join(" ")).toMatch(/Onboarding-Tabelle/);
+});
+
+test("assembleBrief: mehrere Standorte in der Beschreibung → alle, in Reihenfolge", async () => {
+  const out = await assembleBrief(
+    "t1",
+    deps({
+      mistral: async (c) =>
+        typeof c === "string" && c.includes("CSV")
+          ? "{}"
+          : '{"standorte":["Mühlgasse 24, 71272 Renningen","Stuttgart-Vaihingen"],"formular":"Renningen"}',
+    }),
+  );
+  expect(out.locations?.value).toEqual(["Mühlgasse 24, 71272 Renningen", "Stuttgart-Vaihingen"]);
+});
+
+test("assembleBrief meldet jede Quelle beim Start und beim Ende, mit dem Gefundenen", async () => {
+  const events: string[] = [];
+  const b = await assembleBrief("t1", deps(), (e) => events.push(`${e.step}:${e.status}${e.detail ? ` ${e.detail}` : ""}`));
+  expect(b.benefits?.value).toBeDefined();
+  // Jede Quelle genau einmal „running“ und einmal abgeschlossen (done/skipped/failed).
+  for (const step of ["task", "description", "drive", "onboarding"] as const) {
+    expect(events.filter((e) => e.startsWith(`${step}:running`))).toHaveLength(1);
+    expect(events.filter((e) => e.startsWith(`${step}:done`))).toHaveLength(1);
+  }
+  // Die Kundenübersicht wird nicht gefragt, wenn die Beschreibung den Ort hergab – aber gemeldet.
+  expect(events.filter((e) => e.startsWith("overview:skipped"))).toHaveLength(1);
+  expect(events.find((e) => e.startsWith("task:done"))).toContain("17,05");
+  expect(events.find((e) => e.startsWith("description:done"))).toContain("Renningen");
+  expect(events.find((e) => e.startsWith("onboarding:done"))).toContain("Benefits");
 });

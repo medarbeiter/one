@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import type { AssembledBrief } from "@/lib/brief";
 import {
   applyBrief,
+  syncLinkedAds,
+  cityOf,
   applyCrop,
   customerBlockers,
   DEFAULT_DAILY_BUDGET,
@@ -315,7 +317,7 @@ const brief: AssembledBrief = {
   clientName: { value: "MeVita Pflegedienst GmbH", source: "clickup" },
   roles: { value: ["PFK"], source: "clickup" },
   benefits: { value: "33 Urlaubstage\nJobrad", source: "onboarding" },
-  location: { value: { addressString: "Mühlgasse 24, 71272 Renningen" }, source: "clickup" },
+  locations: { value: ["Mühlgasse 24, 71272 Renningen"], source: "clickup" },
   formHint: { value: "Renningen", source: "clickup" },
   dailyBudgetEuros: { value: 35, source: "clickup" },
   spendCapEuros: { value: 2435, source: "clickup" },
@@ -345,6 +347,32 @@ test("applyBrief füllt ein leeres Formular und merkt sich je Feld die Herkunft"
     dailyBudget: "clickup",
     spendCap: "clickup",
   });
+});
+
+test("applyBrief: mehrere Standorte → je eine Anzeigengruppe, die weiteren spiegeln die erste", () => {
+  const s = applyBrief(initialState("act_1", "", "KF"), {
+    ...brief,
+    locations: { value: ["Mühlgasse 24, 71272 Renningen", "Stuttgart-Vaihingen"], source: "clickup" },
+  });
+  expect(s.adSets.map((a) => [a.name, a.addressString, a.mirrorOf === s.adSets[0].id])).toEqual([
+    ["Ads", "Mühlgasse 24, 71272 Renningen", false],
+    ["Ads – Stuttgart-Vaihingen", "Stuttgart-Vaihingen", true],
+  ]);
+});
+
+test("cityOf nimmt den Ort hinter der PLZ", () => {
+  expect(cityOf("Mühlgasse 24, 71272 Renningen")).toBe("Renningen");
+  expect(cityOf("Stuttgart")).toBe("Stuttgart");
+});
+
+test("ein Spiegel-Standort bekommt jede eigene Anzeige der Quelle als Leihe – auch spätere", () => {
+  const a = emptyAdSet(0);
+  const b = { ...emptyAdSet(1, "Stuttgart"), mirrorOf: a.id };
+  const ad: WizardAd = { id: "x", name: "Creative 1", type: "single", asset: image("s.jpg", "square") };
+  const once = syncLinkedAds([{ ...a, ads: [ad] }, b]);
+  expect(once[1].ads.map((x) => x.source)).toEqual([{ adSetId: a.id, adId: "x" }]);
+  const twice = syncLinkedAds([{ ...once[0], ads: [ad, { ...ad, id: "y", name: "Creative 2" }] }, once[1]]);
+  expect(twice[1].ads.map((x) => x.source?.adId)).toEqual(["x", "y"]);
 });
 
 test("applyBrief überschreibt nichts, was schon angefasst ist", () => {

@@ -249,6 +249,46 @@
   animation: step-enter var(--beat-draw) var(--ease-in) both;
 }
 
+/* Die Werkstatt (app/campaigns/new/werkstatt.tsx): dem Assistenten zusehen.
+ *
+ * Die laufende Marke atmet: ihr Hof aus Goldwäsche wächst und fällt im Takt
+ * des KI-Schimmers (2,4 s – dieselbe Atmung wie die Skelette, während Mistral
+ * schreibt). Goldwäsche trägt keine Bedeutung, also keine Kontrastpflicht; die
+ * Bedeutung trägt der Bronze-Haarstrich der Marke selbst. Schatten statt
+ * Größe: die Marke bleibt an ihrem Platz, nur ihr Hof bewegt sich. */
+.werk-puls {
+  animation: werk-puls 2.4s var(--ease-move) infinite;
+}
+@keyframes werk-puls {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--color-accent-muted);
+  }
+  50% {
+    box-shadow: 0 0 0 6px var(--color-accent-muted);
+  }
+}
+/* Die Zeilen kommen wie ein Schritt von unten (transform only) und gestaffelt:
+ * 60 ms je Zeile, damit der Plan sich in einer Bewegung aufbaut. */
+.werk-zeile {
+  animation: step-enter var(--beat-draw) var(--ease-in) both;
+  animation-delay: calc(var(--i, 0) * 60ms);
+}
+/* Das Gefundene rollt an seinen Platz wie die Zahl im Kopfband. */
+.werk-detail {
+  animation: zahl-rollt var(--beat-step) var(--ease-in);
+}
+@media (prefers-reduced-motion: reduce) {
+  .werk-puls,
+  .werk-zeile,
+  .werk-detail {
+    animation: none;
+  }
+  .werk-puls {
+    box-shadow: 0 0 0 4px var(--color-accent-muted);
+  }
+}
+
 /* Ersetzt HeroUIs ScrollShadow: ein Verlauf an Ober- und Unterkante zeigt,
  * dass eine Liste weiterscrollt, ohne einen eigenen Wrapper-Komponenten zu
  * brauchen. */

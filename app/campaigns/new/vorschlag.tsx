@@ -13,6 +13,7 @@ import {
   Button,
   Collapsible,
   DateInput,
+  Heading,
   MultiSelector,
   NumberInput,
   Text,
@@ -63,7 +64,19 @@ export function VorschlagKopf({
   const set = (field: SourceField, patch: Partial<WizardState>) =>
     setState((s) => edited(s, field, patch));
   return (
-    <div className="flex flex-col gap-6">
+    <section className="flex flex-col gap-8">
+      {/* Derselbe Kopf wie die Abschnitte der Anzeigengruppe (ad-set-block.tsx,
+          FieldsetSection): Titel, ein Satz. Der Abschnitt steht unter den
+          Standorten, damit er beim Fertigwerden unten anwächst statt oben
+          einzurücken. */}
+      <div className="flex flex-col gap-1.5">
+        <Heading level={3}>Kampagne</Heading>
+        <Text type="supporting" color="secondary" as="p" className="max-w-prose">
+          Name, Rollen und Tagesbudget für alle Standorte. Der Name baut sich aus Kunde, Rollen, Datum und
+          Kürzel.
+        </Text>
+      </div>
+      <div className="flex flex-col gap-6">
       {/* Der Name ist ein Ergebnis, keine Eingabe – gerahmt wie ein Wert. */}
       <div className="border-line bg-surface-secondary flex items-center gap-3 rounded-xl border p-2 ps-3">
         <Text type="code" className="min-w-0 flex-1 truncate">
@@ -142,7 +155,8 @@ export function VorschlagKopf({
           </pre>
         </Infotafel>
       )}
-    </div>
+      </div>
+    </section>
   );
 }
 

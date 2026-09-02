@@ -98,3 +98,33 @@ export async function estimateReach(
     upper: e.estimate_mau_upper_bound ?? 0,
   };
 }
+
+/**
+ * Der Umkreis, den der Assistent wählt: mindestens 17 km (Metas Untergrenze
+ * für Adressen, siehe DEFAULT_RADIUS_KM), und so weit, bis die Zielgruppe
+ * groß genug ist. 150 000 Menschen sind die Hausgröße – darunter kauft eine
+ * Pflege-Kampagne dieselben Leute mehrfach, statt neue zu finden. Die Leiter
+ * endet bei 80 km, Metas Obergrenze; reicht die nicht, bleibt sie und der
+ * Vorschlag sagt es.
+ */
+export const RADIUS_LADDER_KM = [17, 20, 25, 30, 40, 50, 65, 80] as const;
+export const MIN_REACH = 150_000;
+
+export type FittedRadius = { radiusKm: number; reach: Reach; enough: boolean };
+
+/** Rein: die Schätzung kommt von außen, damit die Leiter ohne Meta prüfbar ist. */
+export async function fitReachRadius(
+  estimate: (radiusKm: number) => Promise<Reach>,
+  fromKm: number = RADIUS_LADDER_KM[0],
+  minPeople = MIN_REACH,
+): Promise<FittedRadius> {
+  const steps: number[] = RADIUS_LADDER_KM.filter((km) => km >= fromKm);
+  if (!steps.length) steps.push(fromKm);
+  let last: FittedRadius = { radiusKm: steps[0], reach: { ready: false }, enough: false };
+  for (const radiusKm of steps) {
+    const reach = await estimate(radiusKm);
+    last = { radiusKm, reach, enough: reach.ready && reach.lower >= minPeople };
+    if (last.enough) return last;
+  }
+  return last;
+}

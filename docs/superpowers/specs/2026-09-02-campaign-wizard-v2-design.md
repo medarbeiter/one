@@ -64,6 +64,45 @@ Klick auf eine Zeile → `briefAction(taskId)` (§4) → Vorschlag. Solange die 
 läuft, zeigt die Zeile einen Spinner; ein Fehler steht als Banner über der Liste, die
 Liste bleibt bedienbar.
 
+### 3.1a Die Werkstatt (Ergänzung 2026-09-02)
+
+Klick auf eine Zeile öffnet keinen Spinner, sondern die **Werkstatt**: die Liste
+weicht dem gewählten Auftrag als Kopf und darunter einer Zeile je Quelle – alle
+sofort da, noch grau (der Plan), dann der Reihe nach laufend (Marke atmet) und
+fertig (Haken, darunter in einem Satz das Gefundene mit Herkunftsetikett:
+„17,05 € pro Tag · Rollen FK“ aus ClickUp, „15 Benefits aus ‚Besteht aktuell‘“
+aus der Onboarding-Tabelle). Eine Schiene verbindet die Marken wie in der
+Schrittleiste; die Marke „Vorschlag“ in der Schrittleiste pulst mit. Zuletzt die
+Zeile „Kunde in der Meta-Kundenliste finden“; nach dem letzten Haken ein Bogen
+(700 ms), dann öffnet sich der Vorschlag.
+
+Technisch: `GET /api/brief?task=` streamt NDJSON (`BriefEvent` aus `lib/brief.ts`,
+`assembleBrief(taskId, deps, emit)`), wie `/api/launch`. Die `briefAction` entfällt.
+Client-seitig sammelt `activity.ts` (Store wie `upload-queue.ts`) alle Meldungen –
+auch die aus dem Vorschlag: Texte (Mistral, mit Zähler „3 von 5“), Drive-Regal,
+Lead-Formulare, letzte Kampagne. `werkstatt.tsx` rendert daraus `Aufbau` (Schirm 1)
+und `Werkstattleiste` (Schirm 2: eine Zeile „Der Assistent arbeitet: Primärtexte
+schreiben · Drive-Ordner öffnen…“, aufklappbar zum ganzen Protokoll; danach
+„Der Vorschlag steht · 9 Quellen gelesen · Etiketten stehen an den Feldern“).
+
+Bewegung nur aus `theme/motion.css`: Zeilen kommen per `step-enter` (transform),
+gestaffelt 60 ms; das Gefundene rollt per `zahl-rollt`; der Hof der laufenden
+Marke atmet im Takt des KI-Schimmers (2,4 s). Alles unter `prefers-reduced-motion`
+stehend.
+
+**Mehrere Standorte, Umkreis, Inhalt zuerst (Ergänzung 2026-09-02):** Mistral liest
+aus der Beschreibung *alle* Zielstandorte (`standorte: []`). Jeder weitere wird eine
+eigene Anzeigengruppe, benannt nach dem Ort (`cityOf`), die die Anzeigen der ersten
+spiegelt (`mirrorOf`, in `syncLinkedAds`): Videos einmal in die erste ziehen, sie
+liegen in allen. Texte schreibt jede Gruppe selbst (der Ort steht drin). Wer die
+Anzeigen eines Spiegels anfasst, übernimmt ihn. Den Umkreis wählt der Assistent
+(`fitRadiusAction`): ab 17 km die Leiter 17·20·25·30·40·50·65·80 hinauf, bis Metas
+Schätzung mindestens 150 000 Menschen nennt; ein von Hand oder aus der letzten
+Kampagne gesetzter Radius bleibt. Solange irgendetwas läuft, zeigt der Vorschlag nur
+den Inhalt der ersten Gruppe – das Einzige, was in der Zeit von Hand zu tun ist;
+Kopf, Standort, Formular, Texte, Optional und Vorschau erscheinen, sobald alles
+steht, und bleiben dann stehen.
+
 ### 3.2 Vorschlag
 
 Eine Seite, sieben Abschnitte, jeder mit Skelett bis seine Antwort da ist. Rechts
@@ -269,7 +308,10 @@ Ablagezone darunter steht ohnehin.
 | `app/campaigns/new/drive-shelf.tsx` (neu) | §6 |
 | `app/campaigns/new/ad-set-block.tsx` | Dialoge und lokaler Benefits-State raus; `benefits` als Prop; `autoGenerate` beim ersten Mount mit leeren Texten; Formular-Überwachung (§5) |
 | `app/campaigns/new/benefits-dialog.tsx` | gelöscht |
-| `app/campaigns/new/stepper.tsx` | unverändert (drei Schritte statt vier) |
+| `app/campaigns/new/stepper.tsx` | `building`: die Marke des Schritts, der gerade zusammengesetzt wird, pulst |
+| `app/api/brief/route.ts` (neu) | NDJSON-Stream des Zusammenbaus (§3.1a) |
+| `app/campaigns/new/activity.ts` (neu) | Protokoll-Store: `report`, `useActivity`, `clearActivity` |
+| `app/campaigns/new/werkstatt.tsx` (neu) | `Aufbau`, `Werkstattleiste`, Abbildung `BriefEvent` → Zeile |
 | `app/campaigns/new/receipt.tsx` | Zeile für das ClickUp-Ergebnis |
 
 Unverändert und wiederverwendet: `content-grid.tsx`, `crop-dialog.tsx`,

@@ -26,6 +26,7 @@ import {
   DEFAULT_RADIUS_KM,
   adSetBlockers,
   applyBrief,
+  cityOf,
   borrowersOf,
   customerBlockers,
   detailBlockers,
@@ -47,9 +48,14 @@ import { Optional, VorschlagKopf, type AccountItem, type WizardAccount } from ".
 import { Stepper } from "./stepper";
 import { Preview } from "./preview";
 import { ReceiptPanel } from "./receipt";
+import { activitySnapshot, clearActivity, report, useActivity } from "./activity";
+import { Werkstattleiste, announceBriefPlan, reportBriefEvent } from "./werkstatt";
+import type { BriefStreamEvent } from "@/app/api/brief/route";
+import type { AssembledBrief } from "@/lib/brief";
+import { readNdjson } from "@/lib/ndjson";
 import {
-  briefAction,
   closeBriefAction,
+  fitRadiusAction,
   leadgenTosAcceptedAction,
   prefillAction,
   refreshAssetsAction,
@@ -138,8 +144,8 @@ function IssueChip({ count }: { count: number }) {
 }
 
 /**
- * Das Telefon rechts – im Vorschlag und im Anlegen dasselbe: es zeigt Texte und
- * Anzeigen, sobald es sie gibt. Bei mehreren Standorten eine Vorschau mit
+ * Das Telefon rechts im Anlegen: es zeigt Texte und Anzeigen, wie sie
+ * hinausgehen. Im Vorschlag steht es nicht – dort wird noch gewählt. Bei mehreren Standorten eine Vorschau mit
  * Auswahl statt einer Reihe untereinander (die Texte unterscheiden sich meist
  * nur in einer Zeile). Klebt beim Rollen oben, damit die Anzeige neben jeder
  * Zeile sichtbar bleibt.
@@ -292,9 +298,13 @@ function WizardSteps({
     setOpenSets(Array.isArray(open) ? open : [open]);
   // Ein einzelner zugeklappter Standort sieht aus wie eine leere Seite. Die id
   // wechselt beim Wiederherstellen eines Entwurfs, deshalb am Wert hängend.
+  // Standorte aus dem Auftrag stehen alle offen – sie kamen zusammen, und der
+  // Assistent schreibt in jedem. Die id wechselt beim Wiederherstellen eines
+  // Entwurfs, deshalb am Wert hängend.
   const firstSetId = state.adSets[0]?.id;
   useEffect(() => {
-    if (firstSetId) setOpenSets([firstSetId]);
+    if (firstSetId) setOpenSets(state.adSets.filter((a, i) => i === 0 || a.mirrorOf).map((a) => a.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firstSetId]);
   // Welcher Standort in der Vorschau steht. Über die id, nicht den Index: wird
   // ein Standort davor entfernt, zeigte ein Index still auf einen anderen.
@@ -313,29 +323,133 @@ function WizardSteps({
   const [briefError, setBriefError] = useState<string>();
   const [warnings, setWarnings] = useState<string[]>([]);
 
+  // Der Zusammenbau streamt (app/api/brief): eine Meldung je Quelle, und die
+  // Werkstatt (werkstatt.tsx) zeigt sie, während sie kommen. Vorher stand
+  // zehn Sekunden ein Spinner auf dem Knopf und niemand sah, was gelesen wird.
   const pick = async (taskId: string) => {
     setPicking(taskId);
     setBriefError(undefined);
-    // Die Aktion fängt selbst; hier bleibt nur die abgerissene Leitung – und
-    // die darf den Schirm nicht sperren.
-    const res = await briefAction(taskId).catch(
-      (e: Error): Awaited<ReturnType<typeof briefAction>> => ({ error: e.message }),
-    );
-    setPicking(undefined);
-    if (!res.brief) return setBriefError(res.error ?? "Der Auftrag konnte nicht gelesen werden.");
-    const brief = res.brief;
+    clearActivity();
+    announceBriefPlan();
+    let brief: AssembledBrief | undefined;
+    let error: string | undefined;
+    try {
+      const res = await fetch(`/api/brief?task=${encodeURIComponent(taskId)}`);
+      if (!res.ok || !res.body) throw new Error(`Der Server antwortete mit ${res.status}.`);
+      for await (const event of readNdjson<BriefStreamEvent>(res.body)) {
+        if (event.type === "step") reportBriefEvent(event);
+        else {
+          brief = event.brief;
+          error = event.error;
+        }
+      }
+    } catch (e) {
+      error = (e as Error).message;
+    }
+    if (!brief) {
+      setPicking(undefined);
+      return setBriefError(error ?? "Der Auftrag konnte nicht gelesen werden.");
+    }
     setWarnings(brief.warnings);
     // Der Kunde aus ClickUp heißt selten exakt wie die Meta-Seite. Exakt,
     // sonst der eine unscharfe Treffer, sonst bleibt der Name stehen und die
     // Kundenwahl zeigt ihn als nicht zugeordnet. Ohne Treffer bleibt die
     // Person auf dem Kundenfeld stehen, wo das Warnbanner das erklärt.
     const name = brief.clientName?.value ?? "";
+    report({ id: "match", label: "Meta-Kundenliste", status: "running", detail: "sucht die Seite des Kunden…" });
     const exact = resolveClientByName(clients, name);
     const fuzzy = exact ? [] : clients.filter((c) => fuzzyCustomerMatch(c.name, name));
     const match = exact ?? (fuzzy.length === 1 ? fuzzy[0] : undefined);
-    setState((s) => (match ? { ...applyBrief(s, brief), business: match.name } : applyBrief(s, brief)));
+    report({
+      id: "match",
+      label: "Meta-Kundenliste",
+      status: match ? "done" : "failed",
+      detail: match
+        ? `${match.name} · Seite „${match.pageName}“`
+        : name
+          ? `„${name}“ steht nicht in der Meta-Liste – bitte gleich wählen`
+          : "die Aufgabe nennt keinen Kunden",
+    });
+    const locs = brief.locations?.value ?? [];
+    report({
+      id: "adsets",
+      label: "Anzeigengruppen",
+      status: locs.length ? "done" : "skipped",
+      detail:
+        locs.length > 1
+          ? `${locs.length} Standorte → ${locs.length} Anzeigengruppen: ${locs.map(cityOf).join(", ")}. Videos und Bilder werden geteilt.`
+          : locs.length
+            ? `eine Anzeigengruppe: ${cityOf(locs[0])}`
+            : "kein Standort gefunden – bitte eintragen",
+    });
+    setRevealed(false);
+    // Der letzte Haken soll gesehen werden, bevor der Schirm wechselt: ein
+    // Bogen (700 ms), dann öffnet sich der Vorschlag.
+    await new Promise((r) => setTimeout(r, 700));
+    const assembled = brief;
+    setState((s) => (match ? { ...applyBrief(s, assembled), business: match.name } : applyBrief(s, assembled)));
     setStep(match ? "1" : "0");
+    setPicking(undefined);
   };
+
+  // Ein neuer Anfang leert auch das Protokoll – sonst stünde die Werkstatt
+  // des alten Auftrags über dem neuen.
+  const reset = () => {
+    clearActivity();
+    setRevealed(false);
+    discard();
+  };
+
+  // Solange der Assistent liest und schreibt, zeigt der Vorschlag nur den
+  // Inhalt – das Einzige, was in der Zeit von Hand zu tun ist. Ist einmal
+  // alles fertig, bleibt es offen, auch wenn später jemand Texte neu schreiben
+  // lässt. Gelesen wird der Store direkt: die Blöcke melden in ihren eigenen
+  // Effekten, die vor diesem hier laufen – der gerenderte Wert wäre noch leer.
+  const activity = useActivity();
+  const busy = activity.some((e) => e.status === "running");
+  const [revealed, setRevealed] = useState(false);
+  useEffect(() => {
+    if (!activitySnapshot().some((e) => e.status === "running")) setRevealed(true);
+  }, [busy]);
+  const ready = revealed;
+
+  // Der Umkreis ist Sache des Assistenten: ab 17 km die Leiter hinauf, bis
+  // 150 000 Menschen erreicht sind (lib/geo-search.ts). Für jeden Standort mit
+  // Adresse, dessen Radius noch auf dem Hausstandard steht – ein von Hand oder
+  // aus der letzten Kampagne gesetzter Radius bleibt. Einmal je Gruppe.
+  const fitted = useRef(new Set<string>());
+  const fitKey = state.adSets.map((a) => `${a.id}|${a.addressString}|${a.radiusKm}`).join(";");
+  useEffect(() => {
+    if (Number(step) !== 1 || !state.adAccount) return;
+    for (const set of state.adSets) {
+      if (fitted.current.has(set.id) || !set.addressString.trim() || set.radiusKm !== DEFAULT_RADIUS_KM) continue;
+      fitted.current.add(set.id);
+      const id = `radius:${set.id}`;
+      const label = state.adSets.length > 1 ? `Umkreis · ${cityOf(set.addressString)}` : "Umkreis";
+      report({ id, label, status: "running", detail: "prüft die Reichweite ab 17 km, bis 150 000 Menschen erreicht sind…" });
+      void fitRadiusAction(state.adAccount, {
+        addressString: set.addressString,
+        radiusKm: set.radiusKm,
+        place: set.place,
+      }).then((res) => {
+        if ("error" in res) return report({ id, label, status: "failed", detail: res.error });
+        const people = res.reach.ready ? `ca. ${new Intl.NumberFormat("de-DE").format(res.reach.lower)} Menschen` : "Reichweite unbekannt";
+        report({
+          id,
+          label,
+          status: res.enough ? "done" : "failed",
+          detail: res.enough
+            ? `${res.radiusKm} km · ${people}`
+            : `auch bei ${res.radiusKm} km nur ${people} – bitte Ort prüfen`,
+        });
+        setState((s) => ({
+          ...s,
+          adSets: s.adSets.map((a) => (a.id === set.id && a.radiusKm === DEFAULT_RADIUS_KM ? { ...a, radiusKm: res.radiusKm } : a)),
+        }));
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, fitKey, state.adAccount]);
 
   // Angelegt heißt fertig. Bliebe der Entwurf in der Liste, lüde er morgen
   // jemanden ein, dieselbe Kampagne ein zweites Mal anzulegen – und genau das
@@ -458,9 +572,14 @@ function WizardSteps({
     if (!adAccount) return;
     let cancelled = false;
     setPrefill("loading");
+    const label = "Letzte Kampagne des Kontos";
+    report({ id: "previous", label, status: "running", detail: "sucht Standort und Radius der letzten Kampagne…" });
     prefillAction(adAccount).then((prefill) => {
       if (cancelled) return;
-      if (!prefill) return setPrefill("none");
+      if (!prefill) {
+        report({ id: "previous", label, status: "skipped", detail: "keine frühere Kampagne auf diesem Konto" });
+        return setPrefill("none");
+      }
       let applied = false;
       setState((s) => {
         const first = s.adSets[0];
@@ -475,6 +594,17 @@ function WizardSteps({
         };
       });
       setPrefill(applied ? "applied" : "none");
+      report({
+        id: "previous",
+        label,
+        status: applied ? "done" : "skipped",
+        detail: applied
+          ? [prefill.addressString ?? prefill.place?.name, prefill.radiusKm ? `${prefill.radiusKm} km` : undefined]
+              .filter(Boolean)
+              .join(" · ")
+          : "Standort stand schon – nichts zu übernehmen",
+        source: applied ? "previous" : undefined,
+      });
     });
     return () => {
       cancelled = true;
@@ -507,7 +637,10 @@ function WizardSteps({
         // Etikett. Der Radius zählt nicht dazu, die Adresse bleibt ja die aus
         // dem Auftrag.
         if (idx === 0 && ("addressString" in p || "place" in p)) ownAddress = true;
-        return { ...set, ...p };
+        // Wer die Anzeigen eines Spiegel-Standorts selbst anfasst, hat ihn
+        // übernommen: ab da folgt er der Quelle nicht mehr.
+        const next = { ...set, ...p };
+        return "ads" in p && set.mirrorOf ? { ...next, mirrorOf: undefined } : next;
       });
       const next = { ...s, adSets: syncLinkedAds(sets) };
       return ownAddress ? edited(next, "location", {}) : next;
@@ -605,7 +738,7 @@ function WizardSteps({
       // id und loose sind reine UI-Begriffe – AdSetInput (der API-Vertrag) kennt
       // weder das eine noch das andere, und toAdInput streift die UI-Felder der
       // einzelnen Anzeigen ab.
-      adSets: state.adSets.map(({ id: _id, loose: _loose, ads, ...rest }) => ({
+      adSets: state.adSets.map(({ id: _id, loose: _loose, mirrorOf: _m, ads, ...rest }) => ({
         ...rest,
         // Aus dem Kunden, nicht aus dem Ad-Set-State: der wurde früher per
         // Mount-Effekt im Block befüllt – ein Standort, dessen Block nie
@@ -654,7 +787,7 @@ function WizardSteps({
           title="Entwurf wiederhergestellt"
           description="Die Eingaben stammen aus einer früheren Sitzung."
           endContent={
-            <Button variant="secondary" size="sm" onClick={discard} label="Neu beginnen" />
+            <Button variant="secondary" size="sm" onClick={reset} label="Neu beginnen" />
           }
         />
       )}
@@ -668,6 +801,7 @@ function WizardSteps({
           // Ein Entwurf mit Kunden ist über die Kundenwahl hinaus – er gehört in
           // den Vorschlag; einer ohne fiele dort auf einen gesperrten Schirm.
           onResume={(id) => {
+            clearActivity();
             resume(id);
             if (others.find((d) => d.id === id)?.state.business) setStep("1");
           }}
@@ -687,6 +821,7 @@ function WizardSteps({
           current={stepIndex}
           onSelect={(i) => setStep(String(i))}
           lockedFrom={locked ? 1 : STEPS.length}
+          building={picking ? 1 : undefined}
         />
 
         {/* ---------------------------------------------- Schirm 1: Auftrag */}
@@ -715,7 +850,7 @@ function WizardSteps({
                 state.taskId
                   ? () => {
                       setManual(false);
-                      discard();
+                      reset();
                     }
                   : undefined
               }
@@ -726,14 +861,20 @@ function WizardSteps({
         {/* -------------------------------------------- Schirm 2: Vorschlag */}
         {stepIndex === 1 && (
           <Step
-            frage="Passt der Vorschlag?"
-            satz="Alles unten ist vorbelegt, wo es ging — Etiketten sagen, woher. Standort, Lead-Formular und Tagesbudget sind Pflicht; Dateien laden im Hintergrund weiter."
+            frage={ready ? "Passt der Vorschlag?" : "Welche Videos und Bilder?"}
+            satz={
+              ready
+                ? "Alles unten ist vorbelegt, wo es ging — Etiketten sagen, woher. Standort, Lead-Formular und Tagesbudget sind Pflicht; Dateien laden im Hintergrund weiter."
+                : "Der Assistent liest und schreibt noch. Wähle inzwischen die Inhalte — alles andere erscheint, sobald es steht."
+            }
           >
-            {/* Zwei Spalten, sobald Platz ist: links der Vorschlag, rechts das
-                Telefon. Es zeigt Texte und Anzeigen, sobald es sie gibt. */}
-            <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
-              <div className="flex min-w-0 flex-col gap-6">
-                <VorschlagKopf state={state} setState={setState} warnings={warnings} />
+            {/* Eine Spalte, ohne Telefon: die Vorschau gehört zum Anlegen,
+                wenn Inhalt und Texte stehen – hier wird noch gewählt und
+                korrigiert, und ein Telefon daneben zeigte halbe Zwischenstände. */}
+            <div className="flex min-w-0 flex-col gap-6">
+                {/* Was noch läuft – Texte, Regal, Formulare, letzte Kampagne –
+                    in einer Zeile, aufklappbar zum Protokoll des Zusammenbaus. */}
+                <Werkstattleiste />
 
                 {/* Ein Standort je Zeile, aufgeklappt nur der, an dem gearbeitet
                     wird. Die Kopfzeile trägt, was sonst erst im Block steht:
@@ -748,7 +889,10 @@ function WizardSteps({
                   density="spacious"
                 >
                   <div className="space-y-3">
-                    {issues.perSet.map(({ set, blockers }, i) => (
+                    {issues.perSet.map(({ set, blockers }, i) =>
+                      // Bis der Assistent fertig ist, nur die erste Gruppe:
+                      // Spiegel-Standorte teilen ihren Inhalt mit ihr.
+                      !ready && i > 0 ? null : (
                       // Jeder Standort in einem eigenen Rahmen: aufgeklappt sind
                       // es zwei Bildschirmhöhen Felder, und ohne Kante war nicht
                       // zu sehen, wo der eine aufhört und der nächste anfängt.
@@ -794,7 +938,11 @@ function WizardSteps({
                           // Texte entstehen beim Betreten – aber nur im ersten
                           // Standort: die weiteren leihen sich Anzeigen und
                           // Texte (syncLinkedAds).
-                          autoGenerate={i === 0}
+                          // Jede Gruppe schreibt ihre Texte selbst – der Ort
+                          // steht drin, und der ist je Standort ein anderer.
+                          autoGenerate
+                          primary={i === 0}
+                          stage={ready ? "alles" : "inhalt"}
                           formHint={state.formHint}
                           driveFolderId={state.driveFolderId}
                           locationSource={i === 0 ? state.sources.location : undefined}
@@ -808,42 +956,46 @@ function WizardSteps({
                           canRemove={state.adSets.length > 1}
                         />
                       </Collapsible>
-                    ))}
+                      ),
+                    )}
                   </div>
                 </CollapsibleGroup>
 
-                {/* Mit Zeichen: der Knopf steht unter einer Liste von
-                    Aufklappern, die alle links ein Element tragen – ohne
-                    eigenes Zeichen las er sich als deren Fuß statt als
-                    Handlung. */}
-                <Button
-                  variant="secondary"
-                  onClick={addLocation}
-                  label="Standort hinzufügen"
-                  icon={<Sign meaning="add" />}
-                />
+                {/* Alles, was nach dem Inhalt kommt, kommt UNTER ihm dazu –
+                    auch der Kampagnenkopf, der sonst oben stünde. Was oben
+                    einrückt, schiebt weg, was man gerade ansieht; was unten
+                    anwächst, lässt es stehen. */}
+                {ready && (
+                  <div className="step-enter flex flex-col gap-10">
+                    {/* Mit Zeichen: der Knopf steht unter einer Liste von
+                        Aufklappern, die alle links ein Element tragen – ohne
+                        eigenes Zeichen las er sich als deren Fuß statt als
+                        Handlung. */}
+                    <div>
+                      <Button
+                        variant="secondary"
+                        onClick={addLocation}
+                        label="Standort hinzufügen"
+                        icon={<Sign meaning="add" />}
+                      />
+                    </div>
 
-                <Divider />
+                    <Divider />
 
-                <Optional
-                  state={state}
-                  setState={setState}
-                  accountSource={accountSource}
-                  accountItem={accountItem}
-                  prefill={prefill}
-                  fixed={FIXED}
-                />
-              </div>
+                    <VorschlagKopf state={state} setState={setState} warnings={warnings} />
 
-              {previewSet && (
-                <VorschauSpalte
-                  adSets={state.adSets}
-                  adSet={previewSet}
-                  onSelect={setPreviewSetId}
-                  client={client}
-                  adAccount={state.adAccount}
-                />
-              )}
+                    <Divider />
+
+                    <Optional
+                      state={state}
+                      setState={setState}
+                      accountSource={accountSource}
+                      accountItem={accountItem}
+                      prefill={prefill}
+                      fixed={FIXED}
+                    />
+                  </div>
+                )}
             </div>
           </Step>
         )}
@@ -989,7 +1141,7 @@ function WizardSteps({
                 )}
                 {stepIndex < STEPS.length - 1 ? (
                   <Button
-                    isDisabled={locked}
+                    isDisabled={locked || (stepIndex === 1 && !ready)}
                     label={`Weiter: ${STEPS[stepIndex + 1]}`}
                     endContent={<Sign meaning="next" />}
                     onClick={() => setStep(String(stepIndex + 1))}

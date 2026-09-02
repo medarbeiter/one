@@ -3,7 +3,7 @@
 import { Badge } from "@astryxdesign/core";
 import type { Source } from "@/lib/brief";
 
-const LABEL: Record<Source, string> = {
+export const HERKUNFT_LABEL: Record<Source, string> = {
   clickup: "aus ClickUp",
   onboarding: "aus der Onboarding-Tabelle",
   previous: "aus der letzten Kampagne",
@@ -17,5 +17,5 @@ const LABEL: Record<Source, string> = {
  */
 export function Herkunft({ source }: { source?: Source }) {
   if (!source) return null;
-  return <Badge variant="neutral" label={LABEL[source]} className="text-xs" />;
+  return <Badge variant="neutral" label={HERKUNFT_LABEL[source]} className="text-xs" />;
 }
