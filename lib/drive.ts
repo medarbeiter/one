@@ -59,7 +59,14 @@ async function token(): Promise<string> {
 const API = "https://www.googleapis.com/drive/v3";
 const FOLDER = "application/vnd.google-apps.folder";
 
-export type DriveFile = { id: string; name: string; mimeType: string; size?: string };
+export type DriveFile = {
+  id: string;
+  name: string;
+  mimeType: string;
+  size?: string;
+  /** Drive hat ein Vorschaubild gerendert – abrufbar über thumbnail(). */
+  hasThumbnail?: boolean;
+};
 
 async function api(path: string, params: Record<string, string>): Promise<Response> {
   const url = new URL(`${API}/${path}`);
@@ -79,7 +86,7 @@ async function list(q: string): Promise<DriveFile[]> {
     const page = (await (
       await api("files", {
         q: `${q} and trashed = false`,
-        fields: "nextPageToken,files(id,name,mimeType,size)",
+        fields: "nextPageToken,files(id,name,mimeType,size,hasThumbnail)",
         pageSize: "200",
         includeItemsFromAllDrives: "true",
         orderBy: "name",
@@ -182,6 +189,22 @@ export async function bestLanding(
   const best = tried.reduce((a, b) => (b.path.length > a.path.length ? b : a));
   const winner = best.path[0];
   return { folders: [winner, ...folders.filter((f) => f.id !== winner.id)], landed: best };
+}
+
+/**
+ * Das Vorschaubild, das Drive selbst gerendert hat – auch für Videos. Der Link
+ * ist kurzlebig und braucht das Token, deshalb erst die Metadaten, dann das
+ * Bild, beides serverseitig. `=s400` statt der voreingestellten 220 Pixel.
+ */
+export async function thumbnail(id: string): Promise<Response | null> {
+  const { thumbnailLink } = (await (
+    await api(`files/${encodeURIComponent(id)}`, { fields: "thumbnailLink" })
+  ).json()) as { thumbnailLink?: string };
+  if (!thumbnailLink) return null;
+  const res = await fetch(thumbnailLink.replace(/=s\d+$/, "=s400"), {
+    headers: { authorization: `Bearer ${await token()}` },
+  });
+  return res.ok ? res : null;
 }
 
 /** Die Datei selbst, als Strom – der Route Handler reicht sie unverändert weiter. */
