@@ -8,37 +8,28 @@ import {
   Card,
   Collapsible,
   CollapsibleGroup,
-  DateInput,
   Divider,
   Heading,
-  Kbd,
   List,
   ListItem,
-  MultiSelector,
-  NumberInput,
   ProgressBar,
   Section,
   Selector,
   Text,
-  TextInput,
-  Typeahead,
-  type ISODateString,
-  type SearchSource,
-  type SearchableItem,
 } from "@astryxdesign/core";
-import { UserPlusIcon } from "@phosphor-icons/react";
 import { useRouter } from "next/navigation";
 import { Sign } from "@/theme/icons";
-import { getLocalTimeZone, parseDate, today } from "@internationalized/date";
-import { campaignName, ROLES } from "@/lib/naming";
+import { campaignName } from "@/lib/naming";
 import { label, plural } from "@/lib/labels";
 import { duplicateLocations, locationSummary, placeTextValue } from "@/lib/geo";
 import {
   DEFAULT_RADIUS_KM,
   adSetBlockers,
+  applyBrief,
   borrowersOf,
   customerBlockers,
   detailBlockers,
+  edited,
   emptyAdSet,
   initialState,
   syncLinkedAds,
@@ -50,40 +41,24 @@ import {
 import { drainArrived, useUploadVersion } from "./upload-queue";
 import { Entwuerfe } from "./entwuerfe";
 import { AdSetBlock } from "./ad-set-block";
-import { Angaben, Infotafel } from "./angaben";
+import { Infotafel } from "./angaben";
+import { Auftrag, KundeWahl, fuzzySource, type ClientItem, type WizardClient } from "./auftrag";
+import { Optional, VorschlagKopf, type AccountItem, type WizardAccount } from "./vorschlag";
 import { Stepper } from "./stepper";
 import { Preview } from "./preview";
 import { ReceiptPanel } from "./receipt";
-import { leadgenTosAcceptedAction, prefillAction, refreshAssetsAction, type WizardSubmission } from "../actions";
-import { useLaunch } from "./use-launch";
 import {
-  fuzzyCustomerMatch,
-  instagramAccountLabel,
-  leadgenTosUrl,
-  resolveClientByName,
-  type InstagramAccount,
-} from "@/lib/customers";
+  briefAction,
+  closeBriefAction,
+  leadgenTosAcceptedAction,
+  prefillAction,
+  refreshAssetsAction,
+  type WizardSubmission,
+} from "../actions";
+import { useLaunch } from "./use-launch";
+import { fuzzyCustomerMatch, instagramAccountLabel, resolveClientByName } from "@/lib/customers";
 import type { LaunchProgress } from "@/lib/launch";
 import type { Prefill } from "@/lib/prefill";
-
-/** Ein Werbekonto, das zahlen kann – unabhängig davon, für wen. */
-type WizardAccount = {
-  id: string;
-  name: string;
-  customerId: string;
-  customerName: string;
-};
-
-/** Ein beworbener Kunde: die Seite, unter der Anzeigen und Formulare laufen. */
-type WizardClient = {
-  id: string;
-  name: string;
-  pageId: string;
-  pageName: string;
-  instagram?: InstagramAccount;
-  /** Seite ohne angenommene Lead-Gen-Bedingungen – siehe LeadgenTosAlert. */
-  needsLeadgenTos: boolean;
-};
 
 // Vorbelegung greift nur, solange niemand das jeweilige Feld angefasst hat –
 // "angefasst" heißt hier: noch auf dem Ausgangswert aus emptyAdSet(). Das ist
@@ -105,17 +80,6 @@ function untouchedPrefillPatch(current: WizardAdSet, prefill: Prefill): Partial<
   return patch;
 }
 
-// Das Datum liegt als yyyy-mm-dd im State (round-trip durch sessionStorage),
-// der DatePicker rechnet in CalendarDate. parseDate wirft bei allem, was nicht
-// passt – ein kaputter sessionStorage-Eintrag darf den Wizard nicht abschießen.
-const toCalendarDate = (iso: string) => {
-  try {
-    return parseDate(iso);
-  } catch {
-    return today(getLocalTimeZone());
-  }
-};
-
 // Die festen Werte der Kampagne. Sie stehen nicht zur Wahl, aber jemand muss
 // sie nachschlagen können – als Paare statt als acht Sätze untereinander.
 const FIXED: [string, string][] = [
@@ -129,18 +93,11 @@ const FIXED: [string, string][] = [
   ["Platzierungen", [label("feed"), label("stream"), label("story")].join(", ")],
 ];
 
-// Anzeigen vor Details: das Hochladen und Zuschneiden der Inhalte dauert am
-// längsten und läuft im Hintergrund weiter (siehe upload-queue.ts). Wer es als
-// erstes anstößt, füllt Name, Budget und Datum aus, während die Dateien laufen –
-// umgekehrt wartet man am Ende vor einem fertigen Formular auf die Uploads.
-const STEPS = ["Kunde", "Anzeigen", "Details", "Überprüfung"];
-
-// Dieselbe Schreibweise wie in den Eingabefeldern darüber – „17.00 €“ neben
-// „17,00 €“ liest sich wie zwei verschiedene Beträge.
-const money = new Intl.NumberFormat("de-DE", {
-  style: "currency",
-  currency: "EUR",
-});
+// Drei Schirme statt vier Schritte: der Auftrag wählt, der Vorschlag zeigt, was
+// daraus wurde, das Anlegen legt an. Was früher „Anzeigen“ und „Details“ waren,
+// steht jetzt auf einer Seite – die Details sind bis auf Rollen und Budget
+// vorbelegt und stehen eingeklappt unter „Optionale Einstellungen“.
+const STEPS = ["Auftrag", "Vorschlag", "Anlegen"];
 
 /**
  * Was gerade bei Meta angelegt wird. Jede Anzeige sind zwei Aufrufe gegen deren
@@ -181,39 +138,47 @@ function IssueChip({ count }: { count: number }) {
 }
 
 /**
- * Der einzige Blocker im Assistenten, den niemand hier beheben kann: Metas
- * Nutzungsbedingungen für Lead-Anzeigen nimmt ein Administrator der Seite in
- * Metas Oberfläche an, über die API geht es nicht. Deshalb kein Hinweis,
- * sondern ein Link — und er steht in Schritt 1, direkt an der Kundenwahl:
- * vorher fiel das erst beim Anlegen auf, nach allen Uploads und nachdem
- * Kampagne und Anzeigengruppen bei Meta schon standen.
+ * Das Telefon rechts – im Vorschlag und im Anlegen dasselbe: es zeigt Texte und
+ * Anzeigen, sobald es sie gibt. Bei mehreren Standorten eine Vorschau mit
+ * Auswahl statt einer Reihe untereinander (die Texte unterscheiden sich meist
+ * nur in einer Zeile). Klebt beim Rollen oben, damit die Anzeige neben jeder
+ * Zeile sichtbar bleibt.
  */
-function LeadgenTosAlert({ client }: { client: WizardClient }) {
+function VorschauSpalte({
+  adSets,
+  adSet,
+  onSelect,
+  client,
+  adAccount,
+}: {
+  adSets: WizardAdSet[];
+  adSet: WizardAdSet;
+  onSelect: (id: string) => void;
+  client?: WizardClient;
+  adAccount: string;
+}) {
   return (
-    <Banner
-      status="error"
-      title="Seite hat die Lead-Bedingungen nicht angenommen"
-      description={
-        <>
-          Meta lehnt jede Anzeige über <strong>{client.pageName}</strong> ab, bis ein Administrator
-          dieser Seite die Nutzungsbedingungen für Lead-Anzeigen annimmt. Zugriff auf das zahlende
-          Werbekonto genügt dafür nicht.
-        </>
-      }
-      endContent={
-        // target="_blank": der Entwurf liegt im sessionStorage dieses Tabs, und
-        // wer ihn zum Annehmen verlässt, käme sonst auf einen leeren Assistenten
-        // zurück.
-        <Button
-          label="Bei Meta annehmen"
-          href={leadgenTosUrl(client.pageId)}
-          target="_blank"
-          rel="noreferrer"
-          variant="secondary"
-          size="sm"
+    <section className="flex min-w-0 flex-col gap-3 lg:sticky lg:top-6">
+      <Text type="large" weight="medium" as="h3">
+        Vorschau
+      </Text>
+      {adSets.length > 1 && (
+        <Selector
+          label="Standort für die Vorschau"
+          isLabelHidden
+          options={adSets.map((s) => ({ value: s.id, label: s.name }))}
+          value={adSet.id}
+          onChange={onSelect}
+          width="100%"
         />
-      }
-    />
+      )}
+      <Preview
+        adSet={adSet}
+        pageName={client?.pageName ?? ""}
+        pageId={client?.pageId ?? ""}
+        adAccount={adAccount}
+      />
+    </section>
   );
 }
 
@@ -226,9 +191,9 @@ function LeadgenTosAlert({ client }: { client: WizardClient }) {
  * sondern stellt die Frage, die der Schritt beantwortet; der Satz darunter sagt,
  * was an der Antwort hängt.
  *
- * Alle vier Schritte tragen denselben Innenabstand (24 px) und denselben
- * Abstand zwischen ihren Blöcken (24 px) – vorher waren es je nach Schritt 16,
- * 24 oder 32 px, und beim Weiterklicken verschob sich alles um ein paar Pixel.
+ * Alle Schritte tragen denselben Innenabstand (24 px) und denselben Abstand
+ * zwischen ihren Blöcken (24 px) – vorher waren es je nach Schritt 16, 24 oder
+ * 32 px, und beim Weiterklicken verschob sich alles um ein paar Pixel.
  */
 function Step({
   frage,
@@ -241,11 +206,11 @@ function Step({
 }) {
   return (
     <div className="step-enter flex flex-col gap-6 p-6">
-      {/* Frage, Satz, Linie – in jedem der vier Schritte dieselbe Kopfzeile.
-          Der Haarstrich darunter macht aus der Frage einen Kopf statt des
-          ersten Eintrags im Stapel: vorher stand sie im selben 24-px-Abstand
-          zur ersten Eingabe wie jedes Feld zum nächsten, und ein Schritt las
-          sich als eine lange Reihe gleichrangiger Blöcke. */}
+      {/* Frage, Satz, Linie – in jedem Schritt dieselbe Kopfzeile. Der
+          Haarstrich darunter macht aus der Frage einen Kopf statt des ersten
+          Eintrags im Stapel: vorher stand sie im selben 24-px-Abstand zur
+          ersten Eingabe wie jedes Feld zum nächsten, und ein Schritt las sich
+          als eine lange Reihe gleichrangiger Blöcke. */}
       <header className="flex flex-col gap-4">
         <div className="flex flex-col gap-1">
           <Heading level={2}>{frage}</Heading>
@@ -265,10 +230,10 @@ function Step({
 type WizardProps = {
   accounts: WizardAccount[];
   clients: WizardClient[];
-  initials: string;
-  email: string;
   defaultAccount: string;
   defaultBusiness: string;
+  initials: string;
+  email: string;
 };
 
 export function Wizard(props: WizardProps) {
@@ -281,9 +246,10 @@ export function Wizard(props: WizardProps) {
 function WizardSteps({
   accounts,
   clients,
-  initials,
   defaultAccount,
   defaultBusiness,
+  initials,
+  email,
 }: WizardProps) {
   const { state, setState, loaded, restored, others, save, resume, remove, discard, forget } =
     useWizardState(initialState(defaultAccount, defaultBusiness, initials));
@@ -330,16 +296,43 @@ function WizardSteps({
   useEffect(() => {
     if (firstSetId) setOpenSets([firstSetId]);
   }, [firstSetId]);
-  // Der Name baut sich selbst; das Feld dafür erscheint erst auf Wunsch.
-  const [editingName, setEditingName] = useState(false);
-  // Welcher Standort in der Vorschau der Überprüfung steht. Über die id, nicht
-  // den Index: wird ein Standort davor entfernt, zeigte ein Index still auf
-  // einen anderen. Fehlt die id, gilt der erste Standort.
+  // Welcher Standort in der Vorschau steht. Über die id, nicht den Index: wird
+  // ein Standort davor entfernt, zeigte ein Index still auf einen anderen.
+  // Fehlt die id, gilt der erste Standort.
   const [previewSetId, setPreviewSetId] = useState<string>();
   const { result, progress, pending, run } = useLaunch();
   // Für den Retry-Pfad im Receipt-Panel: das genaue Objekt, das gesendet wurde,
   // nicht der aktuelle (evtl. inzwischen weiterbearbeitete) Wizard-State.
   const [submission, setSubmission] = useState<WizardSubmission | null>(null);
+
+  // Schirm 1 hat zwei Gesichter: die Aufgabenliste, solange kein Kunde
+  // feststeht, und die Kundenwahl, sobald einer da ist oder jemand ohne
+  // Aufgabe beginnt. `manual` merkt sich das Zweite.
+  const [manual, setManual] = useState(false);
+  const [picking, setPicking] = useState<string>();
+  const [briefError, setBriefError] = useState<string>();
+  const [warnings, setWarnings] = useState<string[]>([]);
+
+  const pick = async (taskId: string) => {
+    setPicking(taskId);
+    setBriefError(undefined);
+    const res = await briefAction(taskId);
+    setPicking(undefined);
+    if (!res.brief) return setBriefError(res.error ?? "Der Auftrag konnte nicht gelesen werden.");
+    const brief = res.brief;
+    setWarnings(brief.warnings);
+    setState((s) => {
+      const next = applyBrief(s, brief);
+      // Der Kunde aus ClickUp heißt selten exakt wie die Meta-Seite. Exakt,
+      // sonst der eine unscharfe Treffer, sonst bleibt der Name stehen und
+      // die Kundenwahl zeigt ihn als nicht zugeordnet.
+      const exact = resolveClientByName(clients, next.business);
+      const fuzzy = exact ? [] : clients.filter((c) => fuzzyCustomerMatch(c.name, next.business));
+      const match = exact ?? (fuzzy.length === 1 ? fuzzy[0] : undefined);
+      return match ? { ...next, business: match.name } : next;
+    });
+    setStep("1");
+  };
 
   // Angelegt heißt fertig. Bliebe der Entwurf in der Liste, lüde er morgen
   // jemanden ein, dieselbe Kampagne ein zweites Mal anzulegen – und genau das
@@ -351,14 +344,22 @@ function WizardSteps({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignId]);
 
+  // Angelegt heißt auch: Aufgabe weiter. Einmal je campaignId – forget() lässt
+  // den State stehen, die taskId ist danach also noch da.
+  const [clickup, setClickup] = useState<{ error?: string }>();
+  const taskId = state.taskId;
+  useEffect(() => {
+    if (!campaignId || !taskId) return;
+    closeBriefAction(taskId, state.campaignName, state.adAccount, campaignId).then(setClickup);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campaignId]);
+
   const account = accounts.find((a) => a.id === state.adAccount);
 
   // Beide Suchfelder laufen über dieselbe unscharfe Suche wie vorher – Astryx
   // nimmt sie als SearchSource entgegen statt als filter-Prop. Werbekonten
   // werden zusätzlich über den Kundennamen gefunden – derselbe Suchtext wie
-  // vorher, nur an anderer Stelle. maxMenuItems steht jeweils auf der Länge der
-  // Liste: Astryx zeigt sonst nur zehn Einträge, und beide Listen gehen in die
-  // Hunderte – wer ohne Tippen durchsehen will, sähe den Rest nicht.
+  // vorher, nur an anderer Stelle.
   const clientItems = useMemo<ClientItem[]>(
     () => clients.map((c) => ({ id: c.id, label: c.name, auxiliaryData: c })),
     [clients],
@@ -379,6 +380,9 @@ function WizardSteps({
   // gewählt – ohne einen zweiten Klick dafür.
   const client = resolveClientByName(clients, state.business);
   const clientItem = clientItems.find((item) => item.id === client?.id) ?? null;
+  // Der Name aus ClickUp, zu dem keine Meta-Seite gefunden wurde – die
+  // Kundenwahl sagt das, statt den Namen still stehen zu lassen.
+  const unmatched = state.business.trim() && !client ? state.business : undefined;
 
   // Die Annahme der Lead-Bedingungen passiert in Metas Oberfläche, in einem
   // anderen Tab (siehe LeadgenTosAlert) – dieser hier erfährt davon nur durch
@@ -463,6 +467,7 @@ function WizardSteps({
         applied = true;
         return {
           ...s,
+          sources: { ...s.sources, location: "previous" },
           adSets: s.adSets.map((set, i) => (i === 0 ? { ...set, ...patch } : set)),
         };
       });
@@ -488,11 +493,22 @@ function WizardSteps({
     i: number,
     patch: Partial<WizardAdSet> | ((set: WizardAdSet) => Partial<WizardAdSet>),
   ) =>
-    updateAdSets((sets) =>
-      sets.map((set, idx) =>
-        idx === i ? { ...set, ...(typeof patch === "function" ? patch(set) : patch) } : set,
-      ),
-    );
+    setState((s) => {
+      let ownAddress = false;
+      const sets = s.adSets.map((set, idx) => {
+        if (idx !== i) return set;
+        const p = typeof patch === "function" ? patch(set) : patch;
+        // Der Standort trägt sein Herkunftsetikett im Block – er liegt aber in
+        // der Anzeigengruppe und nicht im State daneben, geht also nicht durch
+        // `edited`. Dieselbe Regel von Hand: getippte Adresse, gefallenes
+        // Etikett. Der Radius zählt nicht dazu, die Adresse bleibt ja die aus
+        // dem Auftrag.
+        if (idx === 0 && ("addressString" in p || "place" in p)) ownAddress = true;
+        return { ...set, ...p };
+      });
+      const next = { ...s, adSets: syncLinkedAds(sets) };
+      return ownAddress ? edited(next, "location", {}) : next;
+    });
 
   const removeAdSet = (i: number) => updateAdSets((sets) => sets.filter((_, idx) => idx !== i));
 
@@ -533,7 +549,7 @@ function WizardSteps({
 
   // Alles, was den Anlegen-Knopf blockiert – jede Zeile ein Fehler, den Meta
   // sonst erst mitten im Anlegen meldet, teils in unverständlichem Deutsch.
-  // Nach Schritt sortiert, damit jeder Schritt seine eigenen Punkte trägt.
+  // Nach Schirm sortiert, damit jeder Schirm seine eigenen Punkte trägt.
   const issues = useMemo(() => {
     const perSet = state.adSets.map((s) => ({
       set: s,
@@ -558,7 +574,8 @@ function WizardSteps({
     };
   }, [state, client]);
 
-  const stepIssues = [issues.customer.length, issues.adSets.length, issues.details.length, 0];
+  // Der Vorschlag trägt beides: die Anzeigengruppen und die Felder darum.
+  const stepIssues = [issues.customer.length, issues.adSets.length + issues.details.length, 0];
   const allIssues = [...issues.customer, ...issues.details, ...issues.adSets];
   const blocked = allIssues.length > 0;
 
@@ -602,12 +619,17 @@ function WizardSteps({
   // sein Name baut den Kampagnennamen. Ohne ihn ist jeder weitere Schritt eine
   // Eingabe, die man später noch einmal machen darf.
   const locked = !client;
+  // Solange kein Kunde feststeht und niemand ohne Aufgabe begonnen hat, steht
+  // auf Schirm 1 die Aufgabenliste – in ihrer eigenen Karte unter dieser hier,
+  // ohne Frage-Kopf und ohne Fußzeile: es gibt nichts zu speichern und nichts,
+  // wohin man weiterginge.
+  const showsList = stepIndex === 0 && !manual && !state.business && !state.taskId;
 
-  // Der Satz neben der Hauptaktion. In den ersten drei Schritten hält nichts
-  // auf – ein offener Punkt darf liegen bleiben, und genau das muss dastehen,
-  // sonst liest sich der Zähler in der Leiste als Sperre. Im letzten Schritt
-  // hält er sehr wohl auf: dort ist der Knopf tot, und der Grund dafür stand
-  // vorher nur oben in der Meldung, außer Sichtweite vom Knopf.
+  // Der Satz neben der Hauptaktion. In den Schirmen davor hält nichts auf – ein
+  // offener Punkt darf liegen bleiben, und genau das muss dastehen, sonst liest
+  // sich der Zähler in der Leiste als Sperre. Im letzten Schirm hält er sehr
+  // wohl auf: dort ist der Knopf tot, und der Grund dafür stand vorher nur oben
+  // in der Meldung, außer Sichtweite vom Knopf.
   const lastStep = stepIndex === STEPS.length - 1;
   const offen = lastStep ? allIssues.length : stepIssues[stepIndex];
   const fussHinweis =
@@ -634,8 +656,8 @@ function WizardSteps({
         />
       )}
 
-      {/* Nur im ersten Schritt: dort beginnt man, und dort ist die Frage „an
-          welchem hier arbeite ich weiter?“ noch offen. Ab Schritt 2 ist sie
+      {/* Nur im ersten Schirm: dort beginnt man, und dort ist die Frage „an
+          welchem hier arbeite ich weiter?“ noch offen. Danach ist sie
           beantwortet, und die Liste wäre nur noch eine Ablenkung. */}
       {stepIndex === 0 && <Entwuerfe drafts={others} onResume={resume} onRemove={remove} />}
 
@@ -643,7 +665,7 @@ function WizardSteps({
           beide Kanten reichen, und die Abschnitte darunter tragen mit 24 px
           mehr Rand, als eine Karte von sich aus gibt. */}
       <Card elevation="low" padding={0}>
-        {/* Der Zähler steht am Schritt, nicht erst am Ende: sonst erfährt man
+        {/* Der Zähler steht am Schirm, nicht erst am Ende: sonst erfährt man
             vom fehlenden Formular nach acht Uploads. Gesperrt, solange kein
             Kunde gewählt ist – siehe `locked`. */}
         <Stepper
@@ -653,422 +675,160 @@ function WizardSteps({
           lockedFrom={locked ? 1 : STEPS.length}
         />
 
-        {/* ------------------------------------------------ Schritt 1: Kunde */}
-        {stepIndex === 0 && (
+        {/* ---------------------------------------------- Schirm 1: Auftrag */}
+        {stepIndex === 0 && !showsList && (
           <Step
             frage="Für wen wird geworben?"
-            satz="Die Facebook-Seite des Kunden trägt die Anzeigen und die Lead-Formulare, sein Name baut den Kampagnennamen. Alle weiteren Schritte hängen daran."
+            satz="Die Facebook-Seite des Kunden trägt die Anzeigen und die Lead-Formulare, sein Name baut den Kampagnennamen."
           >
-            {/* Ein Feld, zwei Wirkungen: die Seite des Kunden trägt Anzeigen und
-                Lead-Formulare, sein Name baut den Kampagnennamen. Die Suche ist
-                lokal und sofort; beim Laden der Meta-Liste deckt loading.tsx
-                genau diese Fläche mit Skeletons ab. */}
-            <div className="flex max-w-xl flex-col gap-2">
-              <div className="flex items-end gap-2">
-                {/* Astryx' Typeahead ist selbst das Suchfeld – der Umweg über
-                    Auslöser, Popover und ein zweites SearchField darin entfällt,
-                    und mit hasEntriesOnFocus öffnet sich beim Hineinspringen die
-                    volle Kundenliste, genau wie vorher beim Aufklappen. */}
-                <Typeahead
-                  label="Beworbener Kunde"
-                  isRequired
-                  placeholder="Kunde suchen…"
-                  searchSource={clientSource}
-                  value={clientItem}
-                  onChange={(item) =>
-                    setState((s) => ({ ...s, business: item?.auxiliaryData.name ?? "" }))
-                  }
-                  hasEntriesOnFocus
-                  maxMenuItems={clientItems.length}
-                  debounceMs={0}
-                  emptySearchResultsText="Kein Kunde gefunden"
-                  ref={customerFieldRef}
-                  className="min-w-0 flex-1"
-                />
-
-                <Button
-                  isIconOnly
-                  variant="secondary"
-                  label="Neuen Kunden nachladen"
-                  tooltip="Seite im Business Manager dem System User zuweisen, dann hier nachladen."
-                  icon={<UserPlusIcon aria-hidden size={20} weight="bold" />}
-                  isLoading={reloading}
-                  onClick={reloadClients}
-                />
-              </div>
-
-              {/* Das Kürzel stand vorher als dritter kleiner Kasten in der Reihe
-                  – neben dem Löschknopf des Feldes und dem Knopf „Kunde
-                  hinzufügen" waren das drei Quadrate nebeneinander, von denen
-                  nur zwei anklickbar sind. Als Satz unter dem Feld sagt es, was
-                  es ist, und die Reihe trägt nur noch Bedienbares. */}
-              <Text type="supporting" as="p">
-                <Kbd keys="shift+k" /> öffnet die Kundensuche von überall.
-              </Text>
-            </div>
-
-            {client?.needsLeadgenTos && <LeadgenTosAlert client={client} />}
-
-            {/* Wer zahlt, unter wessen Seite veröffentlicht wird und ob Instagram
-                dabei ist, sind drei Antworten – vorher standen sie als ein Satz
-                mit Mittelpunkt da und mussten gelesen statt überflogen werden. */}
-            {client && (
-              <div className="max-w-xl">
-                <Angaben
-                  titel="Das steckt hinter dieser Wahl"
-                  rows={[
-                    ["Seite (veröffentlicht)", client.pageName],
-                    ["Werbekonto (zahlt)", account?.name ?? "—"],
-                    ["Instagram", instagramLabel ?? "nur Facebook-Seite"],
-                  ]}
-                />
-              </div>
-            )}
-
-            <Divider />
-
-            {/* Fast immer MedArbeiter; die Ausnahme liegt eine Ebene tiefer und
-                hält so den üblichen Pfad kurz. Den Pfeil samt Drehung bringt
-                Astryx' Collapsible selbst mit; die Bewegung ist über
-                theme/motion.css global auf prefers-reduced-motion gestellt. */}
-            <Collapsible defaultIsOpen={false} trigger="Erweiterte Einstellungen anzeigen">
-              <div className="max-w-xl space-y-1.5 pb-2">
-                <Typeahead
-                  label="Werbekonto (zahlt)"
-                  placeholder="Werbekonto suchen…"
-                  searchSource={accountSource}
-                  value={accountItem}
-                  onChange={(item) => setState((s) => ({ ...s, adAccount: item?.id ?? "" }))}
-                  hasEntriesOnFocus
-                  maxMenuItems={accountItems.length}
-                  debounceMs={0}
-                  emptySearchResultsText="Kein Werbekonto gefunden"
-                  renderItem={(item) => (
-                    <span className="min-w-0">
-                      <span className="block truncate">{item.label}</span>
-                      <span className="text-ink-500 block truncate text-xs">
-                        {item.auxiliaryData.customerName}
-                      </span>
-                    </span>
-                  )}
-                  width="100%"
-                />
-                {/* Steht neben dem Feld statt in dessen description-Slot: der
-                    Satz wechselt, während man hinschaut, und aria-live sagt
-                    das an – ein description kann das nicht. */}
-                {prefill !== "none" && (
-                  <Text type="supporting" as="p" aria-live="polite">
-                    {prefill === "loading"
-                      ? "Die letzte Kampagne dieses Kontos wird nach Standort und Radius durchsucht…"
-                      : "Standort und Radius kommen aus der letzten Kampagne dieses Kontos."}
-                  </Text>
-                )}
-              </div>
-            </Collapsible>
-          </Step>
-        )}
-
-        {/* ------------------------------------------------ Schritt 2: Anzeigen */}
-        {stepIndex === 1 && (
-          <Step
-            frage="Was wird gezeigt — und wo?"
-            satz="Je Standort eine Anzeigengruppe. Dateien laden im Hintergrund weiter hoch: du kannst schon weiterklicken, während sie laufen."
-          >
-            {/* Ein Standort je Zeile, aufgeklappt nur der, an dem gearbeitet
-                wird. Die Kopfzeile trägt, was sonst erst im Block steht:
-                Adresse, Zahl der Anzeigen, offene Punkte. */}
-            {/* CollapsibleGroup rendert selbst kein DOM, solange es keine
-                Trennlinien zeichnet – der Abstand zwischen den Rahmen sitzt
-                deshalb an einem eigenen div. */}
-            <CollapsibleGroup
-              type="multiple"
-              value={openSets}
-              onChange={onOpenSetsChange}
-              // Ohne Trennlinien geben die Aufklapper sich sonst gar keine
-              // Innenabstände; "spacious" trifft die 14 px, die die Kopfzeile
-              // vorher von Hand trug.
-              density="spacious"
-            >
-              <div className="space-y-3">
-                {issues.perSet.map(({ set, blockers }, i) => (
-                  // Jeder Standort in einem eigenen Rahmen: aufgeklappt sind es
-                  // zwei Bildschirmhöhen Felder, und ohne Kante war nicht zu
-                  // sehen, wo der eine aufhört und der nächste anfängt.
-                  <Collapsible
-                    key={set.id}
-                    value={set.id}
-                    className="border-line bg-surface collapsible-wide-trigger rounded-2xl border px-4"
-                    trigger={
-                      <span className="flex items-center gap-3 text-left">
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate font-medium">{set.name}</span>
-                          <span className="text-ink-500 block truncate text-xs font-normal">
-                            {locationSummary(set)}
-                          </span>
-                        </span>
-                        {/* Anders als IssueChip trägt dieser Zähler keine
-                            Bewertung – er sagt nur, wie viele Anzeigen im Block
-                            stecken. Deshalb neutral statt error/success. */}
-                        <Badge
-                          variant="neutral"
-                          className="tabular-nums"
-                          label={plural(set.ads.length, "Anzeige", "Anzeigen")}
-                        />
-                        <IssueChip count={blockers.length} />
-                      </span>
-                    }
-                  >
-                    {/* Ohne Vorschau daneben: sie steht in der Überprüfung, wo
-                        alle Standorte auf einmal zur Wahl stehen. Hier zählt
-                        die Breite für die Felder. */}
-                    <AdSetBlock
-                      value={set}
-                      pageId={client?.pageId ?? ""}
-                      pageName={client?.pageName ?? ""}
-                      instagramUserId={instagram?.id}
-                      instagramLabel={instagramLabel}
-                      adAccount={state.adAccount}
-                      business={state.business}
-                      roles={state.roles}
-                      roleFreeText={state.roleFreeText}
-                      blockers={blockers}
-                      otherAdSets={state.adSets
-                        .filter((other) => other.id !== set.id)
-                        .map(({ id, name, ads }) => ({ id, name, ads }))}
-                      borrowersOfAd={(adId) => borrowersOf(state.adSets, set.id, adId)}
-                      onChange={(patch) => updateAdSet(i, patch)}
-                      onRemove={() => removeAdSet(i)}
-                      canRemove={state.adSets.length > 1}
-                    />
-                  </Collapsible>
-                ))}
-              </div>
-            </CollapsibleGroup>
-
-            {/* Mit Zeichen: der Knopf steht unter einer Liste von Aufklappern,
-                die alle links ein Element tragen – ohne eigenes Zeichen las er
-                sich als deren Fuß statt als Handlung. */}
-            <Button
-              variant="secondary"
-              onClick={addLocation}
-              label="Standort hinzufügen"
-              icon={<Sign meaning="add" />}
+            <KundeWahl
+              clientSource={clientSource}
+              clientItem={clientItem}
+              onChange={(item) =>
+                setState((s) => edited(s, "clientName", { business: item?.auxiliaryData.name ?? "" }))
+              }
+              customerFieldRef={customerFieldRef}
+              reloading={reloading}
+              onReload={reloadClients}
+              client={client}
+              accountName={account?.name}
+              instagramLabel={instagramLabel}
+              unmatchedName={unmatched}
+              onOtherTask={() => {
+                setManual(false);
+                discard();
+              }}
             />
           </Step>
         )}
 
-        {/* ------------------------------------------------ Schritt 3: Details */}
-        {stepIndex === 2 && (
+        {/* -------------------------------------------- Schirm 2: Vorschlag */}
+        {stepIndex === 1 && (
           <Step
-            frage="Wie heißt sie, was darf sie kosten?"
-            satz="Der Name baut sich aus Kunde, Rollen, Startdatum und Kürzel — von Hand geht auch. Alles Übrige liegt fest und steht unten zum Nachlesen."
+            frage="Passt der Vorschlag?"
+            satz="Alles unten ist vorbelegt, wo es ging — Etiketten sagen, woher. Standort, Lead-Formular und Tagesbudget sind Pflicht; Dateien laden im Hintergrund weiter."
           >
-            {/* Der Name ist ein Ergebnis, keine Eingabe: er setzt sich aus Kunde,
-                Rollen, Datum und Initialen zusammen. Deshalb steht er oben als
-                Ergebnis, darunter das, was ihn füttert – das Feld erscheint nur,
-                wenn jemand abweichen will. */}
-            {/* Der Name ist ein Ergebnis, keine Eingabe. Er steht deshalb als
-                Ergebnis oben – gerahmt wie ein Wert und nicht wie ein leeres
-                Feld – und darunter nur das, was ihn ändert. */}
-            <FieldsetSection legend="Name der Kampagne">
-              {editingName || state.nameEdited ? (
-                <div className="space-y-1.5">
-                  <TextInput
-                    label="Kampagnenname"
-                    isLabelHidden
-                    value={state.campaignName}
-                    onChange={(campaignNameValue) =>
-                      setState((s) => ({
-                        ...s,
-                        campaignName: campaignNameValue,
-                        nameEdited: true,
-                      }))
-                    }
-                    isRequired
-                    description={NAME_EDITED_HINT}
-                    width="100%"
-                  />
-                  {/* Der Hinweis steht doppelt: als `description` hängt er
-                      über aria-describedby am Feld, wird bei isLabelHidden
-                      aber mit versteckt (eine Astryx-Eigenheit, siehe
-                      Task 10e). Sichtbar ist deshalb diese Zeile – und nur
-                      hier passt der Knopf daneben, den ein `description`
-                      (nur String) nicht tragen kann. */}
-                  <div className="flex items-center justify-between gap-3">
-                    <Text type="supporting">{NAME_EDITED_HINT}</Text>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      label="Automatisch benennen"
-                      onClick={() => {
-                        setEditingName(false);
-                        setState((s) => ({ ...s, nameEdited: false }));
-                      }}
-                    />
+            {/* Zwei Spalten, sobald Platz ist: links der Vorschlag, rechts das
+                Telefon. Es zeigt Texte und Anzeigen, sobald es sie gibt. */}
+            <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
+              <div className="flex min-w-0 flex-col gap-6">
+                <VorschlagKopf state={state} setState={setState} warnings={warnings} />
+
+                {/* Ein Standort je Zeile, aufgeklappt nur der, an dem gearbeitet
+                    wird. Die Kopfzeile trägt, was sonst erst im Block steht:
+                    Adresse, Zahl der Anzeigen, offene Punkte.
+                    CollapsibleGroup rendert selbst kein DOM, solange es keine
+                    Trennlinien zeichnet – der Abstand zwischen den Rahmen sitzt
+                    deshalb an einem eigenen div. */}
+                <CollapsibleGroup
+                  type="multiple"
+                  value={openSets}
+                  onChange={onOpenSetsChange}
+                  density="spacious"
+                >
+                  <div className="space-y-3">
+                    {issues.perSet.map(({ set, blockers }, i) => (
+                      // Jeder Standort in einem eigenen Rahmen: aufgeklappt sind
+                      // es zwei Bildschirmhöhen Felder, und ohne Kante war nicht
+                      // zu sehen, wo der eine aufhört und der nächste anfängt.
+                      <Collapsible
+                        key={set.id}
+                        value={set.id}
+                        className="border-line bg-surface collapsible-wide-trigger rounded-2xl border px-4"
+                        trigger={
+                          <span className="flex items-center gap-3 text-left">
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate font-medium">{set.name}</span>
+                              <span className="text-ink-500 block truncate text-xs font-normal">
+                                {locationSummary(set)}
+                              </span>
+                            </span>
+                            {/* Anders als IssueChip trägt dieser Zähler keine
+                                Bewertung – er sagt nur, wie viele Anzeigen im
+                                Block stecken. Deshalb neutral. */}
+                            <Badge
+                              variant="neutral"
+                              className="tabular-nums"
+                              label={plural(set.ads.length, "Anzeige", "Anzeigen")}
+                            />
+                            <IssueChip count={blockers.length} />
+                          </span>
+                        }
+                      >
+                        <AdSetBlock
+                          value={set}
+                          pageId={client?.pageId ?? ""}
+                          pageName={client?.pageName ?? ""}
+                          instagramUserId={instagram?.id}
+                          instagramLabel={instagramLabel}
+                          adAccount={state.adAccount}
+                          business={state.business}
+                          roles={state.roles}
+                          roleFreeText={state.roleFreeText}
+                          benefits={state.benefits}
+                          benefitsSource={state.sources.benefits}
+                          onBenefitsChange={(benefits) =>
+                            setState((s) => edited(s, "benefits", { benefits }))
+                          }
+                          // Texte entstehen beim Betreten – aber nur im ersten
+                          // Standort: die weiteren leihen sich Anzeigen und
+                          // Texte (syncLinkedAds).
+                          autoGenerate={i === 0}
+                          formHint={state.formHint}
+                          driveFolderId={state.driveFolderId}
+                          locationSource={i === 0 ? state.sources.location : undefined}
+                          blockers={blockers}
+                          otherAdSets={state.adSets
+                            .filter((other) => other.id !== set.id)
+                            .map(({ id, name, ads }) => ({ id, name, ads }))}
+                          borrowersOfAd={(adId) => borrowersOf(state.adSets, set.id, adId)}
+                          onChange={(patch) => updateAdSet(i, patch)}
+                          onRemove={() => removeAdSet(i)}
+                          canRemove={state.adSets.length > 1}
+                        />
+                      </Collapsible>
+                    ))}
                   </div>
-                </div>
-              ) : (
-                <div className="border-line bg-surface-secondary flex items-center gap-3 rounded-xl border p-2 ps-3">
-                  {/* Text type="code" statt der Astryx-Komponente `Code`:
-                      die bringt eine eigene graue Fläche und Innenabstände
-                      mit, die hier – im schon getönten Kasten – vorher
-                      ausdrücklich weggenommen wurden (bg-transparent p-0),
-                      und Astryx' CSS-Layer steht hinter Tailwinds
-                      Utilities, ließe sich also nicht wegnehmen. */}
-                  <Text type="code" className="min-w-0 flex-1 truncate">
-                    {state.campaignName || "…"}
-                  </Text>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    label="Anpassen"
-                    onClick={() => setEditingName(true)}
-                  />
-                </div>
+                </CollapsibleGroup>
+
+                {/* Mit Zeichen: der Knopf steht unter einer Liste von
+                    Aufklappern, die alle links ein Element tragen – ohne
+                    eigenes Zeichen las er sich als deren Fuß statt als
+                    Handlung. */}
+                <Button
+                  variant="secondary"
+                  onClick={addLocation}
+                  label="Standort hinzufügen"
+                  icon={<Sign meaning="add" />}
+                />
+
+                <Divider />
+
+                <Optional
+                  state={state}
+                  setState={setState}
+                  accountSource={accountSource}
+                  accountItem={accountItem}
+                  prefill={prefill}
+                  fixed={FIXED}
+                />
+              </div>
+
+              {previewSet && (
+                <VorschauSpalte
+                  adSets={state.adSets}
+                  adSet={previewSet}
+                  onSelect={setPreviewSetId}
+                  client={client}
+                  adAccount={state.adAccount}
+                />
               )}
-
-              {/* Das Kürzel speist nur den Namen – es gehört hierher, nicht
-                  zwischen Budget und Datum. Vorher standen Auswahl und Feld
-                  unbeschriftet nebeneinander in einer Toolbar: zwei Kästen,
-                  von denen keiner sagte, was er ist. */}
-              {/* Gedeckelt: Ein Feld, in das zwei Buchstaben gehören, war über
-                  die halbe Karte breit und sah aus, als fehle darin etwas. */}
-              <div className="grid max-w-xl gap-4 sm:grid-cols-2">
-                <TextInput
-                  label="Kürzel im Namen"
-                  value={state.initials}
-                  onChange={(initials) => setState((s) => ({ ...s, initials }))}
-                  placeholder="z. B. MW"
-                  description="Steht am Ende des Namens."
-                  width="100%"
-                />
-              </div>
-            </FieldsetSection>
-
-            <Divider />
-
-            {/* Eigener Abschnitt statt einer Zeile Kleingedrucktem über den
-                Kästchen: die Rollen sind eine Frage für sich, auch wenn ihre
-                Antwort im Namen landet. */}
-            <div className="scroll-mt-24">
-              <FieldsetSection
-                legend="Gesuchte Rollen"
-                groupClassName="grid max-w-3xl gap-4 sm:grid-cols-2"
-              >
-                {/* Eine Liste aus Kästchen statt eines Aufklappers hieß: jede
-                    neue Rolle macht den Schritt länger, und schon die sieben
-                    von heute stehen als Spalte quer durch das Formular. Der
-                    Bestand wächst weiter – Astryx' MultiSelector hält ihn
-                    hinter einem Feld von der Höhe der anderen. Die Auswahl
-                    bleibt trotzdem lesbar: `badges` zeigt die gewählten Rollen
-                    im Auslöser, statt nur „3 ausgewählt" zu melden.
-                    hasSearch erst ab ~15 Einträgen (Astryx' Regel) – bis dahin
-                    ist die Liste kürzer als das Suchfeld darüber. */}
-                <MultiSelector
-                  label="Rollen"
-                  isLabelHidden
-                  options={ROLES.map((r) => ({ value: r.code, label: r.label }))}
-                  value={state.roles}
-                  onChange={(roles) => setState((s) => ({ ...s, roles }))}
-                  placeholder="Rollen wählen…"
-                  triggerDisplay="badges"
-                  hasSearch={ROLES.length > 15}
-                  searchPlaceholder="Rolle suchen…"
-                  description="Mehrere möglich — die Kürzel landen im Namen."
-                  width="100%"
-                />
-
-                <TextInput
-                  label="Weitere Rolle"
-                  value={state.roleFreeText}
-                  onChange={(roleFreeText) => setState((s) => ({ ...s, roleFreeText }))}
-                  placeholder="z. B. Koch"
-                  description="Für Einzelfälle ohne Kürzel — steht unverändert im Namen."
-                  width="100%"
-                />
-              </FieldsetSection>
             </div>
-
-            <Divider />
-
-            <FieldsetSection
-              legend="Budget und Start"
-              groupClassName="grid max-w-3xl gap-4 sm:grid-cols-3"
-            >
-              {/* Unter jedem der drei Felder steht eine Zeile, auch wo es wenig
-                  zu sagen gibt: sonst stehen die Felder auf drei verschiedenen
-                  Höhen und die Reihe franst aus. */}
-              <NumberInput
-                label="Tagesbudget"
-                value={state.dailyBudgetEuros}
-                onChange={(dailyBudgetEuros) => setState((s) => ({ ...s, dailyBudgetEuros }))}
-                min={1}
-                // Meta rechnet in Cent, also muss auch die Eingabe in Cent gehen.
-                // Mit step={1} rastete das Feld beim Verlassen auf ganze Euro ein
-                // und machte aus 30,05 wieder 30,00.
-                step={0.01}
-                // Astryx' NumberInput kennt keine formatOptions – die Währung
-                // steht als Einheit am Feld statt in der getippten Zahl
-                // (dieselbe Lücke wie in row-controls.tsx, Task 10a).
-                units="€"
-                description="Gilt für die ganze Kampagne."
-                width="100%"
-              />
-
-              {/* Leer heißt "kein Limit", nicht "0 €". Astryx drückt das über
-                  hasClear aus: der Löschknopf setzt den Wert auf null, und null
-                  wird hier zu undefined – dieselbe Bedeutung wie vorher NaN,
-                  nur mit einem sichtbaren Weg dorthin. */}
-              <NumberInput
-                label="Ausgabenlimit"
-                value={state.spendCapEuros ?? null}
-                hasClear
-                onChange={(v) => setState((s) => ({ ...s, spendCapEuros: v ?? undefined }))}
-                min={100}
-                step={0.01}
-                units="€"
-                description="Optional, mindestens 100 €."
-                width="100%"
-              />
-
-              {/* Astryx bündelt Feld, Aufklapper und Kalender in einer
-                  Komponente – aus DatePicker + DateField + Calendar samt
-                  Kopfzeile, Navigation, Raster und Jahrwähler wird ein
-                  DateInput. Gerechnet wird in ISO-Strings (yyyy-mm-dd), genau
-                  dem Format, in dem das Startdatum ohnehin im State liegt. */}
-              <DateInput
-                label="Startdatum"
-                value={toIsoDate(state.startDate)}
-                onChange={(date) => date && setState((s) => ({ ...s, startDate: date }))}
-                // Ohne diese Zeile stand das Feld als einziges der drei ohne
-                // Beschreibung da – und damit sein Eingabekasten eine Zeile
-                // höher als die beiden daneben. Sie sagt zugleich das
-                // Einzige, was das Datum wirklich tut: es steht im Namen
-                // („… ab 21.08.26 …", siehe lib/naming.ts) und wird nicht an
-                // Meta geschickt, die Kampagne entsteht ohnehin pausiert.
-                description="Steht im Kampagnennamen."
-                width="100%"
-              />
-            </FieldsetSection>
-
-            {/* Derselbe Auslöser wie in Schritt 1: zwei Klappen, die dasselbe
-                tun, sollen auch gleich aussehen und gleich aufgehen. Den Pfeil
-                samt Drehung bringt Astryx' Collapsible jetzt selbst mit; die
-                Bewegung ist über theme/motion.css global auf
-                prefers-reduced-motion gestellt. */}
-            <Collapsible defaultIsOpen={false} trigger="Feste Einstellungen ansehen">
-              <div className="flex max-w-xl flex-col gap-3 pb-2">
-                <Angaben rows={FIXED} />
-                <Text type="supporting" as="p">
-                  In v1 alles nur lesbar — das Tagesbudget oben ist der einzige editierbare Wert.
-                </Text>
-              </div>
-            </Collapsible>
           </Step>
         )}
 
-        {/* ------------------------------------------------ Schritt 4: Überprüfung */}
-        {stepIndex === 3 && (
+        {/* ---------------------------------------------- Schirm 3: Anlegen */}
+        {stepIndex === 2 && (
           <Step
             frage="Passt alles?"
             satz="Kampagne, Anzeigengruppen und Anzeigen werden pausiert angelegt — es läuft nichts los und kostet nichts, bevor du sie bei Meta startest."
@@ -1077,239 +837,172 @@ function WizardSteps({
                 Telefon. Untereinander ließ die Vorschau die halbe Seite leer –
                 und wer prüft, will Zahlen und Anzeige gleichzeitig sehen. */}
             <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)]">
-            <div className="flex min-w-0 flex-col gap-6">
-            {/* Der Kampagnenname ist der Titel dieser Tafel und nicht eine Zeile
-                darin: er ist das, was gleich bei Meta stehen wird. */}
-            <Angaben
-              titel={state.campaignName || "—"}
-              rows={[
-                ["Werbekonto (zahlt)", account?.name ?? "—"],
-                ["Kunde (beworben)", state.business || "—"],
-                ["Seite", client?.pageName ?? "—"],
-                ["Instagram", instagramLabel ?? "nur Facebook-Seite"],
-                ["Tagesbudget", money.format(state.dailyBudgetEuros)],
-                [
-                  "Ausgabenlimit",
-                  state.spendCapEuros !== undefined ? money.format(state.spendCapEuros) : "keins",
-                ],
-                ["Start", new Date(state.startDate).toLocaleDateString("de-DE")],
-                ["Anzeigen gesamt", String(state.adSets.reduce((n, s) => n + s.ads.length, 0))],
-              ]}
-            />
-
-            {/* Ein Standort je Zeile, mit demselben Zähler wie in Schritt 2 –
-                wer hier eine rote Zahl sieht, weiß, wohin er zurück muss.
-                Eine Liste mit Trennlinien statt einer Karte je Standort: drei
-                gleich große getönte Kästen untereinander sind ein Raster, keine
-                Aufzählung, und tragen jeweils einen Schatten, den die
-                Ein-Schritt-Regel der äußeren Karte schon vergeben hat. */}
-            <Infotafel titel={plural(state.adSets.length, "Standort", "Standorte")}>
-              <List hasDividers density="spacious">
-                {issues.perSet.map(({ set, blockers }) => (
-                  <ListItem
-                    key={set.id}
-                    label={set.name}
-                    description={`${locationSummary(set)} · ${plural(set.ads.length, "Anzeige", "Anzeigen")}`}
-                    endContent={<IssueChip count={blockers.length} />}
-                  />
-                ))}
-              </List>
-            </Infotafel>
-
-            {/* Was Meta ohnehin ablehnen würde – hier kostet es einen Klick, dort
-                einen halb angelegten Kampagnenbaum. */}
-            {blocked && (
-              <Banner
-                status="warning"
-                title="Noch nicht bereit zum Erstellen"
-                description={
-                  <ul className="list-disc space-y-1 pl-5">
-                    {allIssues.map((b) => (
-                      <li key={b}>{b}</li>
+              <div className="flex min-w-0 flex-col gap-6">
+                {/* Ein Standort je Zeile, mit demselben Zähler wie im Vorschlag –
+                    wer hier eine rote Zahl sieht, weiß, wohin er zurück muss.
+                    Eine Liste mit Trennlinien statt einer Karte je Standort:
+                    drei gleich große getönte Kästen untereinander sind ein
+                    Raster, keine Aufzählung, und tragen jeweils einen Schatten,
+                    den die Ein-Schritt-Regel der äußeren Karte schon vergeben
+                    hat. */}
+                <Infotafel titel={plural(state.adSets.length, "Standort", "Standorte")}>
+                  <List hasDividers density="spacious">
+                    {issues.perSet.map(({ set, blockers }) => (
+                      <ListItem
+                        key={set.id}
+                        label={set.name}
+                        description={`${locationSummary(set)} · ${plural(set.ads.length, "Anzeige", "Anzeigen")}`}
+                        endContent={<IssueChip count={blockers.length} />}
+                      />
                     ))}
-                  </ul>
-                }
-              />
-            )}
+                  </List>
+                </Infotafel>
 
-            {overlaps.length > 0 && (
-              <Banner
-                status="warning"
-                title="Zwei Anzeigengruppen am selben Ort"
-                description={
-                  <ul className="list-disc space-y-1 pl-5">
-                    {overlaps.map((o) => (
-                      <li key={o}>{o}</li>
-                    ))}
-                  </ul>
-                }
-              />
-            )}
-
-            {progress && <LaunchProgressBar progress={progress} />}
-
-            {submission && (
-              <ReceiptPanel state={result} submission={submission} onRetry={submitWizard} />
-            )}
-            </div>
-
-            {/* Die Anzeige, wie sie später aussieht – erst hier, weil die Texte
-                fertig sind. Bei mehreren Standorten eine Vorschau mit Auswahl
-                statt einer Reihe untereinander: die Texte unterscheiden sich
-                meist nur in einer Zeile. Klebt beim Rollen oben, damit die
-                Anzeige neben jeder Zeile der Prüfliste sichtbar bleibt. */}
-            {previewSet && (
-              <section className="flex min-w-0 flex-col gap-3 lg:sticky lg:top-6">
-                <Text type="large" weight="medium" as="h3">
-                  Vorschau
-                </Text>
-                {state.adSets.length > 1 && (
-                  <Selector
-                    label="Standort für die Vorschau"
-                    isLabelHidden
-                    options={state.adSets.map((s) => ({ value: s.id, label: s.name }))}
-                    value={previewSet.id}
-                    onChange={setPreviewSetId}
-                    width="100%"
+                {/* Was Meta ohnehin ablehnen würde – hier kostet es einen Klick,
+                    dort einen halb angelegten Kampagnenbaum. */}
+                {blocked && (
+                  <Banner
+                    status="warning"
+                    title="Noch nicht bereit zum Erstellen"
+                    description={
+                      <ul className="list-disc space-y-1 pl-5">
+                        {allIssues.map((b) => (
+                          <li key={b}>{b}</li>
+                        ))}
+                      </ul>
+                    }
                   />
                 )}
-                <Preview
+
+                {overlaps.length > 0 && (
+                  <Banner
+                    status="warning"
+                    title="Zwei Anzeigengruppen am selben Ort"
+                    description={
+                      <ul className="list-disc space-y-1 pl-5">
+                        {overlaps.map((o) => (
+                          <li key={o}>{o}</li>
+                        ))}
+                      </ul>
+                    }
+                  />
+                )}
+
+                {progress && <LaunchProgressBar progress={progress} />}
+
+                {submission && (
+                  <ReceiptPanel state={result} submission={submission} onRetry={submitWizard} />
+                )}
+
+                {/* Die Aufgabe ist Teil des Ergebnisses, nicht des Formulars:
+                    steht die Kampagne, wandert sie auf „Abnahme Kampagne“. Ein
+                    Fehler dabei ist eine Zeile, kein Rückschritt. */}
+                {clickup && (
+                  <Banner
+                    status={clickup.error ? "warning" : "success"}
+                    title={
+                      clickup.error
+                        ? "ClickUp nicht aktualisiert"
+                        : "ClickUp-Aufgabe auf „Abnahme Kampagne“"
+                    }
+                    description={
+                      clickup.error ?? "Kommentar mit Name und Ads-Manager-Link steht an der Aufgabe."
+                    }
+                  />
+                )}
+              </div>
+
+              {previewSet && (
+                <VorschauSpalte
+                  adSets={state.adSets}
                   adSet={previewSet}
-                  pageName={client?.pageName ?? ""}
-                  pageId={client?.pageId ?? ""}
+                  onSelect={setPreviewSetId}
+                  client={client}
                   adAccount={state.adAccount}
                 />
-              </section>
-            )}
+              )}
             </div>
           </Step>
         )}
 
-        {/* Ein Weiter-Knopf, immer an derselben Stelle – im letzten Schritt wird
+        {/* Ein Weiter-Knopf, immer an derselben Stelle – im letzten Schirm wird
             er zum Anlegen-Knopf. Vorher war die Hauptaktion je nach Schritt an
             einem anderen Ort oder gar nicht vorhanden.
 
             Astryx' Card hat keine Unterteile, die Fußzeile ist deshalb eine
             eigene Section: sie bringt die getönte Fläche und den Haarstrich
-            oben aus dem Thema mit. Vorher standen dafür `bg-surface-secondary`
-            und `border-t` im Markup – für die getönte Fläche gab es aber kein
-            Token, der Streifen war also unsichtbar und die Fußzeile hing weiß
-            an weiß unter dem letzten Feld. `padding`/`paddingBlock` treffen
-            dieselben 24/16 px wie vorher, also fluchtet der Zurück-Knopf
-            weiter mit dem Text darüber. */}
-        <Section variant="muted" padding={6} paddingBlock={4} dividers={["top"]}>
-          {/* Umbrechend statt starr nebeneinander: auf dem Telefon rutscht der
-              Hinweis über die Knöpfe, statt den Weiter-Knopf zu zerdrücken. */}
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <Button
-              variant="secondary"
-              label="Zurück"
-              icon={<Sign meaning="previous" />}
-              isDisabled={stepIndex === 0 || pending}
-              onClick={() => setStep(String(stepIndex - 1))}
-            />
+            oben aus dem Thema mit. `padding`/`paddingBlock` treffen dieselben
+            24/16 px wie der Inhalt darüber, also fluchtet der Zurück-Knopf mit
+            dem Text. */}
+        {!showsList && (
+          <Section variant="muted" padding={6} paddingBlock={4} dividers={["top"]}>
+            {/* Umbrechend statt starr nebeneinander: auf dem Telefon rutscht der
+                Hinweis über die Knöpfe, statt den Weiter-Knopf zu zerdrücken. */}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <Button
+                variant="secondary"
+                label="Zurück"
+                icon={<Sign meaning="previous" />}
+                isDisabled={stepIndex === 0 || pending}
+                onClick={() => setStep(String(stepIndex - 1))}
+              />
 
-            <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-3">
-              {/* Von Hand speichern, ohne auf die automatische Speicherung zu
-                  warten – gerade vor dem Schließen des Tabs will man das sicher
-                  wissen. aria-live sagt den Wechsel zu „Gespeichert“ an. */}
-              <span aria-live="polite">
-                <Button
-                  variant="ghost"
-                  label={justSaved ? "Gespeichert ✓" : "Entwurf speichern"}
-                  isDisabled={pending || justSaved}
-                  onClick={saveDraft}
-                />
-              </span>
-              {/* aria-live: der Satz wechselt, während man in einem Feld tippt –
-                  wer nicht hinsieht, erführe die Änderung sonst nicht. */}
-              {fussHinweis && (
-                <Text type="supporting" as="span" className="text-right" aria-live="polite">
-                  {fussHinweis}
-                </Text>
-              )}
-              {stepIndex < STEPS.length - 1 ? (
-                <Button
-                  isDisabled={locked}
-                  label={`Weiter: ${STEPS[stepIndex + 1]}`}
-                  endContent={<Sign meaning="next" />}
-                  onClick={() => setStep(String(stepIndex + 1))}
-                />
-              ) : (
-                <Button
-                  onClick={onCreate}
-                  isLoading={pending}
-                  isDisabled={pending || blocked}
-                  icon={pending ? undefined : <Sign meaning="launch" />}
-                  label={pending ? "Wird erstellt…" : "Erstellen (pausiert)"}
-                />
-              )}
+              <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-3">
+                {/* Von Hand speichern, ohne auf die automatische Speicherung zu
+                    warten – gerade vor dem Schließen des Tabs will man das sicher
+                    wissen. aria-live sagt den Wechsel zu „Gespeichert“ an. */}
+                <span aria-live="polite">
+                  <Button
+                    variant="ghost"
+                    label={justSaved ? "Gespeichert ✓" : "Entwurf speichern"}
+                    isDisabled={pending || justSaved}
+                    onClick={saveDraft}
+                  />
+                </span>
+                {/* aria-live: der Satz wechselt, während man in einem Feld tippt –
+                    wer nicht hinsieht, erführe die Änderung sonst nicht. */}
+                {fussHinweis && (
+                  <Text type="supporting" as="span" className="text-right" aria-live="polite">
+                    {fussHinweis}
+                  </Text>
+                )}
+                {stepIndex < STEPS.length - 1 ? (
+                  <Button
+                    isDisabled={locked}
+                    label={`Weiter: ${STEPS[stepIndex + 1]}`}
+                    endContent={<Sign meaning="next" />}
+                    onClick={() => setStep(String(stepIndex + 1))}
+                  />
+                ) : (
+                  <Button
+                    onClick={onCreate}
+                    isLoading={pending}
+                    isDisabled={pending || blocked}
+                    icon={pending ? undefined : <Sign meaning="launch" />}
+                    label={pending ? "Wird erstellt…" : "Erstellen (pausiert)"}
+                  />
+                )}
+              </div>
             </div>
-          </div>
-        </Section>
+          </Section>
+        )}
       </Card>
+
+      {/* Die Aufgabenliste steht in ihrer eigenen Karte unter der Schrittleiste:
+          sie ist keine Eingabe in diesem Formular, sondern die Wahl davor. */}
+      {showsList && (
+        <>
+          {briefError && (
+            <Banner status="error" title="Auftrag nicht gelesen" description={briefError} />
+          )}
+          <Auftrag
+            email={email}
+            picking={picking}
+            onPick={pick}
+            onWithout={() => setManual(true)}
+          />
+        </>
+      )}
     </div>
-  );
-}
-
-type ClientItem = SearchableItem<WizardClient> & { auxiliaryData: WizardClient };
-type AccountItem = SearchableItem<WizardAccount> & { auxiliaryData: WizardAccount };
-
-/**
- * Astryx' Typeahead filtert über eine SearchSource, nicht über einen
- * filter-Prop. fuzzyCustomerMatch bleibt damit erhalten – getippte Kürzel wie
- * „hkps“ finden „Häusliche Krankenpflege Schölzke“, was ein reiner
- * Teilstring-Vergleich (Astryx' eingebaute Suche) nicht täte. Die Listen liegen
- * fertig im Browser, also ist die Suche synchron und ohne Verzögerung.
- */
-function fuzzySource<T extends SearchableItem>(
-  items: T[],
-  textOf: (item: T) => string = (item) => item.label,
-): SearchSource<T> {
-  return {
-    bootstrap: () => items,
-    search: (query) =>
-      query ? items.filter((item) => fuzzyCustomerMatch(textOf(item), query)) : items,
-  };
-}
-
-// Astryx' DateInput rechnet in ISO-Strings statt in CalendarDate. Die
-// Absicherung gegen einen kaputten sessionStorage-Eintrag bleibt bei
-// toCalendarDate; CalendarDate.toString() liefert immer yyyy-mm-dd, was
-// TypeScript einem string nicht ansieht – daher die eine Zusicherung hier.
-const toIsoDate = (iso: string) => toCalendarDate(iso).toString() as ISODateString;
-
-// Steht zweimal im Baum – einmal sichtbar, einmal als `description` fürs
-// Vorlesen. Eine Konstante, damit die beiden nie auseinanderlaufen.
-const NAME_EDITED_HINT = "Von Hand geändert — der Name folgt den Feldern unten nicht mehr.";
-
-/**
- * Astryx kennt kein Fieldset. Ein Abschnitt mit Beschriftung ist deshalb
- * natives <fieldset>/<legend> plus Astryx-Typografie – dieselbe Lösung wie in
- * ad-set-block.tsx. Tailwinds Preflight räumt die Browser-Chrome (Rahmen,
- * Einkerbung) schon weg, ein CSS-Override braucht es nicht.
- *
- * `groupClassName` sitzt am inneren div, das den Platz von Fieldset.Group
- * einnimmt: die Felder darin stehen je nach Abschnitt untereinander oder
- * nebeneinander im Raster.
- */
-function FieldsetSection({
-  legend,
-  groupClassName = "space-y-4",
-  children,
-}: {
-  legend: ReactNode;
-  groupClassName?: string;
-  children: ReactNode;
-}) {
-  return (
-    <fieldset className="flex flex-col gap-4">
-      <legend className="w-full">
-        <Text type="large" weight="medium" as="span">
-          {legend}
-        </Text>
-      </legend>
-      <div className={groupClassName}>{children}</div>
-    </fieldset>
   );
 }
