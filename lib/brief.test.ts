@@ -60,7 +60,80 @@ const deps = (over: Partial<BriefDeps> = {}): BriefDeps => ({
     typeof content === "string" && content.includes("CSV")
       ? '{"benefits":["33 Urlaubstage","Jobrad"],"rollen":[]}'
       : '{"adresse":"Mühlgasse 24, 71272 Renningen","ort":"Renningen","formular":"Renningen"}',
+  customerOverview: async () => ({}),
   ...over,
+});
+
+// keine Adresse aus der Aufgabenbeschreibung – Mistral findet dort nichts
+const noAddressMistral: BriefDeps["mistral"] = async (c) =>
+  typeof c === "string" && c.includes("CSV")
+    ? '{"benefits":[],"rollen":[]}'
+    : '{"adresse":null,"ort":null,"formular":null}';
+
+test("assembleBrief: keine Adresse in der Aufgabe → Standort aus der Kundenübersicht", async () => {
+  const out = await assembleBrief(
+    "t1",
+    deps({
+      getBrief: async () => ({ ...brief, folderId: "f1" }),
+      mistral: noAddressMistral,
+      customerOverview: async (folderId) => {
+        expect(folderId).toBe("f1");
+        return { address: "Am Illgenberg 2, 76530 Baden-Baden" };
+      },
+    }),
+  );
+  expect(out.location).toEqual({
+    value: { addressString: "Am Illgenberg 2, 76530 Baden-Baden" },
+    source: "clickup",
+  });
+});
+
+test("assembleBrief: Adresse schon aus der Beschreibung → Kundenübersicht wird nicht angefragt", async () => {
+  let calls = 0;
+  const out = await assembleBrief(
+    "t1",
+    deps({
+      getBrief: async () => ({ ...brief, folderId: "f1" }),
+      customerOverview: async () => {
+        calls++;
+        return { address: "sollte nie ankommen" };
+      },
+    }),
+  );
+  expect(out.location).toEqual({ value: { addressString: "Mühlgasse 24, 71272 Renningen" }, source: "clickup" });
+  expect(calls).toBe(0);
+});
+
+test("assembleBrief: Kundenübersicht nicht lesbar → Warnung, kein Standort", async () => {
+  const out = await assembleBrief(
+    "t1",
+    deps({
+      getBrief: async () => ({ ...brief, folderId: "f1" }),
+      mistral: noAddressMistral,
+      customerOverview: async () => {
+        throw new Error("403");
+      },
+    }),
+  );
+  expect(out.location).toBeUndefined();
+  expect(out.warnings.join(" ")).toMatch(/Kundenübersicht/);
+});
+
+test("assembleBrief: Rollen nirgends außer in der Kundenübersicht", async () => {
+  const out = await assembleBrief(
+    "t1",
+    deps({
+      getBrief: async () => ({
+        ...brief,
+        folderId: "f1",
+        rolesText: undefined,
+        name: "MeVita Kampagne ab 1.9.",
+      }),
+      mistral: noAddressMistral,
+      customerOverview: async () => ({ rolesText: "PDL" }),
+    }),
+  );
+  expect(out.roles).toEqual({ value: ["PDL"], source: "clickup" });
 });
 
 test("assembleBrief füllt alles aus ClickUp und der Onboarding-Tabelle, mit Herkunft", async () => {

@@ -1,14 +1,21 @@
 /**
  * Der Auftrag, zusammengesetzt: was der Assistent über eine Kampagne wissen
- * kann, bevor jemand tippt. Drei Quellen, alle parallel, keine darf blocken –
- * ein Ausfall lässt das Feld leer und hinterlässt eine Warnung, die der
- * Vorschlag zeigt.
+ * kann, bevor jemand tippt. Vier Quellen; ClickUp-Aufgabe, Onboarding-Tabelle
+ * und die Kundenübersicht laufen nebeneinander, keine darf blocken – ein
+ * Ausfall lässt das Feld leer und hinterlässt eine Warnung, die der Vorschlag
+ * zeigt.
  *
- *   ClickUp-Aufgabe        Kunde, Budget, Limit, Rollen, Drive-Link, Beschreibung
- *   Mistral über die       Standort (Adresse oder Ort), Hinweis aufs Formular
+ *   ClickUp-Aufgabe         Kunde, Budget, Limit, Rollen, Drive-Link, Beschreibung
+ *   Mistral über die        Standort (Adresse oder Ort), Hinweis aufs Formular
  *   Beschreibung
- *   Onboarding-Tabelle     Benefits („Besteht aktuell“), Rollen
+ *   Onboarding-Tabelle      Benefits („Besteht aktuell“), Rollen
  *   (Drive, über Mistral)
+ *   ClickUp-Kundenübersicht Standort, Rollen – Fallback per Regex, nie über Mistral
+ *   (Doc im Kundenordner)
+ *
+ * Standort-Priorität: Beschreibung (Mistral) → Kundenübersicht (Regex) →
+ * letzte Kampagne (lebt im Wizard-Prefill, nicht hier). Die Kundenübersicht
+ * wird nur angefragt, wenn die Beschreibung keinen Ort liefert.
  *
  * Jeder Wert trägt seine Herkunft: das Etikett steht im Vorschlag am Feld,
  * damit ein falsch gelesener Wert auffällt statt unbemerkt in die Anzeige zu
@@ -16,7 +23,13 @@
  * damit ohne ClickUp, Drive und Mistral prüfbar.
  */
 import { mistral as realMistral } from "./bodies";
-import { getBrief as realGetBrief, parseRoles, rolesFromTaskName, type Brief } from "./clickup";
+import {
+  customerOverview as realCustomerOverview,
+  getBrief as realGetBrief,
+  parseRoles,
+  rolesFromTaskName,
+  type Brief,
+} from "./clickup";
 import {
   bestLanding as realBestLanding,
   exportCsv as realExportCsv,
@@ -55,6 +68,7 @@ export type BriefDeps = {
   findSheet: (folderId: string) => Promise<DriveFile | undefined>;
   exportCsv: (fileId: string) => Promise<string>;
   mistral: (content: string, opts?: { temperature?: number }) => Promise<string>;
+  customerOverview: (folderId: string) => Promise<{ address?: string; rolesText?: string }>;
 };
 
 const realDeps: BriefDeps = {
@@ -65,6 +79,7 @@ const realDeps: BriefDeps = {
   findSheet: realFindSheet,
   exportCsv: realExportCsv,
   mistral: realMistral,
+  customerOverview: realCustomerOverview,
 };
 
 const unfence = (s: string) => s.replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, "").trim();
@@ -203,6 +218,20 @@ export async function assembleBrief(taskId: string, deps: BriefDeps = realDeps):
   if (sheet.folderId) out.driveFolderId = { value: sheet.folderId, source: "clickup" };
   if (sheet.benefits.length) out.benefits = { value: sheet.benefits.join("\n"), source: "onboarding" };
   if (!out.roles && sheet.roles.length) out.roles = { value: sheet.roles, source: "onboarding" };
+
+  // Fallback, nur wenn die Beschreibung keinen Ort hergab – ein Aufruf
+  // weniger gegen ClickUp, und die Beschreibung ist ohnehin die genauere
+  // Quelle (Adresse statt nur Ort im Kundenordner).
+  if (!out.location && brief.folderId) {
+    try {
+      const overview = await deps.customerOverview(brief.folderId);
+      if (overview.address) out.location = { value: { addressString: overview.address }, source: "clickup" };
+      const roles = overview.rolesText ? parseRoles(overview.rolesText).roles : [];
+      if (!out.roles && roles.length) out.roles = { value: roles, source: "clickup" };
+    } catch (e) {
+      warnings.push(`Kundenübersicht nicht gelesen: ${(e as Error).message}`);
+    }
+  }
 
   return out;
 }

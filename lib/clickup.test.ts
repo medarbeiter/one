@@ -1,5 +1,13 @@
 import { expect, test } from "bun:test";
-import { parseEuro, parseRoles, rolesFromTaskName, taskIdFromInput, toBrief, type RawTask } from "./clickup";
+import {
+  overviewFacts,
+  parseEuro,
+  parseRoles,
+  rolesFromTaskName,
+  taskIdFromInput,
+  toBrief,
+  type RawTask,
+} from "./clickup";
 
 test("taskIdFromInput liest die nackte ID und beide Link-Formen", () => {
   expect(taskIdFromInput("86cbd7afg")).toBe("86cbd7afg");
@@ -54,7 +62,7 @@ const mevita: RawTask = {
   status: { status: "kampagne anlegen" },
   date_created: "1756800000000",
   markdown_description: "neu anlegen, infos fast identisch zu letzter\nFK für Renningen",
-  folder: { name: " MeVita Pflegedienst GmbH" },
+  folder: { id: "901511138445", name: " MeVita Pflegedienst GmbH" },
   assignees: [{ username: "Felix Kinze", email: "f.kinze@med-arbeiter.de" }],
   custom_fields: [
     { name: "Tagesbudget", type: "currency", value: "17.05" },
@@ -70,6 +78,7 @@ test("toBrief bildet die Aufgabe ab: Ordnername getrimmt, Felder geparst, Leeres
     taskId: "86cbd7afg",
     name: "MeVita Pflegedienst GmbH - PFK Renningen ab x.9.26 KF (via One)",
     customer: "MeVita Pflegedienst GmbH",
+    folderId: "901511138445",
     assignees: ["f.kinze@med-arbeiter.de"],
     description: "neu anlegen, infos fast identisch zu letzter\nFK für Renningen",
     dailyBudgetEuros: 17.05,
@@ -78,6 +87,33 @@ test("toBrief bildet die Aufgabe ab: Ordnername getrimmt, Felder geparst, Leeres
     driveUrl: undefined,
     createdAt: 1756800000000,
   });
+});
+
+test("overviewFacts liest Adresse und offene Stellen aus der Kundenübersicht", () => {
+  const md = "Ansprechpartner: Frau Muster\nAdresse: Am Illgenberg 2, 76530 Baden-Baden\nOffene Stellen: PDL\n";
+  expect(overviewFacts(md)).toEqual({ address: "Am Illgenberg 2, 76530 Baden-Baden", rolesText: "PDL" });
+});
+
+test("overviewFacts: nur die Adresse steht drin", () => {
+  const md = "Adresse: Musterstr. 1, 12345 Musterstadt\n";
+  expect(overviewFacts(md)).toEqual({ address: "Musterstr. 1, 12345 Musterstadt", rolesText: undefined });
+});
+
+test("overviewFacts: keine der beiden Zeilen vorhanden", () => {
+  expect(overviewFacts("Passwort: geheim\nTelefon: 0123456\n")).toEqual({
+    address: undefined,
+    rolesText: undefined,
+  });
+});
+
+test("overviewFacts: eine Zeile nur mit Leerzeichen zählt als leer", () => {
+  const md = "Adresse:    \nOffene Stellen: FK\n";
+  expect(overviewFacts(md)).toEqual({ address: undefined, rolesText: "FK" });
+});
+
+test("overviewFacts: Markdown-Fettung um den Wert wird abgestreift", () => {
+  const md = "Adresse: **Am Illgenberg 2, 76530 Baden-Baden**\n";
+  expect(overviewFacts(md)).toEqual({ address: "Am Illgenberg 2, 76530 Baden-Baden", rolesText: undefined });
 });
 
 test("toBrief liest das Ausgabenlimit als Text mit Euro-Zeichen", () => {

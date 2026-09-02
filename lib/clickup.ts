@@ -41,6 +41,8 @@ export type Brief = {
   name: string;
   /** Der Kundenordner – so heißt der Kunde in ClickUp. */
   customer: string;
+  /** ID des Kundenordners – für den Fallback auf die Kundenübersicht. */
+  folderId?: string;
   /** E-Mails der Verantwortlichen – für „meine zuerst“. */
   assignees: string[];
   /** Die Beschreibung, roh (Markdown). Steht wörtlich im Vorschlag. */
@@ -64,7 +66,7 @@ export type RawTask = {
   date_created: string;
   description?: string | null;
   markdown_description?: string | null;
-  folder?: { name?: string };
+  folder?: { id?: string; name?: string };
   assignees?: { username?: string; email?: string }[];
   custom_fields?: RawField[];
 };
@@ -133,6 +135,7 @@ export function toBrief(raw: RawTask): Brief {
     taskId: raw.id,
     name: raw.name,
     customer: raw.folder?.name?.trim() ?? "",
+    folderId: text(raw.folder?.id),
     assignees: (raw.assignees ?? []).map((a) => a.email ?? "").filter(Boolean),
     description: raw.markdown_description ?? raw.description ?? "",
     dailyBudgetEuros: parseEuro(field(raw, "Tagesbudget")),
@@ -141,6 +144,24 @@ export function toBrief(raw: RawTask): Brief {
     driveUrl: text(field(raw, "Drive-Link")),
     createdAt: Number(raw.date_created) || 0,
   };
+}
+
+/**
+ * Adresse und offene Stellen aus der Kundenübersicht – zwei Zeilen per
+ * Regex, nie per Modell: die Seite trägt Passwörter und Kontaktdaten, die
+ * niemals als Prompt an Mistral gehen oder irgendwo geloggt werden dürfen.
+ * Nur diese zwei Werte verlassen die Funktion, der Rest der Seite bleibt
+ * ungelesen im Aufrufer.
+ */
+export function overviewFacts(markdown: string): { address?: string; rolesText?: string } {
+  // [ \t] statt \s: \s schließt \n ein und würde sonst über die Zeile hinaus
+  // bis in den nächsten Wert hinein fressen, wenn der Wert leer ist.
+  const pick = (label: string) => {
+    const m = markdown.match(new RegExp(`^${label}:[ \\t]*(.+?)[ \\t]*$`, "m"));
+    const v = m?.[1]?.replace(/^\*+|\*+$/g, "").trim();
+    return v || undefined;
+  };
+  return { address: pick("Adresse"), rolesText: pick("Offene Stellen") };
 }
 
 function token(): string {
@@ -164,6 +185,37 @@ async function team(): Promise<string> {
   const { teams } = await api<{ teams: { id: string }[] }>("team");
   if (!teams?.length) throw new Error("ClickUp: das Token gehört zu keinem Workspace.");
   return (teamId = teams[0].id);
+}
+
+// Docs (die Kundenübersicht ist eins) leben nur in der v3-API – `api()`
+// bleibt für v2 stehen, das ist der einzige v3-Aufruf im Modul.
+async function apiV3<T>(path: string): Promise<T> {
+  const res = await fetch(`https://api.clickup.com/api/v3/${path}`, {
+    headers: { authorization: token() },
+  });
+  if (!res.ok) throw new Error(`ClickUp ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return (await res.json()) as T;
+}
+
+type FolderView = { id: string; name: string; type: string };
+type DocPage = { id: string; name: string; content?: string; pages?: DocPage[] };
+
+/**
+ * Fallback-Quelle für Standort und offene Stellen: das Doc „Kundenübersicht“
+ * im Kundenordner, wenn die Aufgabe selbst schweigt. Liefert `{}`, wenn es
+ * kein solches Doc gibt – der Aufrufer macht daraus keine Warnung, nur einen
+ * Fehler beim Netzzugriff propagiert.
+ */
+export async function customerOverview(folderId: string): Promise<{ address?: string; rolesText?: string }> {
+  const { views } = await api<{ views: FolderView[] }>(`folder/${folderId}/view`);
+  const view = views.find((v) => v.type === "doc" && /kunden.?übersicht/i.test(v.name));
+  if (!view) return {};
+  const id = await team();
+  const pages = await apiV3<DocPage[]>(
+    `workspaces/${id}/docs/${view.id}/pages?max_page_depth=1&content_format=text/md`,
+  );
+  const page = pages.find((p) => /kunden.?übersicht/i.test(p.name)) ?? pages[0];
+  return overviewFacts(page?.content ?? "");
 }
 
 /** Alle Aufgaben im Status „kampagne anlegen“, workspace-weit, seitenweise bis leer. */
