@@ -73,3 +73,17 @@ export function adSetName(index: number, city?: string): string {
   if (index === 0) return "Ads";
   return city ? `Ads – ${city}` : `Ads ${index + 1}`;
 }
+
+/**
+ * Das Kürzel im Kampagnennamen kommt aus dem Namen der angemeldeten Person –
+ * vorher aus KNOWN_INITIALS und dem localStorage, also aus einer Liste, die bei
+ * jeder neuen Kollegin nachzupflegen war. Erster und letzter Namensteil, denn
+ * „Maria Anna Huber“ zeichnet als MH; ein einzelnes Wort gibt seine ersten
+ * zwei Buchstaben. Wer anders zeichnet, ändert es im Assistenten unter Optional.
+ */
+export function initialsOf(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return "";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+}

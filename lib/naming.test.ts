@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { adSetName, campaignName, formatDate, ROLES } from "./naming";
+import { adSetName, campaignName, formatDate, initialsOf, ROLES } from "./naming";
 
 test("the campaign name follows the agency convention", () => {
   expect(
@@ -72,4 +72,18 @@ test("the first ad set is Ads, later ones carry the city", () => {
   expect(adSetName(0)).toBe("Ads");
   expect(adSetName(1, "Dresden")).toBe("Ads – Dresden");
   expect(adSetName(1)).toBe("Ads 2");
+});
+
+test("initialsOf nimmt Vor- und Nachnamen", () => {
+  expect(initialsOf("Karl Fischer")).toBe("KF");
+  expect(initialsOf("Maria Anna Huber")).toBe("MH");
+});
+
+test("initialsOf bei einem Wort: die ersten zwei Buchstaben", () => {
+  expect(initialsOf("Felix")).toBe("FE");
+});
+
+test("initialsOf bei nichts: nichts", () => {
+  expect(initialsOf("")).toBe("");
+  expect(initialsOf("   ")).toBe("");
 });
