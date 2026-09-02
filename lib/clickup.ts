@@ -13,6 +13,29 @@ const API = "https://api.clickup.com/api/v2";
 export const OPEN_STATUS = "kampagne anlegen";
 export const DONE_STATUS = "abnahme kampagne";
 
+const BARE_ID = /^[a-z0-9]{6,12}$/;
+
+/**
+ * Eine ClickUp-Aufgabe aus freiem Text: die nackte ID („86cbd7afg“) oder ein
+ * Task-Link („…/t/86cbd7afg“, auch „…/t/<teamId>/<id>“ – dann zählt das
+ * letzte Segment). Alles andere, etwa ein Kundenname, ist keine ID.
+ */
+export function taskIdFromInput(text: string): string | undefined {
+  const trimmed = text.trim();
+  if (!trimmed) return undefined;
+  if (BARE_ID.test(trimmed)) return trimmed;
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return undefined;
+  }
+  const parts = url.pathname.split("/").filter(Boolean);
+  if (parts.indexOf("t") === -1) return undefined;
+  const id = parts.at(-1);
+  return id && BARE_ID.test(id) ? id : undefined;
+}
+
 export type Brief = {
   taskId: string;
   name: string;

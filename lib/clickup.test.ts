@@ -1,5 +1,16 @@
 import { expect, test } from "bun:test";
-import { parseEuro, parseRoles, rolesFromTaskName, toBrief, type RawTask } from "./clickup";
+import { parseEuro, parseRoles, rolesFromTaskName, taskIdFromInput, toBrief, type RawTask } from "./clickup";
+
+test("taskIdFromInput liest die nackte ID und beide Link-Formen", () => {
+  expect(taskIdFromInput("86cbd7afg")).toBe("86cbd7afg");
+  expect(taskIdFromInput("https://app.clickup.com/t/86cbd7afg")).toBe("86cbd7afg");
+  expect(taskIdFromInput("https://app.clickup.com/t/9011138519/86cbd7afg")).toBe("86cbd7afg");
+});
+
+test("taskIdFromInput: ein Kundenname oder Leeres ist keine ID", () => {
+  expect(taskIdFromInput("MeVita Pflegedienst GmbH")).toBeUndefined();
+  expect(taskIdFromInput("")).toBeUndefined();
+});
 
 test("parseEuro liest Zahlen, Texte mit Euro-Zeichen und deutsche Schreibweisen", () => {
   expect(parseEuro(17.05)).toBe(17.05);

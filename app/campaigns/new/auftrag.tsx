@@ -19,14 +19,16 @@ import {
   ListItem,
   Section,
   Skeleton,
+  Switch,
   Text,
+  TextInput,
   Typeahead,
   type SearchSource,
   type SearchableItem,
 } from "@astryxdesign/core";
 import { UserPlusIcon } from "@phosphor-icons/react";
 import type { Source } from "@/lib/brief";
-import type { Brief } from "@/lib/clickup";
+import { taskIdFromInput, type Brief } from "@/lib/clickup";
 import { fuzzyCustomerMatch, leadgenTosUrl, type InstagramAccount } from "@/lib/customers";
 import { briefsAction } from "../actions";
 import { Angaben } from "./angaben";
@@ -49,6 +51,8 @@ export function Auftrag({
 }) {
   const [briefs, setBriefs] = useState<Brief[]>();
   const [error, setError] = useState<string>();
+  const [query, setQuery] = useState("");
+  const [mineOnly, setMineOnly] = useState(false);
   useEffect(() => {
     let cancelled = false;
     briefsAction().then((res) => {
@@ -61,11 +65,28 @@ export function Auftrag({
     };
   }, []);
 
+  const mine = (b: Brief) => b.assignees.some((a) => a.toLowerCase() === email.toLowerCase());
+
   const sorted = useMemo(() => {
     if (!briefs) return [];
-    const mine = (b: Brief) => b.assignees.some((a) => a.toLowerCase() === email.toLowerCase());
     return [...briefs].sort((a, b) => Number(mine(b)) - Number(mine(a)) || b.createdAt - a.createdAt);
   }, [briefs, email]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim();
+    return sorted.filter(
+      (b) =>
+        (!mineOnly || mine(b)) &&
+        (!q || fuzzyCustomerMatch([b.customer, b.name, ...b.assignees].join(" "), q)),
+    );
+  }, [sorted, mineOnly, query, email]);
+
+  // Die Liste sieht nur Aufgaben im Status „kampagne anlegen“ – für alles
+  // andere (z. B. „kampagne vorbereiten“) gibt es den direkten Weg über Link
+  // oder ID, unabhängig von Suche und „Nur meine“.
+  const directId = taskIdFromInput(query);
+  const directBrief = directId ? briefs?.find((b) => b.taskId === directId) : undefined;
+  const extraId = directId && !directBrief ? directId : undefined;
 
   return (
     <Card elevation="low" padding={0}>
@@ -84,15 +105,52 @@ export function Auftrag({
           <Banner status="error" title="ClickUp nicht erreichbar" description={error} />
         </Section>
       )}
+      {briefs && (
+        <>
+          <Section padding={6} paddingBlock={4}>
+            <div className="flex max-w-xl flex-col gap-2">
+              <TextInput
+                label="Aufgabe suchen"
+                isLabelHidden
+                placeholder="Kunde, Aufgabe oder ClickUp-Link…"
+                value={query}
+                onChange={setQuery}
+                hasClear
+              />
+              <Switch label="Nur meine" value={mineOnly} onChange={setMineOnly} />
+              <Text type="supporting" as="p">
+                Eine Aufgabe in einem anderen Status: ClickUp-Link oder ID einfügen.
+              </Text>
+            </div>
+          </Section>
+          <Divider />
+        </>
+      )}
       {!briefs ? (
         <div className="space-y-3 p-6">
           {[0, 1, 2].map((i) => (
             <Skeleton key={i} height={44} width="100%" radius={2} index={i} />
           ))}
         </div>
-      ) : sorted.length ? (
+      ) : filtered.length || extraId ? (
         <List hasDividers density="spacious">
-          {sorted.map((b) => (
+          {extraId && (
+            <ListItem
+              key={extraId}
+              label="Aufgabe aus ClickUp laden"
+              description={extraId}
+              endContent={
+                <Button
+                  size="sm"
+                  label="Vorschlag erstellen"
+                  isLoading={picking === extraId}
+                  isDisabled={Boolean(picking)}
+                  onClick={() => onPick(extraId)}
+                />
+              }
+            />
+          )}
+          {filtered.map((b) => (
             <ListItem
               key={b.taskId}
               label={b.customer || b.name}
@@ -121,7 +179,9 @@ export function Auftrag({
         !error && (
           <Section padding={6} paddingBlock={4}>
             <Text type="supporting" as="p">
-              Keine Aufgabe im Status „Kampagne anlegen“.
+              {briefs.length
+                ? "Keine Aufgabe passt zur Suche."
+                : "Keine Aufgabe im Status „Kampagne anlegen“."}
             </Text>
           </Section>
         )
