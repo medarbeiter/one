@@ -145,10 +145,12 @@ export type Landing = { path: DriveFile[]; entries: DriveFile[] };
 /**
  * Der beste Tipp, wo die Videos liegen – der Dialog lässt von dort aus jeden
  * Schritt korrigieren. Erst „1 - Recruiting“ (bei älteren Kunden
- * „1 - Mitarbeitergewinnung“), darin „UGC Videos“. Dann weiter hinein, solange
- * hier keine Medien liegen, aber ein Unterordner offensichtlich der richtige
- * ist: einer, der nach UGC oder Video heißt, oder schlicht der einzige. Bei
- * mehreren gleichwertigen bleibt es stehen – raten wäre hier nur falsch.
+ * „1 - Mitarbeitergewinnung“); dort liegen meist nur Beispielvideos, das
+ * Eigentliche steckt in „Werbemotive“ – oder, wo es die nicht gibt, in „UGC
+ * Videos“. Dann weiter hinein, solange hier keine Medien liegen, aber ein
+ * Unterordner offensichtlich der richtige ist: einer, der nach UGC oder Video
+ * heißt, oder schlicht der einzige. Bei mehreren gleichwertigen bleibt es
+ * stehen – raten wäre hier nur falsch.
  */
 export async function landing(customer: DriveFile, kids = children): Promise<Landing> {
   const path = [customer];
@@ -158,10 +160,23 @@ export async function landing(customer: DriveFile, kids = children): Promise<Lan
     entries = await entriesOf(next.id, kids);
   };
 
-  for (const pattern of [/^1\s*-|recruiting|mitarbeitergewinnung/i, /ugc/i]) {
-    const next = entries.filter(isFolder).find((f) => pattern.test(f.name));
-    if (!next) break;
-    await descend(next);
+  // Je Stufe der erste Ausdruck, der einen nicht leeren Ordner findet; findet
+  // keiner, ist Schluss. Ein leeres „Werbemotive“ (angelegt, nie befüllt) soll
+  // nicht vor einem vollen „UGC Videos“ daneben gewinnen.
+  const steps = [[/^1\s*-|recruiting|mitarbeitergewinnung/i], [/werbemotiv/i, /ugc/i]];
+  for (const patterns of steps) {
+    const folders = entries.filter(isFolder);
+    const candidates = patterns.map((p) => folders.find((f) => p.test(f.name))).filter((f): f is DriveFile => Boolean(f));
+    if (!candidates.length) break;
+    let chosen = candidates[0];
+    let inside = await entriesOf(chosen.id, kids);
+    for (const other of candidates.slice(1)) {
+      if (inside.length) break;
+      const alt = await entriesOf(other.id, kids);
+      if (alt.length) [chosen, inside] = [other, alt];
+    }
+    path.push(chosen);
+    entries = inside;
   }
   // ponytail: höchstens fünf Stufen tiefer – gegen Endlosverschachtelung, nicht gegen echte Ordner.
   for (let depth = 0; depth < 5 && !entries.some(isMedia); depth++) {

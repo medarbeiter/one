@@ -30,6 +30,14 @@ const video = (id: string, name: string): DriveFile => ({ id, name, mimeType: "v
 const tree: Record<string, DriveFile[]> = {
   kunde: [folder("rec", "1 - Recruiting"), folder("misc", "2 - Sonstiges"), video("stray", "alt.mp4")],
   rec: [folder("ugc", "UGC Videos"), folder("fotos", "Fotos"), video("recvid", "briefing.mp4")],
+  // Werbemotive schlägt UGC – in Recruiting selbst liegen nur Beispielvideos.
+  motive: [folder("rec5", "1 - Mitarbeitergewinnung")],
+  rec5: [video("bsp", "Beispielvideo 1 UGC.mp4"), folder("wm", "Werbemotive"), folder("ugc5", "UGC Videos")],
+  wm: [video("m1", "Anna.mp4"), folder("wmugc", "UGC")],
+  // Leeres Werbemotive: dann doch UGC daneben
+  leer: [folder("rec6", "1 - Recruiting")],
+  rec6: [folder("wm6", "Werbemotive"), folder("ugc6", "UGC Videos")],
+  ugc6: [video("u6", "Ben.mp4")],
   ugc: [
     video("v1", "Anna.mp4"),
     { id: "pdf", name: "Skript.pdf", mimeType: "application/pdf" },
@@ -59,6 +67,20 @@ test("läuft Kunde → Recruiting → UGC und zeigt Unterordner und Medien, sons
   expect(names(await landing(folder("kunde", "Pflegedienst Hammonia"), kids))).toEqual({
     path: ["Pflegedienst Hammonia", "1 - Recruiting", "UGC Videos"],
     entries: ["v1", "jpg", "sub"],
+  });
+});
+
+test("Werbemotive geht vor UGC und vor den Beispielvideos in Recruiting", async () => {
+  expect(names(await landing(folder("motive", "Kunde"), kids))).toEqual({
+    path: ["Kunde", "1 - Mitarbeitergewinnung", "Werbemotive"],
+    entries: ["m1", "wmugc"],
+  });
+});
+
+test("ein leeres Werbemotive verliert gegen ein volles UGC daneben", async () => {
+  expect(names(await landing(folder("leer", "Kunde"), kids))).toEqual({
+    path: ["Kunde", "1 - Recruiting", "UGC Videos"],
+    entries: ["u6"],
   });
 });
 

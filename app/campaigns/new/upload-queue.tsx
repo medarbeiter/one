@@ -435,6 +435,12 @@ async function run(id: string, file: File, batch: Batch) {
     const body = new FormData();
     body.set("file", payload);
     body.set("adAccount", batch.adAccount);
+    // Ein kleines Vorschaubild für die Überschrift (lib/headline.ts) – das
+    // Original wäre für Mistral Megabytes, die niemand braucht.
+    if (fingerprint) {
+      const preview = await previewOf(file);
+      if (preview) body.set("preview", preview, "preview.jpg");
+    }
     const json = await postFile(body, (progress) =>
       // Ist der Body durch, hängt es nur noch an Metas Verarbeitung.
       patch(progress < 1 ? { progress } : { phase: "processing", progress: undefined }),
@@ -459,6 +465,7 @@ async function run(id: string, file: File, batch: Batch) {
             fileName: file.name,
             orientation,
             fingerprint,
+            headline: json.headline || undefined,
           },
     );
 
@@ -628,6 +635,22 @@ async function orientationOfFile(file: File): Promise<Orientation> {
  * lib/media.ts (fingerprintDistance); undefined heißt: kein Vergleich, keine
  * Paarung über das Motiv – nie ein falsches Paar.
  */
+/** Das Bild auf 512 px Kante als JPEG – klein genug für einen Mistral-Aufruf, groß genug für die Überschrift. */
+async function previewOf(file: Blob): Promise<Blob | null> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = 512 / Math.max(bitmap.width, bitmap.height);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    canvas.getContext("2d")?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    return await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.8));
+  } catch {
+    return null;
+  }
+}
+
 export async function fingerprintOf(file: Blob): Promise<string | undefined> {
   try {
     const bitmap = await createImageBitmap(file);

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { adSetName } from "@/lib/naming";
 import { locationProblem } from "@/lib/geo";
-import { nextCreativeName, normalizeAdName, planAds, uniqueName } from "@/lib/media";
+import { isSuggestedPair, nextCreativeName, normalizeAdName, planAds, uniqueName } from "@/lib/media";
 import type { AdInput, AdSetInput, FormatAsset } from "@/lib/launch";
 import type { Orientation } from "@/lib/media";
 
@@ -51,6 +51,8 @@ export type WizardImageAsset = Extract<FormatAsset, { kind: "image" }> & {
   orientation: Orientation;
   /** Fingerabdruck des Motivs für die Paarung – siehe fingerprintOf() in upload-queue.tsx. */
   fingerprint?: string;
+  /** Die Überschrift im Bild, für die Paarung – siehe lib/headline.ts. */
+  headline?: string;
   /**
    * Ein zugeschnittenes Bild merkt sich, woraus es geschnitten wurde: der zweite
    * Zuschnitt geht dann wieder vom Original aus, nicht vom Ausschnitt, und
@@ -218,8 +220,27 @@ export function withArrivedAssets(
     known.add(key);
     return true;
   });
-  const { ads: planned, unpaired } = planAds([...set.loose, ...unseen]);
-  const taken = new Set(set.ads.map((a) => a.name));
+  // Vorgeschlagene Paare werden mit neu geplant, nicht festgehalten: die
+  // Dateien kommen einzeln an, und „page-4“ hatte sich sonst schon „page-5“
+  // genommen, bevor „page-3“ fertig war. Gerechnet wird über alles, was da
+  // ist – das Ergebnis ist dasselbe wie bei einem einzigen Schwung. Was von
+  // Hand gepaart oder zugeschnitten wurde, bleibt unangetastet.
+  const suggested = set.ads.filter(
+    (a): a is Extract<WizardAd, { type: "split" }> => a.type === "split" && !a.source && isSuggestedPair(a.reason),
+  );
+  const dissolved = new Set<WizardAd>(suggested);
+  const kept = set.ads.filter((a) => !dissolved.has(a));
+  const halves = suggested.flatMap((a) => [a.portrait, a.square]).map(looseFrom);
+  const { ads: planned, unpaired } = planAds([...set.loose, ...halves, ...unseen]);
+  // Ein Paar, das wieder herauskommt, behält Name und ID – nichts springt.
+  const pairKey = (p: WizardAsset, s: WizardAsset) => `${assetKey(p)}|${assetKey(s)}`;
+  const before = new Map(suggested.map((a) => [pairKey(a.portrait, a.square), a]));
+  const taken = new Set(kept.map((a) => a.name));
+  for (const p of planned)
+    if (p.type === "split") {
+      const same = before.get(pairKey(p.portrait, p.square));
+      if (same) taken.add(same.name);
+    }
 
   const fresh = planned.map((p): WizardAd => {
     if (p.type === "ugc") {
@@ -234,6 +255,8 @@ export function withArrivedAssets(
       // planAds() steckt ausschließlich Videos in "ugc".
       return { id: crypto.randomUUID(), name, type: "ugc", asset: p.asset as WizardVideoAsset };
     }
+    const same = before.get(pairKey(p.portrait, p.square));
+    if (same) return same;
     const name = nextCreativeName(taken);
     taken.add(name);
     return {
@@ -246,7 +269,7 @@ export function withArrivedAssets(
     };
   });
 
-  return { ads: [...set.ads, ...fresh], loose: unpaired };
+  return { ads: [...kept, ...fresh], loose: unpaired };
 }
 
 const assetKey = (a: WizardAsset) => (a.kind === "image" ? `i:${a.hash}` : `v:${a.fileName}`);

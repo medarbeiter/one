@@ -40,6 +40,8 @@ export type Classified = {
   orientation: Orientation;
   /** 64-Bit-dHash des mittigen Quadrats, hex – siehe fingerprintOf() in upload-queue.tsx. */
   fingerprint?: string;
+  /** Die Überschrift im Bild, von Mistral gelesen – siehe lib/headline.ts. */
+  headline?: string;
 };
 
 export type PlannedAd<T> =
@@ -159,6 +161,19 @@ function parseName(fileName: string): { prefix: string; n: number } | null {
   return m ? { prefix: nameKey(m[1]), n: Number(m[2]) } : null;
 }
 
+/**
+ * Überschriften vergleichbar machen: „Pflege, die Zeit lässt.“ und „PFLEGE
+ * DIE ZEIT LÄSST“ sind dieselbe. Unter vier Buchstaben ist es keine Überschrift,
+ * sondern ein Logo oder ein Lesefehler – und die würde alles mit allem paaren.
+ */
+export function headlineKey(headline?: string): string | undefined {
+  const key = (headline ?? "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+  return key.replace(/ /g, "").length >= 4 ? key : undefined;
+}
+
 /** Hamming-Abstand zweier Hex-Fingerabdrücke; Infinity, wenn einer fehlt. */
 export function fingerprintDistance(a?: string, b?: string): number {
   if (!a || !b || a.length !== b.length) return Infinity;
@@ -210,6 +225,16 @@ const RULES: Rule<Classified>[] = [
     match: (a, b) => nameKey(splitFormatToken(a.fileName).stem) === nameKey(splitFormatToken(b.fileName).stem),
   },
   {
+    // Ein PDF-Export heißt „page-1“ bis „page-12“; die Nummern sagen nichts,
+    // die Überschrift im Bild sagt alles.
+    reason: "Gleiche Überschrift",
+    match: (a, b) => {
+      const x = headlineKey(a.headline);
+      const y = headlineKey(b.headline);
+      return Boolean(x && y) && x === y;
+    },
+  },
+  {
     reason: "Benachbarte Nummern",
     match: (a, b) => {
       const x = parseName(a.fileName);
@@ -226,6 +251,15 @@ const RULES: Rule<Classified>[] = [
     score: (a, b) => fingerprintDistance(a.fingerprint, b.fingerprint),
   },
 ];
+
+/**
+ * Ob ein Paar vom Assistenten vorgeschlagen wurde – und nicht von Hand
+ * gebildet oder zugeschnitten. Nur Vorschläge darf withArrivedAssets() wieder
+ * auflösen, wenn spätere Dateien eine bessere Paarung ergeben.
+ */
+export function isSuggestedPair(reason?: string): boolean {
+  return Boolean(reason && RULES.some((r) => reason.startsWith(`${r.reason}: `)));
+}
 
 /**
  * Die Dateien kommen aus einem Sammelordner, in dem die beiden Hälften einer

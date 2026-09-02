@@ -201,13 +201,16 @@ export function parseBody(content: string): string {
 const MODEL = "mistral-medium-latest";
 
 /** Ein Prompt, eine Antwort als roher Text – geteilt von Text, Überschriften
- *  und Beschreibung.
+ *  und Beschreibung; mit Bildteilen im Inhalt auch von lib/headline.ts.
  *
  *  429 wird mit Backoff wiederholt – anders als bei Metas Stundenbudget
  *  (lib/graph.ts) ist Mistrals Limit ein Requests-pro-Sekunde-Fenster: die
  *  fünf parallelen Aufrufe des Dialogs reißen es kurz, Sekunden später ist
  *  es wieder frei. */
-async function mistral(promptText: string): Promise<string> {
+export async function mistral(
+  content: string | { type: string; [k: string]: string }[],
+  opts: { model?: string; temperature?: number } = {},
+): Promise<string> {
   const key = process.env.MISTRAL_API_KEY;
   if (!key) throw new Error("MISTRAL_API_KEY fehlt in der Umgebung (.env.local).");
 
@@ -216,9 +219,9 @@ async function mistral(promptText: string): Promise<string> {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
       body: JSON.stringify({
-        model: MODEL,
-        temperature: 0.7,
-        messages: [{ role: "user", content: promptText }],
+        model: opts.model ?? MODEL,
+        temperature: opts.temperature ?? 0.7,
+        messages: [{ role: "user", content }],
       }),
     });
     if (res.status === 429 && attempt < 4) {
@@ -230,9 +233,9 @@ async function mistral(promptText: string): Promise<string> {
       throw new Error(`Mistral antwortet mit ${res.status}: ${(await res.text()).slice(0, 300)}`);
 
     const data = (await res.json()) as { choices?: { message?: { content?: unknown } }[] };
-    const content = data.choices?.[0]?.message?.content;
-    if (typeof content !== "string") throw new Error("Mistral hat keinen Text geliefert.");
-    return content;
+    const answer = data.choices?.[0]?.message?.content;
+    if (typeof answer !== "string") throw new Error("Mistral hat keinen Text geliefert.");
+    return answer;
   }
 }
 

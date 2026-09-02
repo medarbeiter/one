@@ -127,6 +127,25 @@ export function DriveDialog({
       return next;
     });
 
+  // ⌘A / Strg+A wählt alle Dateien des offenen Ordners – wie im Finder. Am
+  // Dokument, nicht am Dialog: der Fokus liegt nach dem Öffnen oft auf nichts
+  // Bestimmtem. Im Suchfeld bleibt es beim Markieren des Texts.
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== "a" || !(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      e.preventDefault();
+      setMany(
+        entries.filter((f) => !isFolder(f)),
+        true,
+      );
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [isOpen, entries]);
+
   const take = async () => {
     const wanted = [...selected.values()];
     if (!wanted.length) return;

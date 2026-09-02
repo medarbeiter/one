@@ -3,6 +3,7 @@
  * Next schickt Actions pro Client streng nacheinander, damit würde jedes
  * Video das nächste blockieren – bei UGC-Batches minutenlang.
  */
+import { readHeadline } from "@/lib/headline";
 import { uploadImage, uploadVideo, videoThumbnail } from "@/lib/uploads";
 
 // Nur diese beiden Bildformate nimmt Meta für Anzeigenbilder an. Vorher galt
@@ -42,7 +43,14 @@ export async function POST(request: Request) {
       const id = await uploadVideo(file, adAccount);
       return Response.json({ kind: "video", id, thumbnail: await videoThumbnail(id) });
     }
-    return Response.json({ kind: "image", hash: await uploadImage(file, adAccount) });
+    // Die Überschrift läuft neben dem Upload, nicht danach: Mistral braucht
+    // Sekunden, und der Client wartet auf den Hash.
+    const preview = form.get("preview");
+    const [hash, headline] = await Promise.all([
+      uploadImage(file, adAccount),
+      preview instanceof Blob && preview.size > 0 ? readHeadline(preview) : undefined,
+    ]);
+    return Response.json({ kind: "image", hash, headline });
   } catch (e) {
     return Response.json({ error: (e as Error).message }, { status: 500 });
   }

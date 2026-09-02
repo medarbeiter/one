@@ -225,6 +225,39 @@ test("das Tauschen an einer geliehenen Anzeige löst die Verbindung", () => {
 
 
 
+/**
+ * Der Fall aus dem Sammelordner: „page-1“ bis „page-12“ aus einem PDF-Export,
+ * fertig in zufälliger Reihenfolge. Vorher nahm sich „page-4“ die „page-5“,
+ * sobald beide da waren – und „page-3“ blieb liegen. Vorgeschlagene Paare
+ * werden deshalb mit jedem Schwung neu geplant.
+ */
+test("Paare werden neu geplant, wenn spätere Dateien eine bessere Reihe ergeben", () => {
+  const page = (n: number) => image(`page-${n}.png`, n % 2 ? "portrait" : "square");
+  let set = { ...emptyAdSet(0) };
+  for (const batch of [[4, 5], [3], [6, 1], [2]])
+    set = { ...set, ...withArrivedAssets(set, batch.map(page)) };
+  const pairs = set.ads.map((a) => (a.type === "split" ? `${a.portrait.fileName}+${a.square.fileName}` : a.name));
+  expect(pairs.sort()).toEqual(["page-1.png+page-2.png", "page-3.png+page-4.png", "page-5.png+page-6.png"]);
+  expect(set.loose).toEqual([]);
+  expect(new Set(set.ads.map((a) => a.name)).size).toBe(3);
+});
+
+test("ein Paar von Hand oder aus dem Zuschnitt bleibt bei neuen Dateien stehen", () => {
+  const manual: WizardAd = {
+    id: "m",
+    name: "Creative 1",
+    type: "split",
+    portrait: image("page-3.png", "portrait"),
+    square: image("page-4.png", "square"),
+    reason: "Aus einem Bild zugeschnitten: page-3.png",
+  };
+  const set = { ...emptyAdSet(0), ads: [manual] };
+  const out = withArrivedAssets(set, [image("page-5.png", "portrait"), image("page-2.png", "square")]);
+  expect(out.ads[0]).toBe(manual);
+  expect(out.ads).toHaveLength(1);
+  expect(out.loose.map((a) => a.fileName).sort()).toEqual(["page-2.png", "page-5.png"]);
+});
+
 test("dieselbe Datei kommt kein zweites Mal an", () => {
   const set = { ...emptyAdSet(0), ...withArrivedAssets(emptyAdSet(0), [video("lea-1.mp4")]) };
   const again = withArrivedAssets(set, [video("lea-1.mp4"), image("solo.jpg", "square")]);

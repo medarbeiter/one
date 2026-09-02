@@ -10,6 +10,8 @@ import {
   planAds,
   normalizeAdName,
   KEEP_CAPS,
+  headlineKey,
+  isSuggestedPair,
   type Classified,
 } from "./media";
 
@@ -302,4 +304,27 @@ test("splitFormatToken trennt Kürzel vom Stamm und lässt Jahreszahlen in Ruhe"
   expect(splitFormatToken("Lea 9x16 1x1.jpg").stem).toBe("Lea 1x1");
   expect(splitFormatToken("Sommer 2024.jpg")).toEqual({ stem: "Sommer 2024" });
   expect(splitFormatToken("story.jpg")).toEqual({ stem: "story", format: "portrait" });
+});
+
+test("die Überschrift im Bild paart, wenn die Namen nichts sagen", () => {
+  const withHeadline = (name: string, o: "portrait" | "square", headline?: string) => ({ ...img(name, o), headline });
+  const { pairs, unpaired } = pairImages([
+    withHeadline("page-1.png", "portrait", "Pflege, die Zeit lässt."),
+    withHeadline("page-2.png", "square", "WIR SUCHEN DICH"),
+    withHeadline("page-3.png", "portrait", "Wir suchen dich!"),
+    withHeadline("page-4.png", "square", "pflege die zeit lässt"),
+    withHeadline("page-5.png", "portrait", "MA"),
+    withHeadline("page-6.png", "square", "MA"),
+  ]);
+  const names = pairs.map((p) => p.type === "split" && `${p.portrait.fileName}+${p.square.fileName}`).sort();
+  expect(names).toEqual(["page-1.png+page-4.png", "page-3.png+page-2.png", "page-5.png+page-6.png"]);
+  const reasonOf = (portrait: string) =>
+    pairs.map((p) => (p.type === "split" && p.portrait.fileName === portrait ? p.reason : undefined)).find(Boolean);
+  expect(reasonOf("page-1.png")).toMatch(/^Gleiche Überschrift/);
+  // 5 und 6: die Überschrift ist zu kurz, die Nachbarschaft bleibt.
+  expect(reasonOf("page-5.png")).toMatch(/^Benachbarte Nummern/);
+  expect(unpaired).toEqual([]);
+  expect(headlineKey("  Ab  ")).toBeUndefined();
+  expect(isSuggestedPair("Gleiche Überschrift: a, b")).toBe(true);
+  expect(isSuggestedPair("Aus einem Bild zugeschnitten: a")).toBe(false);
 });
