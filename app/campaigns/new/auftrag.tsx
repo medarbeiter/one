@@ -74,28 +74,34 @@ export function Auftrag({
     };
   }, []);
 
-  const mine = (b: Brief) => b.assignees.some((a) => a.toLowerCase() === email.toLowerCase());
+  const mine = useMemo(
+    () => (b: Brief) => b.assignees.some((a) => a.toLowerCase() === email.toLowerCase()),
+    [email],
+  );
 
   const sorted = useMemo(() => {
     if (!briefs) return [];
     return [...briefs].sort((a, b) => Number(mine(b)) - Number(mine(a)) || b.createdAt - a.createdAt);
-  }, [briefs, email]);
-
-  const filtered = useMemo(() => {
-    const q = query.trim();
-    return sorted.filter(
-      (b) =>
-        (!mineOnly || mine(b)) &&
-        (!q || fuzzyCustomerMatch([b.customer, b.name, ...b.assignees].join(" "), q)),
-    );
-  }, [sorted, mineOnly, query, email]);
+  }, [briefs, mine]);
 
   // Die Liste sieht nur Aufgaben im Status „kampagne anlegen“ – für alles
   // andere (z. B. „kampagne vorbereiten“) gibt es den direkten Weg über Link
-  // oder ID, unabhängig von Suche und „Nur meine“.
+  // oder ID. Ein Treffer per ID/Link umgeht Suchtext und „Nur meine“ immer
+  // und steht oben – als Extra-Zeile, wenn die Aufgabe nicht geladen ist,
+  // sonst direkt vorgezogen in der gefilterten Liste.
   const directId = taskIdFromInput(query);
   const directBrief = directId ? briefs?.find((b) => b.taskId === directId) : undefined;
   const extraId = directId && !directBrief ? directId : undefined;
+
+  const filtered = useMemo(() => {
+    const q = query.trim();
+    const passes = (b: Brief) =>
+      (!mineOnly || mine(b)) &&
+      (!q || fuzzyCustomerMatch([b.customer, b.name, ...b.assignees].join(" "), q));
+    const direct = directId ? sorted.find((b) => b.taskId === directId) : undefined;
+    const rest = sorted.filter((b) => b.taskId !== directId && passes(b));
+    return direct ? [direct, ...rest] : rest;
+  }, [sorted, mineOnly, query, mine, directId]);
 
   return (
     <Card elevation="low" padding={0}>
