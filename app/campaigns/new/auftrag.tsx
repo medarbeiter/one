@@ -55,11 +55,20 @@ export function Auftrag({
   const [mineOnly, setMineOnly] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    briefsAction().then((res) => {
-      if (cancelled) return;
-      setBriefs(res.briefs);
-      setError(res.error);
-    });
+    briefsAction()
+      .then((res) => {
+        if (cancelled) return;
+        setBriefs(res.briefs);
+        setError(res.error);
+      })
+      // Die Aktion fängt selbst; hier bleibt nur die abgerissene Leitung –
+      // und die darf den Schirm nicht sperren.
+      .catch((e: Error) => {
+        if (!cancelled) {
+          setBriefs([]);
+          setError(e.message);
+        }
+      });
     return () => {
       cancelled = true;
     };

@@ -316,22 +316,25 @@ function WizardSteps({
   const pick = async (taskId: string) => {
     setPicking(taskId);
     setBriefError(undefined);
-    const res = await briefAction(taskId);
+    // Die Aktion fängt selbst; hier bleibt nur die abgerissene Leitung – und
+    // die darf den Schirm nicht sperren.
+    const res = await briefAction(taskId).catch(
+      (e: Error): Awaited<ReturnType<typeof briefAction>> => ({ error: e.message }),
+    );
     setPicking(undefined);
     if (!res.brief) return setBriefError(res.error ?? "Der Auftrag konnte nicht gelesen werden.");
     const brief = res.brief;
     setWarnings(brief.warnings);
-    setState((s) => {
-      const next = applyBrief(s, brief);
-      // Der Kunde aus ClickUp heißt selten exakt wie die Meta-Seite. Exakt,
-      // sonst der eine unscharfe Treffer, sonst bleibt der Name stehen und
-      // die Kundenwahl zeigt ihn als nicht zugeordnet.
-      const exact = resolveClientByName(clients, next.business);
-      const fuzzy = exact ? [] : clients.filter((c) => fuzzyCustomerMatch(c.name, next.business));
-      const match = exact ?? (fuzzy.length === 1 ? fuzzy[0] : undefined);
-      return match ? { ...next, business: match.name } : next;
-    });
-    setStep("1");
+    // Der Kunde aus ClickUp heißt selten exakt wie die Meta-Seite. Exakt,
+    // sonst der eine unscharfe Treffer, sonst bleibt der Name stehen und die
+    // Kundenwahl zeigt ihn als nicht zugeordnet. Ohne Treffer bleibt die
+    // Person auf dem Kundenfeld stehen, wo das Warnbanner das erklärt.
+    const name = brief.clientName?.value ?? "";
+    const exact = resolveClientByName(clients, name);
+    const fuzzy = exact ? [] : clients.filter((c) => fuzzyCustomerMatch(c.name, name));
+    const match = exact ?? (fuzzy.length === 1 ? fuzzy[0] : undefined);
+    setState((s) => (match ? { ...applyBrief(s, brief), business: match.name } : applyBrief(s, brief)));
+    setStep(match ? "1" : "0");
   };
 
   // Angelegt heißt fertig. Bliebe der Entwurf in der Liste, lüde er morgen

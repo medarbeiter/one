@@ -170,7 +170,10 @@ async function team(): Promise<string> {
 export async function listOpenBriefs(): Promise<Brief[]> {
   const id = await team();
   const out: Brief[] = [];
-  for (let page = 0; ; page++) {
+  // Deckel gegen eine Endlosschleife hinter einer Server-Action, falls
+  // ClickUp `page` je ignorieren sollte; 20 Seiten à 100 Aufgaben liegen
+  // weit über der echten Liste.
+  for (let page = 0; page < 20; page++) {
     const q = new URLSearchParams({ page: String(page), subtasks: "false", include_closed: "false" });
     q.append("statuses[]", OPEN_STATUS);
     const { tasks } = await api<{ tasks: RawTask[] }>(`team/${id}/task?${q}`);

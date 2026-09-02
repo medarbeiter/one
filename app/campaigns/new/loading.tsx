@@ -26,13 +26,13 @@ export default function Loading() {
               bis auf die Maße: 28-px-Marken, 36 px Luft nach oben, keine Linie
               darunter. */}
           <div className="flex items-center px-4 pt-6 pb-1">
-            {[0, 1, 2, 3].map((i) => (
+            {[0, 1, 2].map((i) => (
               <Fragment key={i}>
                 <div className="flex items-center gap-2.5 px-2 py-3">
                   <Skeleton className="size-7 shrink-0 rounded-full" />
                   <Skeleton className="hidden h-4 w-20 rounded-lg sm:block" />
                 </div>
-                {i < 3 && <Skeleton className="h-0.5 min-w-4 flex-1 rounded-full" />}
+                {i < 2 && <Skeleton className="h-0.5 min-w-4 flex-1 rounded-full" />}
               </Fragment>
             ))}
           </div>
