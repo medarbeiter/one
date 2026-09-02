@@ -25,10 +25,12 @@ import {
   type SearchableItem,
 } from "@astryxdesign/core";
 import { UserPlusIcon } from "@phosphor-icons/react";
+import type { Source } from "@/lib/brief";
 import type { Brief } from "@/lib/clickup";
 import { fuzzyCustomerMatch, leadgenTosUrl, type InstagramAccount } from "@/lib/customers";
 import { briefsAction } from "../actions";
 import { Angaben } from "./angaben";
+import { Herkunft } from "./herkunft";
 
 const money = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" });
 
@@ -218,6 +220,7 @@ function LeadgenTosAlert({ client }: { client: WizardClient }) {
 export function KundeWahl({
   clientSource,
   clientItem,
+  clientNameSource,
   onChange,
   customerFieldRef,
   reloading,
@@ -230,6 +233,8 @@ export function KundeWahl({
 }: {
   clientSource: SearchSource<ClientItem>;
   clientItem: ClientItem | null;
+  /** Woher der Kundenname kommt, solange ihn niemand geändert hat. */
+  clientNameSource?: Source;
   onChange: (item: ClientItem | null) => void;
   customerFieldRef: RefObject<HTMLDivElement | null>;
   reloading: boolean;
@@ -286,6 +291,8 @@ export function KundeWahl({
           />
         </div>
 
+        <Herkunft source={clientNameSource} />
+
         {/* Das Kürzel stand vorher als dritter kleiner Kasten in der Reihe
             – neben dem Löschknopf des Feldes und dem Knopf „Kunde
             hinzufügen" waren das drei Quadrate nebeneinander, von denen
@@ -316,7 +323,12 @@ export function KundeWahl({
 
       {onOtherTask && (
         <div>
-          <Button variant="ghost" size="sm" label="Andere Aufgabe wählen" onClick={onOtherTask} />
+          <Button
+            variant="ghost"
+            size="sm"
+            label="Andere Aufgabe wählen – Entwurf verwerfen"
+            onClick={onOtherTask}
+          />
         </div>
       )}
     </div>

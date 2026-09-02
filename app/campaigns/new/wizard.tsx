@@ -659,7 +659,18 @@ function WizardSteps({
       {/* Nur im ersten Schirm: dort beginnt man, und dort ist die Frage „an
           welchem hier arbeite ich weiter?“ noch offen. Danach ist sie
           beantwortet, und die Liste wäre nur noch eine Ablenkung. */}
-      {stepIndex === 0 && <Entwuerfe drafts={others} onResume={resume} onRemove={remove} />}
+      {stepIndex === 0 && (
+        <Entwuerfe
+          drafts={others}
+          // Ein Entwurf mit Kunden ist über die Kundenwahl hinaus – er gehört in
+          // den Vorschlag; einer ohne fiele dort auf einen gesperrten Schirm.
+          onResume={(id) => {
+            resume(id);
+            if (others.find((d) => d.id === id)?.state.business) setStep("1");
+          }}
+          onRemove={remove}
+        />
+      )}
 
       {/* Die Karte legt ihre eigenen 16 px ab: Die Schrittleiste soll bis an
           beide Kanten reichen, und die Abschnitte darunter tragen mit 24 px
@@ -684,6 +695,7 @@ function WizardSteps({
             <KundeWahl
               clientSource={clientSource}
               clientItem={clientItem}
+              clientNameSource={state.sources.clientName}
               onChange={(item) =>
                 setState((s) => edited(s, "clientName", { business: item?.auxiliaryData.name ?? "" }))
               }
@@ -694,10 +706,16 @@ function WizardSteps({
               accountName={account?.name}
               instagramLabel={instagramLabel}
               unmatchedName={unmatched}
-              onOtherTask={() => {
-                setManual(false);
-                discard();
-              }}
+              // Nur mit Aufgabe im Rücken: wer ohne begonnen hat, hätte hier
+              // keine andere zu wählen – nur einen Entwurf zu verlieren.
+              onOtherTask={
+                state.taskId
+                  ? () => {
+                      setManual(false);
+                      discard();
+                    }
+                  : undefined
+              }
             />
           </Step>
         )}
