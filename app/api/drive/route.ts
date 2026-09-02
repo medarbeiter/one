@@ -4,12 +4,13 @@
  *   ?folder=<id>     → Inhalt eines Ordners (Unterordner und Medien) – zum Korrigieren
  *   ?thumb=<id>      → Drives Vorschaubild dazu, ebenso durchgereicht
  *   ?file=<id>       → die Datei selbst, durchgereicht als Strom
+ *   ?land=<Ordner-ID> → wie ?q=, aber ab einem bekannten Ordner (Drive-Link aus ClickUp)
  *
  * Der Umweg über den Server, weil nur er den Dienstkonto-Schlüssel hat; der
  * Browser reiht das Ergebnis dann wie eine lokal gewählte Datei ein. Angemeldet
  * sein prüft proxy.ts für alles unter /api.
  */
-import { bestLanding, download, entriesOf, findFolders, thumbnail, type DriveFile, type Landing } from "@/lib/drive";
+import { bestLanding, download, entriesOf, findFolders, landingAt, thumbnail, type DriveFile, type Landing } from "@/lib/drive";
 
 export type DriveSearch = { folders: DriveFile[]; landed: Landing | null };
 export type DriveFolder = { entries: DriveFile[] };
@@ -19,6 +20,7 @@ export async function GET(request: Request) {
   const file = url.searchParams.get("file");
   const folder = url.searchParams.get("folder");
   const thumb = url.searchParams.get("thumb");
+  const land = url.searchParams.get("land");
   const q = url.searchParams.get("q")?.trim();
 
   try {
@@ -45,6 +47,7 @@ export async function GET(request: Request) {
         },
       });
     }
+    if (land) return Response.json({ folders: [], landed: await landingAt(land) } satisfies DriveSearch);
     if (folder) return Response.json({ entries: await entriesOf(folder) } satisfies DriveFolder);
     if (!q) return Response.json({ error: "Kein Suchbegriff." }, { status: 400 });
 

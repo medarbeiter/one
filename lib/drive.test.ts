@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createVerify, generateKeyPairSync } from "node:crypto";
-import { assertion, bestLanding, landing, searchTerms, type DriveFile } from "./drive";
+import { assertion, bestLanding, findSheet, folderIdFromUrl, landing, searchTerms, type DriveFile } from "./drive";
 
 test("das JWT trägt Dienstkonto und Lesezugriff und ist mit dem Schlüssel signiert", () => {
   const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -130,4 +130,33 @@ test("Suchbegriffe: voll, ohne Rechtsform, dann das eigentliche Wort", () => {
     "Levivo",
   ]);
   expect(searchTerms("Hammonia")).toEqual(["Hammonia"]);
+});
+
+test("folderIdFromUrl liest die Ordner-ID aus beiden Drive-Adressformen", () => {
+  expect(folderIdFromUrl("https://drive.google.com/drive/folders/1AbC_dEf-9?usp=sharing")).toBe("1AbC_dEf-9");
+  expect(folderIdFromUrl("https://drive.google.com/open?id=1AbC_dEf-9")).toBe("1AbC_dEf-9");
+  expect(folderIdFromUrl("https://example.com")).toBeUndefined();
+});
+
+const SHEET = "application/vnd.google-apps.spreadsheet";
+const f = (id: string, name: string, mimeType = FOLDER): DriveFile => ({ id, name, mimeType });
+
+test("findSheet findet die Onboarding-Tabelle im Kundenordner, notfalls eine Ebene tiefer", async () => {
+  const tree: Record<string, DriveFile[]> = {
+    kunde: [f("rec", "1 - Recruiting"), f("ob", "AWO Rottweil Onboarding", SHEET)],
+    rec: [],
+  };
+  const kids = async (id: string) => tree[id] ?? [];
+  expect((await findSheet("kunde", kids))?.id).toBe("ob");
+
+  const deeper: Record<string, DriveFile[]> = {
+    kunde: [f("docs", "Dokumente")],
+    docs: [f("ob2", "Onboarding-Tabelle", SHEET)],
+  };
+  expect((await findSheet("kunde", async (id) => deeper[id] ?? []))?.id).toBe("ob2");
+});
+
+test("findSheet gibt ohne Tabelle nichts zurück und gräbt nicht endlos", async () => {
+  const loop: Record<string, DriveFile[]> = { a: [f("b", "x")], b: [f("a", "y")] };
+  expect(await findSheet("a", async (id) => loop[id] ?? [])).toBeUndefined();
 });

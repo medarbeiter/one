@@ -224,3 +224,43 @@ export async function thumbnail(id: string): Promise<Response | null> {
 
 /** Die Datei selbst, als Strom – der Route Handler reicht sie unverändert weiter. */
 export const download = (id: string) => api(`files/${encodeURIComponent(id)}`, { alt: "media" });
+
+/** Die Ordner-ID aus einem Drive-Link – beide Formen, die ClickUp-Felder enthalten. */
+export function folderIdFromUrl(url: string): string | undefined {
+  return url.match(/\/folders\/([\w-]+)/)?.[1] ?? url.match(/[?&]id=([\w-]+)/)?.[1];
+}
+
+const SHEET = "application/vnd.google-apps.spreadsheet";
+
+/**
+ * Die Onboarding-Tabelle des Kunden: eine Google-Tabelle mit „Onboarding“ im
+ * Namen, im Kundenordner oder höchstens zwei Ebenen darunter. Tiefer liegt
+ * nur Kampagnenmaterial, und ein Fehltreffer aus einem fremden Ordner wäre
+ * schlimmer als keiner – die Benefits landen wörtlich in den Anzeigen.
+ */
+export async function findSheet(
+  folderId: string,
+  kids = children,
+  depth = 0,
+): Promise<DriveFile | undefined> {
+  const all = await kids(folderId);
+  const hit = all.find((f) => f.mimeType === SHEET && /onboarding/i.test(f.name));
+  if (hit || depth >= 2) return hit;
+  for (const sub of all.filter(isFolder)) {
+    const found = await findSheet(sub.id, kids, depth + 1);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/** Eine Google-Tabelle als CSV – nur das erste Blatt, das ist die Onboarding-Tabelle. */
+export const exportCsv = async (fileId: string): Promise<string> =>
+  (await api(`files/${encodeURIComponent(fileId)}/export`, { mimeType: "text/csv" })).text();
+
+/** landing() ab einem bekannten Ordner – wenn ClickUp den Drive-Link liefert. */
+export async function landingAt(folderId: string): Promise<Landing> {
+  const meta = (await (
+    await api(`files/${encodeURIComponent(folderId)}`, { fields: "id,name,mimeType" })
+  ).json()) as DriveFile;
+  return landing(meta);
+}
