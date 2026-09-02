@@ -29,11 +29,12 @@ für immer unveränderlich). Der Assistent übernimmt die Übergabe, nicht den B
 |---|---|
 | Einstieg | Liste der ClickUp-Aufgaben im Status `kampagne anlegen`, workspace-weit |
 | Ohne ClickUp-Aufgabe | Weiter möglich: Kunden-Typeahead wie heute, Rest leer |
+| Aufgabe in anderem Status | Suchfeld auf Schirm 1: filtert die Liste (Kunde, Name, Zuständige), „Nur meine“, und nimmt einen ClickUp-Link oder eine Aufgaben-ID – die lädt jede Aufgabe, egal in welchem Status (Ergänzung 2026-09-02) |
 | Kunde → Meta-Seite | Ordnername der Aufgabe, unscharf gegen die Kundenliste (`resolveClientByName`); kein Treffer → Typeahead mit dem Namen vorbelegt |
 | Tagesbudget, Ausgabenlimit | Custom Fields `Tagesbudget` (currency), `Ausgabenlimit` (Text, „2435€") |
-| Rollen | Custom Field `gesuchte Stellen`, sonst Aufgabenname, sonst Onboarding-Tabelle |
+| Rollen | Custom Field `gesuchte Stellen`, sonst Aufgabenname, sonst Onboarding-Tabelle, sonst „Offene Stellen:“ aus der Kundenübersicht |
 | Benefits | Onboarding-Tabelle, Block „Wie gestaltet sich Ihr Jobangebot?" → nur „Besteht aktuell", nie „Weitere Vorschläge" |
-| Standort | Beschreibung der Aufgabe (Mistral), sonst letzte Kampagne des Kontos (bestehendes Prefill) |
+| Standort | Beschreibung der Aufgabe (Mistral), sonst die Zeile „Adresse:“ im ClickUp-Doc „Kundenübersicht“ des Kundenordners (Regex, nie ans Modell – das Doc trägt Passwörter), sonst letzte Kampagne des Kontos (bestehendes Prefill) |
 | Drive-Ordner | Custom Field `Drive-Link`, sonst `bestLanding()` |
 | Kürzel | Aus dem Namen der angemeldeten Person (Session), überschreibbar |
 | Pflicht (immer sichtbar) | Kunde, Standort, Lead-Formular, Tagesbudget |
