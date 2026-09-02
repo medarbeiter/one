@@ -36,10 +36,8 @@ import {
 } from "@phosphor-icons/react";
 import type { DriveFolder, DriveSearch } from "@/app/api/drive/route";
 import type { DriveFile } from "@/lib/drive";
-import { createGate } from "@/lib/gate";
+import { fetchDriveFiles } from "./drive-fetch";
 
-/** Mehr gleichzeitig hieße mehr Videos zugleich im Speicher des Browsers. */
-const DOWNLOAD_LANES = 3;
 const FOLDER = "application/vnd.google-apps.folder";
 const isFolder = (f: DriveFile) => f.mimeType === FOLDER;
 
@@ -150,27 +148,7 @@ export function DriveDialog({
     const wanted = [...selected.values()];
     if (!wanted.length) return;
     setFetching({ done: 0, total: wanted.length });
-    const gate = createGate(DOWNLOAD_LANES);
-    const files: File[] = [];
-    const failed: string[] = [];
-    await Promise.all(
-      wanted.map(async (m) => {
-        await gate.acquire();
-        try {
-          const res = await fetch(`/api/drive?file=${encodeURIComponent(m.id)}`);
-          if (!res.ok) {
-            const json = (await res.json().catch(() => ({}))) as { error?: string };
-            throw new Error(json.error ?? `HTTP ${res.status}`);
-          }
-          files.push(new File([await res.blob()], m.name, { type: m.mimeType }));
-        } catch {
-          failed.push(m.name);
-        } finally {
-          gate.release();
-          setFetching((p) => p && { ...p, done: p.done + 1 });
-        }
-      }),
-    );
+    const { files, failed } = await fetchDriveFiles(wanted, (done, total) => setFetching({ done, total }));
     setFetching(null);
     if (failed.length)
       toast({ type: "error", body: <div>{`Nicht aus Drive geladen: ${failed.join(", ")}`}</div> });
