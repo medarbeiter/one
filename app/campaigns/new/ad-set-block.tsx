@@ -17,10 +17,11 @@ import {
 } from "@astryxdesign/core";
 import { PlusIcon, SparkleIcon, XIcon } from "@phosphor-icons/react";
 import type { LeadForm } from "@/lib/forms";
-import { instantFormsUrl } from "@/lib/forms";
+import { instantFormsUrl, matchFormHint, newlyAppeared } from "@/lib/forms";
+import type { Source } from "@/lib/brief";
 import { cleanStem, nextCreativeName } from "@/lib/media";
-import { BenefitsDialog } from "./benefits-dialog";
-import { DriveDialog } from "./drive-dialog";
+import { DriveShelf } from "./drive-shelf";
+import { Herkunft } from "./herkunft";
 import { BODY_TEMPLATE_COUNT, TITLE_COUNT } from "@/lib/bodies";
 import { plural } from "@/lib/labels";
 import { LocationField } from "./location-field";
@@ -73,10 +74,9 @@ const toFormItem = (f: LeadForm): FormItem => ({ id: f.id, label: f.name, auxili
  * ändert das nichts, an der Erwartung alles: hier fängt die Arbeit an, und das
  * darf man dem Kasten ansehen.
  */
-function FilePicker({ onFiles, business }: { onFiles: (files: File[]) => void; business: string }) {
+function FilePicker({ onFiles }: { onFiles: (files: File[]) => void }) {
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
-  const [drive, setDrive] = useState(false);
   return (
     <div
       className={`bg-surface-secondary flex max-w-3xl flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-dashed p-4 transition-colors ${
@@ -108,10 +108,6 @@ function FilePicker({ onFiles, business }: { onFiles: (files: File[]) => void; b
         }}
       />
       <Button variant="secondary" label="Dateien wählen" onClick={() => input.current?.click()} />
-      {/* Die UGC-Videos liegen ohnehin im Kundenordner in Drive – der Weg über
-          den Finder war nur der Umweg. */}
-      <Button variant="secondary" label="Aus Google Drive" onClick={() => setDrive(true)} />
-      <DriveDialog isOpen={drive} onOpenChange={setDrive} business={business} onFiles={onFiles} />
       {/* Kurz, weil es bei jeder Anzeigengruppe steht. Was die Paarung im
           Einzelnen erkennt, sagt jede Kachel selbst in ihrer Statuszeile. */}
       <Text type="supporting" as="div" className="min-w-0 flex-1">
@@ -381,6 +377,13 @@ export function AdSetBlock({
   blockers,
   otherAdSets,
   borrowersOfAd,
+  benefits,
+  benefitsSource,
+  onBenefitsChange,
+  autoGenerate,
+  formHint,
+  driveFolderId,
+  locationSource,
   onChange,
   onRemove,
   canRemove,
@@ -405,6 +408,18 @@ export function AdSetBlock({
   /** Andere Anzeigengruppen dieser Kampagne, aus denen geliehen werden kann. */
   otherAdSets: { id: string; name: string; ads: WizardAd[] }[];
   borrowersOfAd: (adId: string) => string[];
+  /** Die Benefits – im Entwurf, nicht mehr im Dialog. Einmal für alle drei Generatoren. */
+  benefits: string;
+  benefitsSource?: Source;
+  onBenefitsChange: (benefits: string) => void;
+  /** Beim ersten Anzeigen mit leeren Texten sofort generieren – der Vorschlag ist ein Vorschlag. */
+  autoGenerate: boolean;
+  /** Aus der Aufgabe: nach welchem Namen oder Ort das Formular zu wählen ist. */
+  formHint?: string;
+  /** Aus ClickUp: das Regal startet dort statt bei der Namenssuche. */
+  driveFolderId?: string;
+  /** Herkunft des vorbelegten Standorts – Etikett unter dem Standortfeld (nur erste Anzeigengruppe). */
+  locationSource?: Source;
   /** Als Funktion, wenn der Patch auf dem aktuellen Stand aufbauen muss – siehe addAssets. */
   onChange: (patch: Partial<WizardAdSet> | ((set: WizardAdSet) => Partial<WizardAdSet>)) => void;
   onRemove: () => void;
@@ -415,15 +430,8 @@ export function AdSetBlock({
   const [formsLoading, setFormsLoading] = useState(false);
   const [formIdInput, setFormIdInput] = useState("");
   const [pulling, setPulling] = useState(false);
-  const [bodiesDialog, setBodiesDialog] = useState(false);
-  const [titlesDialog, setTitlesDialog] = useState(false);
-  const [descriptionDialog, setDescriptionDialog] = useState(false);
-  // Ein Eingabefeld für drei Dialoge: Benefits stehen in keiner API, aber in
-  // Primärtexten, Überschriften und Beschreibung – einmal eintippen reicht.
-  const [benefits, setBenefits] = useState("");
-  // Generiert wird in den Formularfeldern selbst, nicht im Dialog: der
-  // schließt beim Klick, und hier steht, welcher Slot noch auf seine Antwort
-  // wartet (Skelett) und was schiefging.
+  // Generiert wird direkt in den Formularfeldern: hier steht, welcher Slot
+  // noch auf seine Antwort wartet (Skelett) und was schiefging.
   const [pendingBodies, setPendingBodies] = useState<boolean[]>([]);
   const [pendingTitles, setPendingTitles] = useState<boolean[]>([]);
   const [pendingDescription, setPendingDescription] = useState(false);
@@ -496,16 +504,44 @@ export function AdSetBlock({
     if (res.error) setGenErrors((e) => [...e, `Beschreibung: ${res.error}`]);
     setPendingDescription(false);
   };
+
+  // Der Vorschlag füllt sich selbst: leere Texte beim ersten Anzeigen heißen
+  // generieren, ohne dass jemand drei Knöpfe drückt. Nur einmal je Block, und
+  // nur bei leeren Feldern – ein wiederhergestellter Entwurf behält seine Texte.
+  const generated = useRef(false);
+  useEffect(() => {
+    if (!autoGenerate || generated.current) return;
+    const empty = (xs: string[]) => xs.every((x) => !x.trim());
+    if (!empty(value.bodies) || !empty(value.titles) || value.description.trim()) return;
+    generated.current = true;
+    void generateBodies();
+    void generateTitles();
+    void generateDescription();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoGenerate]);
+
   const uploads = useUploads(value.id);
+  // Was schon da ist, darf das Regal nicht ein zweites Mal laden: Dateinamen
+  // aus Anzeigen, Ablage und laufenden Uploads.
+  const taken = useMemo(
+    () =>
+      new Set([
+        ...value.ads.flatMap((a) => (a.type === "split" ? [a.portrait.fileName, a.square.fileName] : [a.asset.fileName])),
+        ...value.loose.map((x) => x.fileName),
+        ...uploads.map((u) => u.name),
+      ]),
+    [value.ads, value.loose, uploads],
+  );
 
   // refresh=true nur beim Klick: der Cache soll beim Aufklappen weiter greifen,
   // aber wer aktualisiert, meint genau das.
-  const refreshForms = async (refresh = false) => {
+  const refreshForms = async (refresh = false): Promise<LeadForm[]> => {
     setFormsLoading(true);
     const res = await listFormsAction(pageId, refresh);
     setForms(res.forms);
     setFormsError(res.error);
     setFormsLoading(false);
+    return res.forms;
   };
 
   /**
@@ -525,12 +561,49 @@ export function AdSetBlock({
     setPulling(false);
   };
 
-  // Beim Öffnen des Blocks direkt laden, nicht erst nach Klick auf Refresh –
-  // gerade der Fehlende-Rechte-Fehler soll sofort sichtbar sein.
+  // Beim Öffnen: laden, die IDs merken (das ist „vorher“ für die Erkennung),
+  // und den Hinweis aus der Aufgabe abgleichen – ein eindeutiger Treffer wird
+  // gewählt, mit Etikett.
+  const seen = useRef<Set<string>>(undefined);
+  const [detected, setDetected] = useState<{ name: string; how: "neu" | "hinweis" }>();
   useEffect(() => {
-    if (pageId) refreshForms();
+    if (!pageId) return;
+    void refreshForms().then((list) => {
+      seen.current = new Set(list.map((f) => f.id));
+      if (value.formId || !formHint) return;
+      const hit = matchFormHint(list, formHint);
+      if (hit) {
+        onChange({ formId: hit.id });
+        setDetected({ name: hit.name, how: "hinweis" });
+      }
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageId]);
+
+  // Das Formular entsteht im Baukasten, in einem anderen Tab. Solange hier
+  // keins gewählt ist: bei Rückkehr (focus) und alle 30 s nachlesen – dasselbe
+  // Muster wie die Lead-TOS-Schleife in wizard.tsx. Das erste, das vorher
+  // nicht da war, wird gewählt; danach ist Ruhe.
+  const formId = value.formId;
+  useEffect(() => {
+    if (!pageId || formId) return;
+    const check = async () => {
+      const before = seen.current;
+      if (!before) return;
+      const list = await refreshForms(true);
+      const fresh = newlyAppeared(before, list);
+      if (!fresh) return;
+      onChange({ formId: fresh.id });
+      setDetected({ name: fresh.name, how: "neu" });
+    };
+    const id = setInterval(check, 30_000);
+    window.addEventListener("focus", check);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener("focus", check);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageId, formId]);
 
   // Ein Formular gehört genau einer Seite. Wechselt der beworbene Kunde, zeigt
   // die getroffene Auswahl auf ein Formular einer fremden Seite – Meta nimmt
@@ -703,9 +776,16 @@ export function AdSetBlock({
             : "Nur Facebook-Seite — kein Instagram-Konto verbunden"}
         </Text>
         <div className="w-full space-y-4">
+        <DriveShelf
+          business={business}
+          folderId={driveFolderId}
+          taken={taken}
+          onFiles={onFiles}
+        />
+
         {/* Nicht gesperrt, solange etwas läuft: nachgelegte Dateien reihen sich
             ein. Wer zehn Videos hat, soll sie nicht in Schüben abpassen müssen. */}
-        <FilePicker onFiles={onFiles} business={business} />
+        <FilePicker onFiles={onFiles} />
 
         {/* Früher stand hier ein roter Fehler und die Anzeigengruppe war
             blockiert, bis jede Datei einen Partner hatte. Ein Bild darf aber
@@ -819,6 +899,7 @@ export function AdSetBlock({
             onChange={onChange}
             adAccount={adAccount}
           />
+          <Herkunft source={locationSource} />
         </div>
       </FieldsetSection>
 
@@ -866,6 +947,18 @@ export function AdSetBlock({
           }
           emptySearchResultsText="Kein Formular gefunden."
         />
+        {detected && value.formId && (
+          <Text type="supporting" as="p" aria-live="polite">
+            {detected.how === "neu"
+              ? `Neu erkannt: „${detected.name}“ – gerade in Meta gebaut.`
+              : `Aus der Aufgabe gewählt: „${detected.name}“.`}
+          </Text>
+        )}
+        {!value.formId && pageId && (
+          <Text type="supporting" as="p">
+            Baue das Formular in Meta — sobald es dort steht, wird es hier erkannt und gewählt.
+          </Text>
+        )}
         {formsError && (
           <Banner status="error" title="Lead-Formulare konnten nicht geladen werden" description={formsError} />
         )}
@@ -919,7 +1012,7 @@ export function AdSetBlock({
             variant="secondary"
             size="sm"
             isDisabled={!pageId}
-            label="Formular in Meta erstellen"
+            label="Formular in Meta bauen"
             onClick={() => window.open(instantFormsUrl(pageId), "_blank")}
           />
           <Button
@@ -936,6 +1029,19 @@ export function AdSetBlock({
 
       <FieldsetSection legend="Texte">
         <div className="w-full space-y-4">
+          <div className="max-w-2xl space-y-1">
+            <TextArea
+              label="Benefits des Arbeitgebers"
+              value={benefits}
+              onChange={onBenefitsChange}
+              rows={5}
+              width="100%"
+              description="Eine je Zeile – sie stehen wörtlich in Primärtexten, Überschriften und Beschreibung."
+              placeholder={"z. B.\nWeihnachts- & Urlaubsgeld\n30 Urlaubstage\nJobRad"}
+            />
+            <Herkunft source={benefitsSource} />
+          </div>
+
           <TextListField
             label="Primärtexte"
             singular="Primärtext"
@@ -949,7 +1055,7 @@ export function AdSetBlock({
                 size="sm"
                 icon={<SparkleIcon size={14} weight="bold" />}
                 label="Primärtexte generieren"
-                onClick={() => setBodiesDialog(true)}
+                onClick={generateBodies}
                 isDisabled={pendingBodies.some(Boolean)}
               />
             }
@@ -963,16 +1069,6 @@ export function AdSetBlock({
               description={genErrors.join(" · ")}
             />
           )}
-
-          <BenefitsDialog
-            isOpen={bodiesDialog}
-            onOpenChange={setBodiesDialog}
-            title="Primärtexte generieren"
-            hint="Rollen und Ort kommen aus der Kampagne. Was die App nicht weiß, sind die Benefits des Arbeitgebers – eine pro Zeile, sie stehen wörtlich in den Texten. Generieren ersetzt alle fünf Primärtexte."
-            benefits={benefits}
-            onBenefitsChange={setBenefits}
-            onGenerate={generateBodies}
-          />
 
           {/* Meta lehnt eine UGC-Anzeige ab, bei der jedes Textfeld nur einen
               Eintrag hat – lieber hier sagen als mitten im Anlegen. */}
@@ -996,23 +1092,13 @@ export function AdSetBlock({
                 size="sm"
                 icon={<SparkleIcon size={14} weight="bold" />}
                 label="Überschriften generieren"
-                onClick={() => setTitlesDialog(true)}
+                onClick={generateTitles}
                 isDisabled={pendingTitles.some(Boolean)}
               />
             }
             onChange={(titles) => onChange({ titles })}
           />
           <CopyNotices notices={notices} field="titles" />
-
-          <BenefitsDialog
-            isOpen={titlesDialog}
-            onOpenChange={setTitlesDialog}
-            title="Überschriften generieren"
-            hint="Rollen und Ort kommen aus der Kampagne, der stärkste Benefit taugt als Aufmacher. Fünf kurze Überschriften mit verschiedenen Winkeln – bei mehreren Rollen zählt keine alle auf, das überlebt Metas Kürzung bei 40 Zeichen nicht. Generieren ersetzt alle fünf."
-            benefits={benefits}
-            onBenefitsChange={setBenefits}
-            onGenerate={generateTitles}
-          />
 
           {/* Mehrzeilig wie die Primary texts: hier stehen Aufzählungen mit
               Zeilenumbrüchen ("✔ 30 Tage Urlaub …"), keine Schlagzeile. Der
@@ -1048,19 +1134,10 @@ export function AdSetBlock({
               size="sm"
               icon={<SparkleIcon size={14} weight="bold" />}
               label="Beschreibung generieren"
-              onClick={() => setDescriptionDialog(true)}
+              onClick={generateDescription}
               isDisabled={pendingDescription}
             />
           </div>
-          <BenefitsDialog
-            isOpen={descriptionDialog}
-            onOpenChange={setDescriptionDialog}
-            title="Beschreibung generieren"
-            hint="Die Beschreibung ist im Kern die Benefit-Liste – eine pro Zeile, sie werden als ✅-Zeilen formatiert. Generieren ersetzt die vorhandene Beschreibung."
-            benefits={benefits}
-            onBenefitsChange={setBenefits}
-            onGenerate={generateDescription}
-          />
           <CopyNotices notices={notices} field="description" />
         </div>
       </FieldsetSection>
