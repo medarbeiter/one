@@ -2,6 +2,7 @@
  * Formulare werden in Meta gebaut, nicht hier – die bedingte Logik der Agentur
  * ist jedes Mal anders. Die App wählt nur aus und verlinkt zum Baukasten.
  */
+import { fuzzyCustomerMatch } from "./customers";
 import { graph, meta } from "./graph";
 
 export type LeadForm = {
@@ -58,4 +59,23 @@ export function instantFormsUrl(pageId: string): string {
   url.searchParams.set("asset_id", pageId);
   if (meta.business) url.searchParams.set("business_id", meta.business);
   return url.toString();
+}
+
+/**
+ * Formulare entstehen im Baukasten, in einem anderen Tab. Dieser hier merkt
+ * sich, welche IDs die Seite beim Öffnen hatte, und liest nach – das erste
+ * Formular, das vorher nicht da war, ist das gerade gebaute.
+ */
+export function newlyAppeared(before: ReadonlySet<string>, now: LeadForm[]): LeadForm | undefined {
+  return now.find((f) => !before.has(f.id));
+}
+
+/**
+ * „Renningen Formular auswählen" aus der Aufgabe: das Formular, dessen Name
+ * den Hinweis trägt – aber nur bei genau einem Treffer. Zwei sind eine Wahl,
+ * und die trifft der Assistent nicht.
+ */
+export function matchFormHint(forms: LeadForm[], hint: string): LeadForm | undefined {
+  const hits = forms.filter((f) => fuzzyCustomerMatch(f.name, hint));
+  return hits.length === 1 ? hits[0] : undefined;
 }

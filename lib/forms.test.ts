@@ -7,7 +7,7 @@ import { expect, test } from "bun:test";
 
 process.env.META_ACCESS_TOKEN = "SYSTEM";
 
-const { getLeadForm, instantFormsUrl, listLeadForms, parseFormId } = await import("./forms");
+const { getLeadForm, instantFormsUrl, listLeadForms, parseFormId, matchFormHint, newlyAppeared } = await import("./forms");
 const { GraphError } = await import("./graph");
 
 test("the deep link points at the page's Instant Forms library", () => {
@@ -141,4 +141,27 @@ test("ein fehlgeschlagener Tausch wird nicht eingebrannt", async () => {
 
   expect(calls.filter((u) => u.pathname === "/v26.0/444")).toHaveLength(2);
   expect(calls.at(-1)!.searchParams.get("access_token")).toBe("PAGE-444");
+});
+
+const form = (id: string, name: string): typeof import("./forms").LeadForm => ({
+  id,
+  name,
+  status: "ACTIVE",
+});
+
+test("newlyAppeared: das erste Formular, das vorher nicht da war", () => {
+  const before = new Set(["1", "2"]);
+  expect(newlyAppeared(before, [form("1", "a"), form("3", "neu"), form("2", "b")])?.id).toBe("3");
+  expect(newlyAppeared(before, [form("1", "a")])).toBeUndefined();
+});
+
+test("matchFormHint: genau ein unscharfer Treffer, sonst nichts", () => {
+  const forms = [
+    form("1", "PDL Kampagne Renningen 09/26"),
+    form("2", "PFK Waldenbuch"),
+    form("3", "PFK Renningen alt"),
+  ];
+  expect(matchFormHint(forms, "Waldenbuch")?.id).toBe("2");
+  expect(matchFormHint(forms, "Renningen")).toBeUndefined();
+  expect(matchFormHint(forms, "Stuttgart")).toBeUndefined();
 });
