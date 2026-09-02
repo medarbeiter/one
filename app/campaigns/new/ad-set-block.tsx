@@ -20,6 +20,7 @@ import type { LeadForm } from "@/lib/forms";
 import { instantFormsUrl } from "@/lib/forms";
 import { cleanStem, nextCreativeName } from "@/lib/media";
 import { BenefitsDialog } from "./benefits-dialog";
+import { DriveDialog } from "./drive-dialog";
 import { BODY_TEMPLATE_COUNT, TITLE_COUNT } from "@/lib/bodies";
 import { plural } from "@/lib/labels";
 import { LocationField } from "./location-field";
@@ -72,9 +73,10 @@ const toFormItem = (f: LeadForm): FormItem => ({ id: f.id, label: f.name, auxili
  * ändert das nichts, an der Erwartung alles: hier fängt die Arbeit an, und das
  * darf man dem Kasten ansehen.
  */
-function FilePicker({ onFiles }: { onFiles: (files: File[]) => void }) {
+function FilePicker({ onFiles, business }: { onFiles: (files: File[]) => void; business: string }) {
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
+  const [drive, setDrive] = useState(false);
   return (
     <div
       className={`bg-surface-secondary flex max-w-3xl flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-dashed p-4 transition-colors ${
@@ -106,6 +108,10 @@ function FilePicker({ onFiles }: { onFiles: (files: File[]) => void }) {
         }}
       />
       <Button variant="secondary" label="Dateien wählen" onClick={() => input.current?.click()} />
+      {/* Die UGC-Videos liegen ohnehin im Kundenordner in Drive – der Weg über
+          den Finder war nur der Umweg. */}
+      <Button variant="secondary" label="Aus Google Drive" onClick={() => setDrive(true)} />
+      <DriveDialog isOpen={drive} onOpenChange={setDrive} business={business} onFiles={onFiles} />
       {/* Kurz, weil es bei jeder Anzeigengruppe steht. Was die Paarung im
           Einzelnen erkennt, sagt jede Kachel selbst in ihrer Statuszeile. */}
       <Text type="supporting" as="div" className="min-w-0 flex-1">
@@ -699,7 +705,7 @@ export function AdSetBlock({
         <div className="w-full space-y-4">
         {/* Nicht gesperrt, solange etwas läuft: nachgelegte Dateien reihen sich
             ein. Wer zehn Videos hat, soll sie nicht in Schüben abpassen müssen. */}
-        <FilePicker onFiles={onFiles} />
+        <FilePicker onFiles={onFiles} business={business} />
 
         {/* Früher stand hier ein roter Fehler und die Anzeigengruppe war
             blockiert, bis jede Datei einen Partner hatte. Ein Bild darf aber
