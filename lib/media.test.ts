@@ -5,7 +5,8 @@ import {
   stripExtension,
   uniqueName,
   orientationOf,
-  pairByName,
+  pairImages,
+  splitFormatToken,
   planAds,
   normalizeAdName,
   KEEP_CAPS,
@@ -39,7 +40,7 @@ test("unreadable dimensions fall back to square, so the file must be paired", ()
 });
 
 test("adjacent numbers pair up, and the portrait half is identified", () => {
-  const { pairs, unpaired } = pairByName([
+  const { pairs, unpaired } = pairImages([
     img("Creative 4.jpg", "square"),
     img("Creative 3.jpg", "portrait"),
   ]);
@@ -49,11 +50,11 @@ test("adjacent numbers pair up, and the portrait half is identified", () => {
   if (pair.type !== "split") throw new Error("expected a split");
   expect(pair.portrait.fileName).toBe("Creative 3.jpg");
   expect(pair.square.fileName).toBe("Creative 4.jpg");
-  expect(pair.reason).toContain("adjacent");
+  expect(pair.reason).toContain("Benachbarte Nummern");
 });
 
 test("two separate pairs are found in one drop", () => {
-  const { pairs, unpaired } = pairByName([
+  const { pairs, unpaired } = pairImages([
     img("Creative 3.jpg", "portrait"),
     img("Creative 4.jpg", "square"),
     img("Creative 5.jpg", "portrait"),
@@ -64,7 +65,7 @@ test("two separate pairs are found in one drop", () => {
 });
 
 test("different name stems never pair, however close the numbers", () => {
-  const { pairs, unpaired } = pairByName([
+  const { pairs, unpaired } = pairImages([
     img("Creative 3.jpg", "portrait"),
     img("Laura 4.jpg", "square"),
   ]);
@@ -73,7 +74,7 @@ test("different name stems never pair, however close the numbers", () => {
 });
 
 test("two portraits in a row are not a pair", () => {
-  const { pairs, unpaired } = pairByName([
+  const { pairs, unpaired } = pairImages([
     img("Creative 3.jpg", "portrait"),
     img("Creative 4.jpg", "portrait"),
   ]);
@@ -82,7 +83,7 @@ test("two portraits in a row are not a pair", () => {
 });
 
 test("a leftover image is left unpaired rather than guessed at", () => {
-  const { pairs, unpaired } = pairByName([
+  const { pairs, unpaired } = pairImages([
     img("Creative 3.jpg", "portrait"),
     img("Creative 4.jpg", "square"),
     img("Creative 9.jpg", "square"),
@@ -92,7 +93,7 @@ test("a leftover image is left unpaired rather than guessed at", () => {
 });
 
 test("names without a trailing number never auto-pair", () => {
-  const { pairs, unpaired } = pairByName([
+  const { pairs, unpaired } = pairImages([
     img("hochformat.jpg", "portrait"),
     img("quadrat.jpg", "square"),
   ]);
@@ -173,7 +174,7 @@ test("die Nummer am Ende überlebt, sie trägt die Paarung", () => {
 test("ein kopiertes Paar findet trotzdem zusammen", () => {
   // Vorher scheiterte das an der Klammer: "Creative 3 (1)" endet nicht auf einer
   // Ziffer und wurde nie als Nummer gelesen.
-  const { pairs, unpaired } = pairByName([
+  const { pairs, unpaired } = pairImages([
     img("Creative 3 (1).jpg", "portrait"),
     img("Creative 4.jpg", "square"),
   ]);
@@ -234,4 +235,71 @@ test("Kürzel aus der Liste behalten ihre Großschreibung, der Rest nicht", () =
 
 test("ein Name, der zu nichts normalisiert, behält seinen Stamm", () => {
   expect(normalizeAdName("___.mov")).toBe("___");
+});
+
+test("Formatkürzel im Namen paaren, egal wie sie geschrieben sind", () => {
+  const { pairs, unpaired } = pairImages([
+    img("Lea_9x16.jpg", "portrait"),
+    img("Lea 1x1.png", "square"),
+    img("Praxis-story.jpg", "portrait"),
+    img("Praxis feed.jpg", "square"),
+    img("Team (Hochformat).jpg", "portrait"),
+    img("Team (Quadrat).jpg", "square"),
+  ]);
+  expect(unpaired).toHaveLength(0);
+  expect(pairs.map((p) => p.type === "split" && p.portrait.fileName)).toEqual([
+    "Lea_9x16.jpg",
+    "Praxis-story.jpg",
+    "Team (Hochformat).jpg",
+  ]);
+  expect(pairs[0].type === "split" && pairs[0].reason).toContain("Formatkürzel");
+});
+
+test("gleicher Stamm, andere Endung oder Kopierspur: ein Paar", () => {
+  const { pairs, unpaired } = pairImages([
+    img("Lea.jpg", "portrait"),
+    img("Lea (1).png", "square"),
+  ]);
+  expect(pairs).toHaveLength(1);
+  expect(unpaired).toHaveLength(0);
+});
+
+test("eine Reihe 1–4 wird 1–2 und 3–4, nicht 2–3", () => {
+  const { pairs } = pairImages([
+    img("C 2.jpg", "square"),
+    img("C 3.jpg", "portrait"),
+    img("C 1.jpg", "portrait"),
+    img("C 4.jpg", "square"),
+  ]);
+  const halves = pairs.map((p) => p.type === "split" && [p.portrait.fileName, p.square.fileName]);
+  expect(halves).toEqual([
+    ["C 1.jpg", "C 2.jpg"],
+    ["C 3.jpg", "C 4.jpg"],
+  ]);
+});
+
+test("ähnliche Fingerabdrücke paaren, unähnliche nicht", () => {
+  const a = { ...img("IMG_0001.jpg", "portrait"), fingerprint: "ff00ff00ff00ff00" };
+  const b = { ...img("DSC_9921.jpg", "square"), fingerprint: "ff00ff00ff00ff01" };
+  const c = { ...img("DSC_9922.jpg", "square"), fingerprint: "00ff00ff00ff00ff" };
+  const { pairs, unpaired } = pairImages([a, c, b]);
+  expect(pairs).toHaveLength(1);
+  expect(pairs[0].type === "split" && pairs[0].square.fileName).toBe("DSC_9921.jpg");
+  expect(pairs[0].type === "split" && pairs[0].reason).toContain("Ähnliches Motiv");
+  expect(unpaired.map((u) => u.fileName)).toEqual(["DSC_9922.jpg"]);
+});
+
+test("der Name gewinnt vor dem Motiv", () => {
+  const a = { ...img("Creative 3.jpg", "portrait"), fingerprint: "0000000000000000" };
+  const b = { ...img("Creative 4.jpg", "square"), fingerprint: "ffffffffffffffff" };
+  const c = { ...img("Sonstiges.jpg", "square"), fingerprint: "0000000000000000" };
+  const { pairs } = pairImages([a, b, c]);
+  expect(pairs[0].type === "split" && pairs[0].square.fileName).toBe("Creative 4.jpg");
+});
+
+test("splitFormatToken trennt Kürzel vom Stamm und lässt Jahreszahlen in Ruhe", () => {
+  expect(splitFormatToken("Lea 9x16.jpg")).toEqual({ stem: "Lea", format: "portrait" });
+  expect(splitFormatToken("Lea 9x16 1x1.jpg").stem).toBe("Lea 1x1");
+  expect(splitFormatToken("Sommer 2024.jpg")).toEqual({ stem: "Sommer 2024" });
+  expect(splitFormatToken("story.jpg")).toEqual({ stem: "story", format: "portrait" });
 });

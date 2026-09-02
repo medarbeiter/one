@@ -18,7 +18,7 @@ import {
 import { PlusIcon, SparkleIcon, XIcon } from "@phosphor-icons/react";
 import type { LeadForm } from "@/lib/forms";
 import { instantFormsUrl } from "@/lib/forms";
-import { nextCreativeName } from "@/lib/media";
+import { cleanStem, nextCreativeName } from "@/lib/media";
 import { BenefitsDialog } from "./benefits-dialog";
 import { BODY_TEMPLATE_COUNT, TITLE_COUNT } from "@/lib/bodies";
 import { plural } from "@/lib/labels";
@@ -27,6 +27,7 @@ import { checkCopy, type CopyField, type Notice } from "@/lib/copy";
 import { enqueue, retryUploads, useUploads } from "./upload-queue";
 import { AdTile, ContentGrid, LooseTile, UploadTile, type AssetSlot } from "./content-grid";
 import {
+  applyCrop,
   detachAd,
   dissolveAd,
   needsSecondText,
@@ -71,10 +72,27 @@ const toFormItem = (f: LeadForm): FormItem => ({ id: f.id, label: f.name, auxili
  * ändert das nichts, an der Erwartung alles: hier fängt die Arbeit an, und das
  * darf man dem Kasten ansehen.
  */
-function FilePicker({ onFiles }: { onFiles: (files: FileList) => void }) {
+function FilePicker({ onFiles }: { onFiles: (files: File[]) => void }) {
   const input = useRef<HTMLInputElement>(null);
+  const [over, setOver] = useState(false);
   return (
-    <div className="border-line bg-surface-secondary flex max-w-3xl flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-dashed p-4">
+    <div
+      className={`bg-surface-secondary flex max-w-3xl flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-dashed p-4 transition-colors ${
+        over ? "border-gold-500 ring-gold-500 ring-1" : "border-line"
+      }`}
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes("Files")) return;
+        e.preventDefault();
+        setOver(true);
+      }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => {
+        setOver(false);
+        if (!e.dataTransfer.types.includes("Files")) return;
+        e.preventDefault();
+        void filesFromDrop(e.dataTransfer).then((files) => files.length && onFiles(files));
+      }}
+    >
       <input
         ref={input}
         type="file"
@@ -83,21 +101,52 @@ function FilePicker({ onFiles }: { onFiles: (files: FileList) => void }) {
         tabIndex={-1}
         className="hidden"
         onChange={(e) => {
-          if (e.target.files?.length) onFiles(e.target.files);
+          if (e.target.files?.length) onFiles([...e.target.files]);
           e.target.value = "";
         }}
       />
       <Button variant="secondary" label="Dateien wählen" onClick={() => input.current?.click()} />
-      {/* Warum das Warten manchmal länger dauert, und warum Fotos immer zu
-          zweit auftreten müssen. */}
+      {/* Kurz, weil es bei jeder Anzeigengruppe steht. Was die Paarung im
+          Einzelnen erkennt, sagt jede Kachel selbst in ihrer Statuszeile. */}
       <Text type="supporting" as="div" className="min-w-0 flex-1">
-        Videos werden von allein zu UGC-Anzeigen. Fotos werden 9:16 + 1:1 gepaart — passende
-        Nummern („Creative 3“, „Creative 4“) werden automatisch gepaart, alles andere ziehst du
-        selbst zusammen. iPhone- und Schnittexporte (HEVC, ProRes) werden vor dem Upload zu
-        H.264/MP4 konvertiert. ZIP-Archive werden ausgepackt.
+        Oder Dateien, Ordner und ZIPs hierher ziehen. Videos werden UGC-Anzeigen; Fotos finden ihre
+        9:16- und 1:1-Hälfte über Namen und Motiv, der Rest lässt sich ziehen oder zuschneiden.
       </Text>
     </div>
   );
+}
+
+/**
+ * Was aus dem Finder oder Explorer fallen gelassen wurde – auch ganze Ordner.
+ * `dataTransfer.files` enthält einen Ordner als leere Datei; nur über
+ * webkitGetAsEntry lässt er sich durchlaufen. Versteckte Dateien und
+ * Ressourcen-Doubletten (._Creative 1.png) bleiben draußen, wie beim ZIP.
+ */
+async function filesFromDrop(dt: DataTransfer): Promise<File[]> {
+  const entries = [...dt.items]
+    .map((item) => (item.kind === "file" ? item.webkitGetAsEntry?.() : null))
+    .filter((e): e is FileSystemEntry => Boolean(e));
+  if (!entries.length) return [...dt.files];
+
+  const out: File[] = [];
+  const walk = async (entry: FileSystemEntry): Promise<void> => {
+    if (entry.name.startsWith(".")) return;
+    if (entry.isFile) {
+      const file = await new Promise<File>((res, rej) => (entry as FileSystemFileEntry).file(res, rej));
+      out.push(file);
+      return;
+    }
+    if (!entry.isDirectory) return;
+    const reader = (entry as FileSystemDirectoryEntry).createReader();
+    // readEntries liefert in Häppchen und meldet das Ende mit einer leeren Liste.
+    for (;;) {
+      const batch = await new Promise<FileSystemEntry[]>((res, rej) => reader.readEntries(res, rej));
+      if (!batch.length) break;
+      for (const child of batch) await walk(child);
+    }
+  };
+  for (const entry of entries) await walk(entry);
+  return out;
 }
 
 /**
@@ -502,8 +551,8 @@ export function AdSetBlock({
    * nicht. Von hier bleibt nur das Anschauen – die Karten unten und der Toast
    * kommen aus demselben Store.
    */
-  const onFiles = (files: FileList) =>
-    enqueue([...files], { adSetId: value.id, adSetName: value.name, adAccount });
+  const onFiles = (files: File[]) =>
+    enqueue(files, { adSetId: value.id, adSetName: value.name, adAccount });
 
   /** Zwei liegengebliebene Hälften von Hand zusammenziehen. */
   const pairLoose = (aId: string, bId: string) => {
@@ -566,16 +615,12 @@ export function AdSetBlock({
   const promote = (looseId: string) => onChange(promoteLoose(value, looseId));
   const swap = (adId: string) => onChange({ ads: swapPair(value.ads, adId) });
 
-  /** Nach dem Zuschneiden steht ein neues Bild an derselben Stelle. */
+  /** Nach dem Zuschneiden: Ersatz in der Hälfte, oder ein Paar aus Original und Ausschnitt (state.ts). */
   const replaceLoose = (looseId: string, asset: WizardImageAsset) =>
-    onChange({
-      loose: value.loose.map((x) => (x.id === looseId ? { ...asset, id: x.id } : x)),
-    });
+    onChange(applyCrop(value, { looseId }, asset));
 
   const replaceAdAsset = (adId: string, slot: AssetSlot, asset: WizardImageAsset) =>
-    onChange({
-      ads: value.ads.map((a) => (a.id === adId ? detachAd({ ...a, [slot]: asset } as WizardAd) : a)),
-    });
+    onChange(applyCrop(value, { adId, slot }, asset));
 
   // Jede Änderung an einer geliehenen Anzeige löst die Verbindung – nur für
   // diese eine, die Quelle bleibt unberührt.
@@ -663,7 +708,7 @@ export function AdSetBlock({
           <Banner
             status="info"
             title={`${plural(value.loose.length, "Datei gehört", "Dateien gehören")} noch zu keiner Anzeige`}
-            description="Unten gestrichelt umrandet: als einzelne Anzeige verwenden, auf eine andere Datei ziehen (ergibt ein Paar) oder auf eine bestehende Anzeige ziehen, um ihr ein zweites Format zu geben."
+            description="Gestrichelt umrandet. Im Menü der Kachel: als eigene Anzeige, mit einer anderen Datei paaren oder das fehlende Format dazu zuschneiden — Ziehen geht auch."
           />
         )}
 
@@ -705,6 +750,9 @@ export function AdSetBlock({
                   key={asset.id}
                   asset={asset}
                   adAccount={adAccount}
+                  partners={value.loose
+                    .filter((o) => o.id !== asset.id && o.orientation !== asset.orientation)
+                    .map((o) => ({ id: o.id, label: cleanStem(o.fileName) }))}
                   onPairWith={(draggedId) => pairLoose(draggedId, asset.id)}
                   onPromote={() => promote(asset.id)}
                   onCropped={(cropped) => replaceLoose(asset.id, cropped)}

@@ -303,7 +303,35 @@ export function retryUploads(adSetId: string): void {
   );
 }
 
+/**
+ * Was der Upload annimmt – dieselbe Liste wie im Route Handler, nur früher:
+ * eine HEIC vom iPhone soll nicht erst über die Leitung, um dann abgelehnt zu
+ * werden. Videos werden vorher umgewandelt, deshalb reicht dort der Obertyp.
+ */
+const IMAGE_TYPES = ["image/jpeg", "image/png"];
+export const accepts = (file: File) =>
+  file.type.startsWith("video/") || IMAGE_TYPES.includes(file.type);
+
+function rejection(file: File): string {
+  const label = file.type.split("/")[1]?.toUpperCase() || file.name.split(".").pop()?.toUpperCase();
+  return label
+    ? `${label} wird nicht unterstützt — exportiere als JPEG, PNG oder MP4.`
+    : "Dieser Dateityp wird nicht unterstützt — exportiere als JPEG, PNG oder MP4.";
+}
+
+/** Dieselbe Datei ist schon unterwegs – aus zwei Ordnern gewählt, oder zweimal fallen gelassen. */
+const inFlight = (file: File, adSetId: string) =>
+  jobs.some(
+    (job) =>
+      job.adSetId === adSetId && !job.error && job.file.name === file.name && job.file.size === file.size,
+  );
+
 function start(files: File[], target: Target, clearFailed: boolean): void {
+  files = files.filter((file, i) => {
+    if (inFlight(file, target.adSetId)) return false;
+    // Auch innerhalb desselben Griffs nur einmal.
+    return files.findIndex((f) => f.name === file.name && f.size === file.size) === i;
+  });
   if (!files.length) return;
 
   const batch: Batch = {
@@ -364,8 +392,12 @@ async function run(id: string, file: File, batch: Batch) {
   let joined = false;
   try {
     patch({ phase: "preparing" });
+    if (!accepts(file)) throw new Error(rejection(file));
     // Die Maße kommen aus dem Original, nicht aus der umgewandelten Datei.
     const orientation = await orientationOfFile(file);
+    // Der Fingerabdruck entsteht vor dem Upload, solange die Pixel noch hier
+    // liegen: über Metas CDN wären sie später nur mit Umweg wieder zu haben.
+    const fingerprint = file.type.startsWith("image/") ? await fingerprintOf(file) : undefined;
 
     let payload = file;
     if (file.type.startsWith("video/")) {
@@ -426,6 +458,7 @@ async function run(id: string, file: File, batch: Batch) {
             hash: json.hash,
             fileName: file.name,
             orientation,
+            fingerprint,
           },
     );
 
@@ -584,5 +617,48 @@ async function orientationOfFile(file: File): Promise<Orientation> {
     });
   } catch {
     return "square";
+  }
+}
+
+/**
+ * Ein dHash des mittigen Quadrats: 9×8 Graustufen, jedes Bit sagt „heller als
+ * der Nachbar rechts“. Das Quadrat, weil ein 9:16- und ein 1:1-Export derselben
+ * Aufnahme genau dort dasselbe zeigen – die Ränder des Hochformats fehlen im
+ * Quadrat, die Ränder des Quadrats fehlen im Hochformat. Verglichen wird in
+ * lib/media.ts (fingerprintDistance); undefined heißt: kein Vergleich, keine
+ * Paarung über das Motiv – nie ein falsches Paar.
+ */
+export async function fingerprintOf(file: Blob): Promise<string | undefined> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const side = Math.min(bitmap.width, bitmap.height);
+    const canvas = document.createElement("canvas");
+    canvas.width = 9;
+    canvas.height = 8;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return undefined;
+    ctx.drawImage(
+      bitmap,
+      (bitmap.width - side) / 2,
+      (bitmap.height - side) / 2,
+      side,
+      side,
+      0,
+      0,
+      9,
+      8,
+    );
+    bitmap.close();
+    const { data } = ctx.getImageData(0, 0, 9, 8);
+    const gray = (i: number) => data[i * 4] * 0.299 + data[i * 4 + 1] * 0.587 + data[i * 4 + 2] * 0.114;
+    let hex = "";
+    for (let y = 0; y < 8; y++) {
+      let byte = 0;
+      for (let x = 0; x < 8; x++) byte = (byte << 1) | (gray(y * 9 + x) > gray(y * 9 + x + 1) ? 1 : 0);
+      hex += byte.toString(16).padStart(2, "0");
+    }
+    return hex;
+  } catch {
+    return undefined;
   }
 }

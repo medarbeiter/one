@@ -23,7 +23,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { AlertDialog, DropdownMenu, Skeleton, TextInput } from "@astryxdesign/core";
 import { Sign } from "@/theme/icons";
 import { ProgressRing } from "@/app/shell/progress-ring";
-import { cleanStem, imagePreviewUrl } from "@/lib/media";
+import { cleanStem, imagePreviewUrl, type Orientation } from "@/lib/media";
 import { CropDialog } from "./crop-dialog";
 import type { UploadJob } from "./upload-queue";
 import type { WizardAd, WizardAsset, WizardImageAsset, WizardLooseAsset } from "./state";
@@ -63,6 +63,7 @@ function MediaFrame({
   alt,
   isDimmed,
   isPending,
+  onCrop,
 }: {
   ratio: Ratio;
   url?: string;
@@ -70,6 +71,8 @@ function MediaFrame({
   isDimmed?: boolean;
   /** Es kommt noch etwas: der leere Rahmen schimmert, statt leer zu bleiben. */
   isPending?: boolean;
+  /** Der Rahmen selbst ist der Weg zum Zuschnitt: wer das Format sieht, klickt es an. */
+  onCrop?: () => void;
 }) {
   // Ein Hash, den Meta nicht mehr auflöst, ist kein seltener Sonderfall: die
   // Vorschau-Adressen laufen ab. Das kaputte Bildsymbol samt überlaufendem
@@ -77,10 +80,16 @@ function MediaFrame({
   const [broken, setBroken] = useState(false);
   useEffect(() => setBroken(false), [url]);
 
+  const Tag = onCrop ? "button" : "div";
   return (
-    <div
-      title={alt}
-      className={`border-line bg-surface relative h-full shrink-0 overflow-hidden rounded-md border ${RATIO[ratio]}`}
+    <Tag
+      type={onCrop ? "button" : undefined}
+      title={onCrop ? `${alt} – ${ratio} zuschneiden` : alt}
+      aria-label={onCrop ? `${alt} auf ${ratio} zuschneiden` : undefined}
+      onClick={onCrop}
+      className={`border-line bg-surface group relative h-full shrink-0 overflow-hidden rounded-md border ${RATIO[ratio]} ${
+        onCrop ? "focus-visible:ring-gold-500 cursor-pointer outline-none focus-visible:ring-2" : ""
+      }`}
     >
       {url && !broken ? (
         // Meta-CDN-Host steht nicht in next.config.ts als images.remotePatterns –
@@ -107,7 +116,12 @@ function MediaFrame({
       <span className="bg-ink-900/70 absolute bottom-0.5 left-0.5 rounded px-1 text-[9px] font-medium text-white">
         {ratio}
       </span>
-    </div>
+      {onCrop && (
+        <span className="bg-ink-900/70 absolute top-0.5 right-0.5 rounded p-0.5 text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+          <Sign meaning="edit" size={12} />
+        </span>
+      )}
+    </Tag>
   );
 }
 
@@ -264,18 +278,20 @@ export function AdTile({
     ? { text: ad.warn, tone: "warn" as const }
     : linked
       ? { text: "Geliehen — Bearbeiten löst die Verbindung" }
-      : undefined;
+      : ad.reason
+        ? { text: ad.reason }
+        : undefined;
 
   const actions: TileAction[] = [];
   if (adAccount && ad.type === "single") {
-    actions.push({ id: "crop", label: "Zuschneiden", run: () => setCrop("asset") });
+    actions.push({ id: "crop", label: "Zuschneiden", run: () => cropTo("asset", ad.asset.orientation === "portrait" ? "square" : "portrait") });
   }
   if (ad.type === "split") {
     if (adAccount && ad.portrait.kind === "image") {
-      actions.push({ id: "crop-portrait", label: "9:16 zuschneiden", run: () => setCrop("portrait") });
+      actions.push({ id: "crop-portrait", label: "9:16 zuschneiden", run: () => cropTo("portrait", "portrait") });
     }
     if (adAccount && ad.square.kind === "image") {
-      actions.push({ id: "crop-square", label: "1:1 zuschneiden", run: () => setCrop("square") });
+      actions.push({ id: "crop-square", label: "1:1 zuschneiden", run: () => cropTo("square", "square") });
     }
     // Die Ausrichtung kommt aus den Maßen, die Platzierung ist eine Entscheidung:
     // wer das Motiv im anderen Rahmen besser findet, tauscht sie hier.
@@ -302,6 +318,13 @@ export function AdTile({
         : ad.type === "split" && crop === "square"
           ? ad.square
           : undefined;
+  // Ein Klick auf den Rahmen sagt schon, welches Format gemeint ist.
+  const [cropTarget, setCropTarget] = useState<Orientation>();
+  const cropTo = (slot: AssetSlot, target: Orientation) => {
+    setCropTarget(target);
+    setCrop(slot);
+  };
+  const canCrop = (a: WizardAsset) => adAccount && a.kind === "image";
 
   return (
     <Tile
@@ -331,17 +354,35 @@ export function AdTile({
               ratio="9:16"
               url={previewUrl(ad.portrait, adAccount)}
               alt={ad.portrait.fileName}
+              onCrop={canCrop(ad.portrait) ? () => cropTo("portrait", "portrait") : undefined}
             />
-            <MediaFrame ratio="1:1" url={previewUrl(ad.square, adAccount)} alt={ad.square.fileName} />
+            <MediaFrame
+              ratio="1:1"
+              url={previewUrl(ad.square, adAccount)}
+              alt={ad.square.fileName}
+              onCrop={canCrop(ad.square) ? () => cropTo("square", "square") : undefined}
+            />
           </>
         ) : ad.type === "ugc" ? (
           <MediaFrame ratio="9:16" url={previewUrl(ad.asset, adAccount)} alt={ad.asset.fileName} />
         ) : (
           // Dasselbe Bild zweimal: genau das macht Meta mit einem Einzelbild,
           // und genau das ist hier zu sehen, bevor es jemand von Meta erfährt.
+          // Ein Klick auf den Rahmen schneidet das Bild für genau dieses
+          // Format zu – und aus dem Einzelbild wird ein Paar.
           <>
-            <MediaFrame ratio="9:16" url={previewUrl(ad.asset, adAccount)} alt={ad.asset.fileName} />
-            <MediaFrame ratio="1:1" url={previewUrl(ad.asset, adAccount)} alt={ad.asset.fileName} />
+            <MediaFrame
+              ratio="9:16"
+              url={previewUrl(ad.asset, adAccount)}
+              alt={ad.asset.fileName}
+              onCrop={canCrop(ad.asset) ? () => cropTo("asset", "portrait") : undefined}
+            />
+            <MediaFrame
+              ratio="1:1"
+              url={previewUrl(ad.asset, adAccount)}
+              alt={ad.asset.fileName}
+              onCrop={canCrop(ad.asset) ? () => cropTo("asset", "square") : undefined}
+            />
           </>
         )}
       </Stage>
@@ -355,6 +396,9 @@ export function AdTile({
           asset={cropAsset}
           adAccount={adAccount}
           isOpen
+          // In einem Paar hat die Hälfte ihr Format; ein Einzelbild darf beides.
+          targets={crop === "asset" ? undefined : [crop]}
+          initialTarget={cropTarget}
           onOpenChange={(open) => {
             if (!open) setCrop(null);
           }}
@@ -388,6 +432,7 @@ export function AdTile({
 export function LooseTile({
   asset,
   adAccount,
+  partners,
   onPairWith,
   onPromote,
   onCropped,
@@ -395,6 +440,8 @@ export function LooseTile({
 }: {
   asset: WizardLooseAsset;
   adAccount: string;
+  /** Die anderen liegengebliebenen Dateien im Gegenformat – fürs Paaren ohne Ziehen. */
+  partners: { id: string; label: string }[];
   onPairWith: (draggedId: string) => void;
   /** Bild → Einzelbild-Anzeige, Video → UGC-Anzeige. */
   onPromote: () => void;
@@ -408,8 +455,15 @@ export function LooseTile({
   // Auch für Videos: ein getrenntes Paar legt sein Video hierher, und ohne
   // diesen Punkt bliebe es liegen, wo es nie hingehörte.
   const actions: TileAction[] = [{ id: "promote", label: "Als eigene Anzeige", run: onPromote }];
+  // Ziehen ist der schnelle Weg, das Menü der sichere: ohne Maus, ohne Zielen.
+  for (const p of partners)
+    actions.push({ id: `pair-${p.id}`, label: `Paaren mit „${p.label}“`, run: () => onPairWith(p.id) });
   if (asset.kind === "image" && adAccount) {
-    actions.push({ id: "crop", label: "Zuschneiden", run: () => setCropping(true) });
+    actions.push({
+      id: "crop",
+      label: asset.orientation === "portrait" ? "1:1 dazu zuschneiden" : "9:16 dazu zuschneiden",
+      run: () => setCropping(true),
+    });
   }
   actions.push({ id: "remove", label: "Entfernen", run: onRemove });
 
@@ -437,7 +491,12 @@ export function LooseTile({
       </TileHeader>
 
       <Stage>
-        <MediaFrame ratio={ratio} url={previewUrl(asset, adAccount)} alt={asset.fileName} />
+        <MediaFrame
+          ratio={ratio}
+          url={previewUrl(asset, adAccount)}
+          alt={asset.fileName}
+          onCrop={asset.kind === "image" && adAccount ? () => setCropping(true) : undefined}
+        />
       </Stage>
 
       {/* Was man mit einer liegengebliebenen Datei tun kann, steht einmal im

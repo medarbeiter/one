@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+  applyCrop,
   customerBlockers,
   detailBlockers,
   dissolveAd,
@@ -220,4 +221,54 @@ test("das Tauschen an einer geliehenen Anzeige löst die Verbindung", () => {
     square: image("motiv-quer.jpg", "square"),
   };
   expect(swapPair([borrowed], "a1")[0].source).toBeUndefined();
+});
+
+
+
+test("dieselbe Datei kommt kein zweites Mal an", () => {
+  const set = { ...emptyAdSet(0), ...withArrivedAssets(emptyAdSet(0), [video("lea-1.mp4")]) };
+  const again = withArrivedAssets(set, [video("lea-1.mp4"), image("solo.jpg", "square")]);
+  expect(again.ads).toHaveLength(1);
+  expect(again.loose).toHaveLength(1);
+  const third = withArrivedAssets({ ...set, ...again }, [image("solo.jpg", "square")]);
+  expect(third.loose).toHaveLength(1);
+});
+
+test("ein Einzelbild ins andere Format geschnitten wird zum Paar aus Original und Ausschnitt", () => {
+  const single: WizardAd = { id: "a", name: "Creative 1", type: "single", asset: image("Lea.jpg", "square") };
+  const out = applyCrop({ ads: [single], loose: [] }, { adId: "a", slot: "asset" }, image("Lea 9x16.jpg", "portrait"));
+  expect(out.ads).toHaveLength(1);
+  const ad = out.ads[0];
+  if (ad.type !== "split") throw new Error("expected split");
+  expect(ad.portrait.fileName).toBe("Lea 9x16.jpg");
+  expect(ad.square.fileName).toBe("Lea.jpg");
+  expect(ad.name).toBe("Creative 1");
+});
+
+test("ins gleiche Format geschnitten ersetzt das Bild nur", () => {
+  const single: WizardAd = { id: "a", name: "Creative 1", type: "single", asset: image("Lea.jpg", "square") };
+  const out = applyCrop({ ads: [single], loose: [] }, { adId: "a", slot: "asset" }, image("Lea 1x1.jpg", "square"));
+  expect(out.ads[0].type).toBe("single");
+  expect(out.ads[0].type === "single" && out.ads[0].asset.fileName).toBe("Lea 1x1.jpg");
+});
+
+test("eine liegengebliebene Datei wird durch den Zuschnitt zum Paar", () => {
+  const loose: WizardLooseAsset = { ...image("Lea.jpg", "portrait"), id: "l" };
+  const out = applyCrop({ ads: [], loose: [loose] }, { looseId: "l" }, image("Lea 1x1.jpg", "square"));
+  expect(out.loose).toHaveLength(0);
+  expect(out.ads[0].type).toBe("split");
+  expect(out.ads[0].type === "split" && out.ads[0].square.fileName).toBe("Lea 1x1.jpg");
+});
+
+test("in einem Paar ersetzt der Zuschnitt nur seine Hälfte", () => {
+  const split: WizardAd = {
+    id: "a",
+    name: "Creative 1",
+    type: "split",
+    portrait: image("p.jpg", "portrait"),
+    square: image("s.jpg", "square"),
+  };
+  const out = applyCrop({ ads: [split], loose: [] }, { adId: "a", slot: "square" }, image("s2.jpg", "square"));
+  expect(out.ads[0].type === "split" && out.ads[0].square.fileName).toBe("s2.jpg");
+  expect(out.ads[0].type === "split" && out.ads[0].portrait.fileName).toBe("p.jpg");
 });

@@ -38,6 +38,8 @@ export type Classified = {
   fileName: string;
   kind: MediaKind;
   orientation: Orientation;
+  /** 64-Bit-dHash des mittigen Quadrats, hex – siehe fingerprintOf() in upload-queue.tsx. */
+  fingerprint?: string;
 };
 
 export type PlannedAd<T> =
@@ -56,7 +58,7 @@ export function stripExtension(fileName: string): string {
  * Was Drive, Finder und Explorer beim Duplizieren an den Namen hängen. Der
  * Sammelordner ist voll davon, und ohne diese Reinigung steht „Kopie von
  * Lea 1 (1)“ in Metas Anzeigenliste – oder schlimmer: die Klammer verdeckt die
- * Nummer, an der pairByName() die beiden Hälften einer Anzeige erkennt.
+ * Nummer, an der pairImages() die beiden Hälften einer Anzeige erkennt.
  *
  * Der Zähler ist bewusst auf zwei Stellen begrenzt: „Sommer (2024)“ ist eine
  * Jahreszahl und keine dritte Kopie.
@@ -113,54 +115,152 @@ export function normalizeAdName(fileName: string): string {
   return out || stem;
 }
 
+/**
+ * Wie der Sammelordner ein Format in den Namen schreibt: „Lea 9x16.jpg“ und
+ * „Lea 1x1.jpg“, „creative_story“ / „creative_feed“, „Hochformat“ /
+ * „Quadrat“. Der Rest des Namens ist dann der Schlüssel, unter dem die beiden
+ * Hälften zusammenfinden.
+ */
+const PORTRAIT_TOKEN =
+  /(?:^|[\s._\-()[\]])(?:9\s*[x×:\-_]\s*16|1080\s*[x×]\s*1920|story|stories|storys|reels?|hoch(?:format|kant)?|portrait|vertical|vertikal)(?=$|[\s._\-()[\]])/i;
+const SQUARE_TOKEN =
+  /(?:^|[\s._\-()[\]])(?:1\s*[x×:\-_]\s*1|4\s*[x×:\-_]\s*5|1080\s*[x×]\s*(?:1080|1350)|feed|post|quadrat(?:isch)?|square|quer)(?=$|[\s._\-()[\]])/i;
+
+/**
+ * Formatkürzel aus dem Namensstamm lesen und entfernen. Nach dem Zuschnitt
+ * heißt eine Datei „Lea 9x16.jpg“; ohne diese Funktion hieße der zweite
+ * Zuschnitt „Lea 9x16 1x1.jpg“ und die Paarung sähe zwei verschiedene Stämme.
+ */
+export function splitFormatToken(fileName: string): { stem: string; format?: Orientation } {
+  const stem = cleanStem(fileName);
+  for (const [re, format] of [
+    [PORTRAIT_TOKEN, "portrait"],
+    [SQUARE_TOKEN, "square"],
+  ] as const) {
+    const m = re.exec(stem);
+    if (!m) continue;
+    const bare = (stem.slice(0, m.index) + " " + stem.slice(m.index + m[0].length))
+      .replace(/[\s._\-]+$/, "")
+      .replace(/^[\s._\-]+/, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    return { stem: bare || stem, format };
+  }
+  return { stem };
+}
+
+/** Der Schlüssel, unter dem Namen verglichen werden: ohne Endung, Kopierspur, Kürzel, Groß-/Kleinschreibung. */
+const nameKey = (s: string) => s.toLowerCase().replace(/[\s._\-]+/g, " ").trim();
+
 /** "Creative 3.jpg" → { prefix: "creative", n: 3 }; ohne Zahl am Ende: null. */
 function parseName(fileName: string): { prefix: string; n: number } | null {
-  const stem = cleanStem(fileName);
+  const stem = splitFormatToken(fileName).stem;
   const m = /^(.*?)(\d+)$/.exec(stem);
-  return m ? { prefix: m[1].trim().toLowerCase(), n: Number(m[2]) } : null;
+  return m ? { prefix: nameKey(m[1]), n: Number(m[2]) } : null;
+}
+
+/** Hamming-Abstand zweier Hex-Fingerabdrücke; Infinity, wenn einer fehlt. */
+export function fingerprintDistance(a?: string, b?: string): number {
+  if (!a || !b || a.length !== b.length) return Infinity;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) {
+    let x = parseInt(a[i], 16) ^ parseInt(b[i], 16);
+    while (x) {
+      d += x & 1;
+      x >>= 1;
+    }
+  }
+  return d;
 }
 
 /**
- * Die Dateien kommen aus einem Sammelordner, in dem "Creative 3" und
- * "Creative 4" die beiden Hälften einer Anzeige sind – benachbarte Nummern,
- * kein gemeinsamer Namensrest. Die Namen "können extrem abweichen", deshalb ist
- * das ein Vorschlag und nie eine Regel: was nicht sicher zusammengehört, bleibt
- * ungepaart liegen und wird von Hand zusammengezogen.
+ * Bis zu wie vielen abweichenden Bits (von 64) zwei Bilder als dasselbe Motiv
+ * gelten. Ein 9:16- und ein 1:1-Export derselben Aufnahme teilen sich das
+ * mittige Quadrat nur ungefähr – der 1:1-Schnitt zeigt meist mehr Breite.
+ * Deshalb großzügiger als die üblichen 10.
  */
-export function pairByName<T extends Classified>(
+// ponytail: dHash auf dem mittigen Quadrat, feste Schwelle. Reicht für Exporte
+// derselben Aufnahme; wer Motive mit anderem Bildausschnitt paaren will,
+// braucht Merkmale statt Pixel (z. B. ein Embedding).
+export const SIMILAR_BELOW = 16;
+
+type Rule<T> = {
+  reason: string;
+  /** Beide sind schon gegensätzlich ausgerichtet – hier zählt nur der Name/Inhalt. */
+  match: (a: T, b: T) => boolean;
+  /** Kleiner ist besser; nur für die Reihenfolge, wenn mehrere passen. */
+  score?: (a: T, b: T) => number;
+};
+
+/**
+ * Die Regeln, in der Reihenfolge ihrer Verlässlichkeit. Jede läuft über alle
+ * noch ungepaarten Bilder; was sie bindet, sieht die nächste nicht mehr.
+ */
+const RULES: Rule<Classified>[] = [
+  {
+    reason: "Gleicher Name mit Formatkürzel",
+    match: (a, b) => {
+      const x = splitFormatToken(a.fileName);
+      const y = splitFormatToken(b.fileName);
+      return Boolean(x.format && y.format) && nameKey(x.stem) === nameKey(y.stem);
+    },
+  },
+  {
+    reason: "Gleicher Dateiname",
+    match: (a, b) => nameKey(splitFormatToken(a.fileName).stem) === nameKey(splitFormatToken(b.fileName).stem),
+  },
+  {
+    reason: "Benachbarte Nummern",
+    match: (a, b) => {
+      const x = parseName(a.fileName);
+      const y = parseName(b.fileName);
+      return Boolean(x && y) && x!.prefix === y!.prefix && Math.abs(x!.n - y!.n) === 1;
+    },
+    // Bei 1,2,3,4 gehören 1–2 und 3–4 zusammen, nicht 2–3: das Paar mit der
+    // kleineren Nummer zuerst, damit die Reihe von vorn aufgeht.
+    score: (a, b) => Math.min(parseName(a.fileName)!.n, parseName(b.fileName)!.n),
+  },
+  {
+    reason: "Ähnliches Motiv",
+    match: (a, b) => fingerprintDistance(a.fingerprint, b.fingerprint) < SIMILAR_BELOW,
+    score: (a, b) => fingerprintDistance(a.fingerprint, b.fingerprint),
+  },
+];
+
+/**
+ * Die Dateien kommen aus einem Sammelordner, in dem die beiden Hälften einer
+ * Anzeige mal „Creative 3“ und „Creative 4“ heißen, mal „Lea 9x16“ und
+ * „Lea 1x1“, mal beide gleich – und mal gar nichts Gemeinsames haben außer
+ * dem Motiv. Vier Regeln, von der sichersten zur weichsten; jede paart nur
+ * Hochformat mit Quadrat, und jedes Paar trägt seinen Grund, damit ein
+ * falscher Vorschlag auffällt statt unbemerkt zu bleiben. Was keine Regel
+ * bindet, bleibt liegen und wird von Hand zusammengezogen.
+ */
+export function pairImages<T extends Classified>(
   images: T[],
 ): { pairs: PlannedAd<T>[]; unpaired: T[] } {
-  const numbered = images
-    .map((asset) => ({ asset, parsed: parseName(asset.fileName) }))
-    .filter((x): x is { asset: T; parsed: { prefix: string; n: number } } => x.parsed !== null)
-    .sort((a, b) =>
-      a.parsed.prefix === b.parsed.prefix
-        ? a.parsed.n - b.parsed.n
-        : a.parsed.prefix.localeCompare(b.parsed.prefix),
-    );
-
   const used = new Set<T>();
   const pairs: PlannedAd<T>[] = [];
 
-  for (let i = 0; i < numbered.length - 1; i++) {
-    const a = numbered[i];
-    const b = numbered[i + 1];
-    if (used.has(a.asset) || used.has(b.asset)) continue;
-    if (a.parsed.prefix !== b.parsed.prefix) continue;
-    if (b.parsed.n - a.parsed.n !== 1) continue;
-    // Zwei Hochformate nebeneinander sind kein Paar, sondern zwei Anzeigen.
-    if (a.asset.orientation === b.asset.orientation) continue;
-
-    const [portrait, square] =
-      a.asset.orientation === "portrait" ? [a.asset, b.asset] : [b.asset, a.asset];
-    used.add(a.asset);
-    used.add(b.asset);
-    pairs.push({
-      type: "split",
-      portrait,
-      square,
-      reason: `adjacent names: ${a.asset.fileName}, ${b.asset.fileName}`,
-    });
+  for (const rule of RULES) {
+    const portraits = images.filter((i) => !used.has(i) && i.orientation === "portrait");
+    const squares = images.filter((i) => !used.has(i) && i.orientation === "square");
+    const candidates: { p: T; s: T; score: number }[] = [];
+    for (const p of portraits)
+      for (const s of squares)
+        if (rule.match(p, s)) candidates.push({ p, s, score: rule.score?.(p, s) ?? 0 });
+    candidates.sort((x, y) => x.score - y.score);
+    for (const { p, s } of candidates) {
+      if (used.has(p) || used.has(s)) continue;
+      used.add(p);
+      used.add(s);
+      pairs.push({
+        type: "split",
+        portrait: p,
+        square: s,
+        reason: `${rule.reason}: ${cleanStem(p.fileName)}, ${cleanStem(s.fileName)}`,
+      });
+    }
   }
 
   return { pairs, unpaired: images.filter((a) => !used.has(a)) };
@@ -182,7 +282,7 @@ export function planAds<T extends Classified>(
     else images.push(asset);
   }
 
-  const { pairs, unpaired } = pairByName(images);
+  const { pairs, unpaired } = pairImages(images);
   return { ads: [...ads, ...pairs], unpaired };
 }
 

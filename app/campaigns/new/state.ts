@@ -49,6 +49,15 @@ export type WizardVideoAsset = Extract<FormatAsset, { kind: "video" }> & {
 };
 export type WizardImageAsset = Extract<FormatAsset, { kind: "image" }> & {
   orientation: Orientation;
+  /** Fingerabdruck des Motivs für die Paarung – siehe fingerprintOf() in upload-queue.tsx. */
+  fingerprint?: string;
+  /**
+   * Ein zugeschnittenes Bild merkt sich, woraus es geschnitten wurde: der zweite
+   * Zuschnitt geht dann wieder vom Original aus, nicht vom Ausschnitt, und
+   * verliert keine Pixel.
+   */
+  sourceHash?: string;
+  sourceFileName?: string;
 };
 export type WizardAsset = WizardVideoAsset | WizardImageAsset;
 
@@ -196,7 +205,20 @@ export function withArrivedAssets(
   set: WizardAdSet,
   arrived: WizardLooseAsset[],
 ): Pick<WizardAdSet, "ads" | "loose"> {
-  const { ads: planned, unpaired } = planAds([...set.loose, ...arrived]);
+  // Dieselbe Datei zweimal gewählt – aus zwei Ordnern, oder weil der erste
+  // Schwung noch lief. Ein Bild-Hash ist der Inhalt; bei Videos ist es der
+  // Dateiname, denn Meta vergibt je Upload eine neue ID.
+  const known = new Set(
+    [...set.loose, ...set.ads.flatMap((a) => (a.type === "split" ? [a.portrait, a.square] : [a.asset]))]
+      .map(assetKey),
+  );
+  const unseen = arrived.filter((a) => {
+    const key = assetKey(a);
+    if (known.has(key)) return false;
+    known.add(key);
+    return true;
+  });
+  const { ads: planned, unpaired } = planAds([...set.loose, ...unseen]);
   const taken = new Set(set.ads.map((a) => a.name));
 
   const fresh = planned.map((p): WizardAd => {
@@ -226,6 +248,8 @@ export function withArrivedAssets(
 
   return { ads: [...set.ads, ...fresh], loose: unpaired };
 }
+
+const assetKey = (a: WizardAsset) => (a.kind === "image" ? `i:${a.hash}` : `v:${a.fileName}`);
 
 const looseFrom = (asset: WizardAsset): WizardLooseAsset => ({ ...asset, id: crypto.randomUUID() });
 
@@ -274,6 +298,68 @@ export function promoteLoose(
   }
   const { id: _id, ...asset } = found;
   return { ads: [...set.ads, { id, name: nextCreativeName(taken), type: "single", asset }], loose };
+}
+
+/**
+ * Ein Zuschnitt kommt zurück. Drei Fälle, und nur einer ist ein Ersatz:
+ *
+ * - In einem Paar ersetzt er seine Hälfte.
+ * - Ein Einzelbild oder eine liegengebliebene Datei, ins *andere* Format
+ *   geschnitten, wird zum Paar aus Original und Ausschnitt – genau dafür
+ *   schneidet man ein einzelnes Bild zu.
+ * - Ins *gleiche* Format geschnitten (4:5 → 1:1) ersetzt er das Bild.
+ */
+export function applyCrop(
+  set: Pick<WizardAdSet, "ads" | "loose">,
+  at: { adId: string; slot: "asset" | "portrait" | "square" } | { looseId: string },
+  cropped: WizardImageAsset,
+): Pick<WizardAdSet, "ads" | "loose"> {
+  const pairOf = (original: WizardImageAsset) =>
+    cropped.orientation === "portrait"
+      ? { portrait: cropped, square: original }
+      : { portrait: original, square: cropped };
+
+  if ("looseId" in at) {
+    const found = set.loose.find((x) => x.id === at.looseId);
+    if (!found || found.kind !== "image") return set;
+    const { id: _id, ...original } = found;
+    if (cropped.orientation === original.orientation)
+      return { ads: set.ads, loose: set.loose.map((x) => (x.id === at.looseId ? { ...cropped, id: x.id } : x)) };
+    const taken = new Set(set.ads.map((a) => a.name));
+    return {
+      ads: [
+        ...set.ads,
+        {
+          id: crypto.randomUUID(),
+          name: nextCreativeName(taken),
+          type: "split",
+          ...pairOf(original),
+          reason: `Aus einem Bild zugeschnitten: ${original.fileName}`,
+        },
+      ],
+      loose: set.loose.filter((x) => x.id !== at.looseId),
+    };
+  }
+
+  return {
+    loose: set.loose,
+    ads: set.ads.map((a) => {
+      if (a.id !== at.adId) return a;
+      if (a.type === "single" && cropped.orientation !== a.asset.orientation) {
+        const { asset, ...rest } = a;
+        return detachAd({
+          ...rest,
+          type: "split",
+          ...pairOf(asset),
+          reason: `Aus einem Bild zugeschnitten: ${asset.fileName}`,
+        });
+      }
+      if (a.type === "single") return detachAd({ ...a, asset: cropped });
+      if (a.type === "split" && (at.slot === "portrait" || at.slot === "square"))
+        return detachAd({ ...a, [at.slot]: cropped });
+      return a;
+    }),
+  };
 }
 
 /**
