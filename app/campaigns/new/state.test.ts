@@ -1,10 +1,14 @@
 import { expect, test } from "bun:test";
+import type { AssembledBrief } from "@/lib/brief";
 import {
+  applyBrief,
   applyCrop,
   customerBlockers,
+  DEFAULT_DAILY_BUDGET,
   detailBlockers,
   dissolveAd,
   draftLabel,
+  edited,
   emptyAdSet,
   initialState,
   promoteLoose,
@@ -304,4 +308,72 @@ test("in einem Paar ersetzt der Zuschnitt nur seine Hälfte", () => {
   const out = applyCrop({ ads: [split], loose: [] }, { adId: "a", slot: "square" }, image("s2.jpg", "square"));
   expect(out.ads[0].type === "split" && out.ads[0].square.fileName).toBe("s2.jpg");
   expect(out.ads[0].type === "split" && out.ads[0].portrait.fileName).toBe("p.jpg");
+});
+
+const brief: AssembledBrief = {
+  taskId: "t1",
+  clientName: { value: "MeVita Pflegedienst GmbH", source: "clickup" },
+  roles: { value: ["PFK"], source: "clickup" },
+  benefits: { value: "33 Urlaubstage\nJobrad", source: "onboarding" },
+  location: { value: { addressString: "Mühlgasse 24, 71272 Renningen" }, source: "clickup" },
+  formHint: { value: "Renningen", source: "clickup" },
+  dailyBudgetEuros: { value: 35, source: "clickup" },
+  spendCapEuros: { value: 2435, source: "clickup" },
+  driveFolderId: { value: "k", source: "clickup" },
+  notes: "neu anlegen",
+  warnings: [],
+};
+
+test("applyBrief füllt ein leeres Formular und merkt sich je Feld die Herkunft", () => {
+  const s = applyBrief(initialState("act_1", "", "KF"), brief);
+  expect(s.business).toBe("MeVita Pflegedienst GmbH");
+  expect(s.roles).toEqual(["PFK"]);
+  expect(s.benefits).toBe("33 Urlaubstage\nJobrad");
+  expect(s.adSets[0].addressString).toBe("Mühlgasse 24, 71272 Renningen");
+  expect(s.dailyBudgetEuros).toBe(35);
+  expect(s.spendCapEuros).toBe(2435);
+  expect(s.taskId).toBe("t1");
+  expect(s.notes).toBe("neu anlegen");
+  expect(s.formHint).toBe("Renningen");
+  expect(s.driveFolderId).toBe("k");
+  expect(s.sources).toEqual({
+    initials: "session",
+    clientName: "clickup",
+    roles: "clickup",
+    benefits: "onboarding",
+    location: "clickup",
+    dailyBudget: "clickup",
+    spendCap: "clickup",
+  });
+});
+
+test("applyBrief überschreibt nichts, was schon angefasst ist", () => {
+  const before = {
+    ...initialState("act_1", "Anderer Kunde", "KF"),
+    roles: ["HK"],
+    benefits: "eigene",
+    dailyBudgetEuros: 20,
+  };
+  before.adSets[0].addressString = "Hier";
+  const s = applyBrief(before, brief);
+  expect(s.business).toBe("Anderer Kunde");
+  expect(s.roles).toEqual(["HK"]);
+  expect(s.benefits).toBe("eigene");
+  expect(s.dailyBudgetEuros).toBe(20);
+  expect(s.adSets[0].addressString).toBe("Hier");
+  expect(s.spendCapEuros).toBe(2435);
+  expect(s.sources).toEqual({ initials: "session", spendCap: "clickup" });
+});
+
+test("edited nimmt dem Feld sein Etikett", () => {
+  const s = applyBrief(initialState("act_1", "", "KF"), brief);
+  const t = edited(s, "roles", { roles: ["FK"] });
+  expect(t.roles).toEqual(["FK"]);
+  expect(t.sources.roles).toBeUndefined();
+  expect(t.sources.benefits).toBe("onboarding");
+});
+
+test("das Tagesbudget beginnt beim Hausstandard", () => {
+  expect(initialState().dailyBudgetEuros).toBe(DEFAULT_DAILY_BUDGET);
+  expect(initialState().sources).toEqual({});
 });

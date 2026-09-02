@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { adSetName } from "@/lib/naming";
 import { locationProblem } from "@/lib/geo";
 import { isSuggestedPair, nextCreativeName, normalizeAdName, planAds, uniqueName } from "@/lib/media";
+import type { AssembledBrief, Source } from "@/lib/brief";
 import type { AdInput, AdSetInput, FormatAsset } from "@/lib/launch";
 import type { Orientation } from "@/lib/media";
 
@@ -16,6 +17,19 @@ import type { Orientation } from "@/lib/media";
 // zu erfinden, die niemand bestätigt hat. Wie schon bei v1→v2 heißt der neue
 // Schlüssel: alter Entwurf wird ignoriert statt halb wiederhergestellt.
 const KEY = "medarbeiter:new-campaign:v3";
+
+export type SourceField =
+  | "clientName"
+  | "roles"
+  | "benefits"
+  | "location"
+  | "dailyBudget"
+  | "spendCap"
+  | "initials";
+export type Sources = Partial<Record<SourceField, Source>>;
+
+/** Hausstandard – und der Vergleichswert, an dem applyBrief „unangefasst“ erkennt. */
+export const DEFAULT_DAILY_BUDGET = 17;
 
 export type WizardState = {
   /** Das Werbekonto, das zahlt – fast immer eins von MedArbeiter. */
@@ -35,6 +49,22 @@ export type WizardState = {
   nameEdited: boolean;
   dailyBudgetEuros: number;
   spendCapEuros?: number;
+  /**
+   * Was der Assistent nicht aus einer API weiß und was in jedem Text steht:
+   * die Benefits des Arbeitgebers, eine je Zeile. Aus der Onboarding-Tabelle
+   * gelesen oder getippt – im Entwurf, nicht mehr im Dialog.
+   */
+  benefits: string;
+  /** Woher ein vorbelegtes Feld stammt. Verschwindet, sobald jemand es ändert (edited). */
+  sources: Sources;
+  /** Die ClickUp-Aufgabe, aus der dieser Entwurf kommt – nach dem Anlegen wechselt sie den Status. */
+  taskId?: string;
+  /** Die Beschreibung der Aufgabe, wörtlich – für Menschen, nicht für Felder. */
+  notes?: string;
+  /** Nach welchem Namen oder Ort das Lead-Formular zu wählen ist. */
+  formHint?: string;
+  /** Der Kundenordner in Drive, wenn bekannt – das Regal startet dann dort. */
+  driveFolderId?: string;
   adSets: WizardAdSet[];
 };
 
@@ -122,9 +152,63 @@ export const initialState = (adAccount = "", business = "", initials = ""): Wiza
   initials,
   campaignName: "",
   nameEdited: false,
-  dailyBudgetEuros: 17,
+  dailyBudgetEuros: DEFAULT_DAILY_BUDGET,
+  benefits: "",
+  sources: initials ? { initials: "session" } : {},
   adSets: [emptyAdSet(0)],
 });
+
+/**
+ * Der Auftrag ins Formular – aber nur in Felder, die noch auf dem
+ * Ausgangswert stehen. Dieselbe Regel wie untouchedPrefillPatch in wizard.tsx:
+ * ein fortgesetzter Entwurf, an dem schon jemand gearbeitet hat, wird nicht
+ * überschrieben, nur ergänzt. Jedes gefüllte Feld bekommt seine Herkunft.
+ */
+export function applyBrief(state: WizardState, brief: AssembledBrief): WizardState {
+  const sources: Sources = { ...state.sources };
+  const next: WizardState = {
+    ...state,
+    taskId: brief.taskId,
+    notes: brief.notes,
+    formHint: brief.formHint?.value,
+    driveFolderId: brief.driveFolderId?.value,
+  };
+  if (brief.clientName && !state.business.trim()) {
+    next.business = brief.clientName.value;
+    sources.clientName = brief.clientName.source;
+  }
+  if (brief.roles && !state.roles.length) {
+    next.roles = brief.roles.value;
+    sources.roles = brief.roles.source;
+  }
+  if (brief.roleFreeText && !state.roleFreeText.trim()) next.roleFreeText = brief.roleFreeText.value;
+  if (brief.benefits && !state.benefits.trim()) {
+    next.benefits = brief.benefits.value;
+    sources.benefits = brief.benefits.source;
+  }
+  if (brief.dailyBudgetEuros && state.dailyBudgetEuros === DEFAULT_DAILY_BUDGET) {
+    next.dailyBudgetEuros = brief.dailyBudgetEuros.value;
+    sources.dailyBudget = brief.dailyBudgetEuros.source;
+  }
+  if (brief.spendCapEuros && state.spendCapEuros === undefined) {
+    next.spendCapEuros = brief.spendCapEuros.value;
+    sources.spendCap = brief.spendCapEuros.source;
+  }
+  const first = state.adSets[0];
+  if (brief.location && first && first.addressString === "" && !first.place) {
+    next.adSets = state.adSets.map((set, i) =>
+      i === 0 ? { ...set, addressString: brief.location!.value.addressString } : set,
+    );
+    sources.location = brief.location.source;
+  }
+  return { ...next, sources };
+}
+
+/** Eine Änderung von Hand: der Wert wechselt, das Herkunftsetikett fällt. */
+export function edited(state: WizardState, field: SourceField, patch: Partial<WizardState>): WizardState {
+  const { [field]: _gone, ...sources } = state.sources;
+  return { ...state, ...patch, sources };
+}
 
 /** Ohne die UI-Felder (id, orientation), die auf dem Weg zu Meta nichts verloren haben. */
 const toFormatAsset = (a: WizardAsset): FormatAsset =>
@@ -461,11 +545,6 @@ export function detailBlockers(state: WizardState): string[] {
   ];
 }
 
-// Initialen sind pro Person und ändern sich nie – wer sie einmal gewählt hat,
-// soll sie nicht bei jeder Kampagne erneut suchen. Deshalb localStorage (bleibt
-// über Tabs und Tage) statt sessionStorage (stirbt mit dem Entwurf).
-const INITIALS_KEY = "medarbeiter:initials";
-
 /**
  * Entwürfe liegen in localStorage, der Zeiger auf den gerade bearbeiteten in
  * sessionStorage. Diese Trennung ist der ganze Trick:
@@ -480,7 +559,7 @@ const INITIALS_KEY = "medarbeiter:initials";
  * Immer noch keine Datenbank: der Entwurf gehört der Person, die ihn tippt, und
  * die hochgeladenen Dateien liegen ohnehin schon im Werbekonto.
  */
-const DRAFTS_KEY = "medarbeiter:new-campaign:drafts:v1";
+const DRAFTS_KEY = "medarbeiter:new-campaign:drafts:v2";
 const CURRENT_KEY = "medarbeiter:new-campaign:current";
 /** Mehr hebt niemand auf; der älteste fällt hinten heraus. */
 const MAX_DRAFTS = 10;
@@ -551,6 +630,8 @@ const writeDrafts = (drafts: Draft[]) => {
 const hydrate = (state: WizardState, initials: string): WizardState => ({
   ...state,
   initials: state.initials || initials,
+  benefits: state.benefits ?? "",
+  sources: state.sources ?? {},
   adSets: state.adSets.map((s) => ({
     ...s,
     id: s.id ?? crypto.randomUUID(),
@@ -585,7 +666,6 @@ export function useWizardState(defaults: WizardState) {
   };
 
   useEffect(() => {
-    const initials = localStorage.getItem(INITIALS_KEY) ?? "";
     let all = readDrafts();
 
     // Einmalige Übernahme des alten Einzelentwurfs aus dem sessionStorage. Wer
@@ -611,18 +691,18 @@ export function useWizardState(defaults: WizardState) {
     const mine = all.find((d) => d.id === sessionStorage.getItem(CURRENT_KEY));
     if (mine) {
       current.current = mine.id;
-      setState(hydrate(mine.state, initials));
+      setState(hydrate(mine.state, defaults.initials));
       setRestored(true);
-    } else if (initials) {
-      setState((s) => ({ ...s, initials }));
+    } else {
+      setState((s) => ({ ...s, initials: defaults.initials }));
     }
     setDrafts(all);
     setLoaded(true);
+    // deps: defaults.initials – defaults sind je Seitenaufruf stabil, deshalb reicht []
   }, []);
 
   useEffect(() => {
     if (!loaded) return;
-    if (state.initials) localStorage.setItem(INITIALS_KEY, state.initials);
 
     // Der erste Lauf nach dem Laden ist keine Änderung, sondern der Stand, an
     // dem die Zählung beginnt.
