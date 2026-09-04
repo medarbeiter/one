@@ -4,6 +4,7 @@ import {
   parseEuro,
   parseRoles,
   rolesFromTaskName,
+  rolesFromTitles,
   taskIdFromInput,
   toBrief,
   type RawTask,
@@ -87,6 +88,20 @@ test("toBrief bildet die Aufgabe ab: Ordnername getrimmt, Felder geparst, Leeres
     driveUrl: undefined,
     createdAt: 1756800000000,
   });
+});
+
+test("rolesFromTitles: Kürzel und Labels werden Kürzel, der Rest bleibt Freitext", () => {
+  expect(rolesFromTitles(["PA", "Pflegefachkraft", "Praxisanleiter", "pfk", "Pflegehelfer", "Praxisanleiter"])).toEqual({
+    roles: ["PA", "PFK", "PH"],
+    free: "Praxisanleiter",
+  });
+  expect(rolesFromTitles(["Stv. PDL", "Quereinsteiger", "Betreuungskräfte"])).toEqual({
+    roles: ["Stv. PDL", "QE", "BK"],
+    free: "",
+  });
+  expect(rolesFromTitles([])).toEqual({ roles: [], free: "" });
+  // Aus dem Lauf vom 2026-09-04: das Kürzel steckt im Titel, und „sPDL“ ist Stv. PDL.
+  expect(rolesFromTitles(["Pflegekräfte (PFK)", "sPDL", "stellv. PDL"])).toEqual({ roles: ["PFK", "Stv. PDL"], free: "" });
 });
 
 test("overviewFacts liest Adresse und offene Stellen aus der Kundenübersicht", () => {

@@ -28,6 +28,7 @@ import {
   getBrief as realGetBrief,
   parseRoles,
   rolesFromTaskName,
+  rolesFromTitles,
   type Brief,
 } from "./clickup";
 import {
@@ -111,8 +112,17 @@ const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : unde
  * Warnung daraus. `standorte` ist die Liste; die alten Schlüssel `adresse`/`ort`
  * (ein Standort) werden weiter verstanden.
  */
-export function parseLocationHint(content: string): { locations: string[]; formHint?: string; radiusKm?: number } {
-  let data: { standorte?: unknown; adresse?: unknown; ort?: unknown; formular?: unknown; umkreis_km?: unknown };
+export type LocationHint = { locations: string[]; formHint?: string; radiusKm?: number; titles: string[] };
+
+export function parseLocationHint(content: string): LocationHint {
+  let data: {
+    standorte?: unknown;
+    adresse?: unknown;
+    ort?: unknown;
+    formular?: unknown;
+    umkreis_km?: unknown;
+    stellen?: unknown;
+  };
   try {
     data = JSON.parse(unfence(content));
   } catch {
@@ -129,7 +139,7 @@ export function parseLocationHint(content: string): { locations: string[]; formH
   };
   if (Array.isArray(data.standorte)) data.standorte.forEach(add);
   else add(str(data.adresse) ?? str(data.ort));
-  const out: { locations: string[]; formHint?: string; radiusKm?: number } = { locations };
+  const out: LocationHint = { locations, titles: strings(data.stellen) };
   const formHint = str(data.formular);
   if (formHint) out.formHint = formHint;
   const radiusKm = Number(data.umkreis_km);
@@ -137,23 +147,23 @@ export function parseLocationHint(content: string): { locations: string[]; formH
   return out;
 }
 
-const CODES = new Map(ROLES.map((r) => [r.code.toLowerCase(), r.code]));
+const strings = (v: unknown) => (Array.isArray(v) ? v.map(str).filter((s): s is string => Boolean(s)) : []);
 
-/** Antwort auf onboardingPrompt(). Rollen nur, wenn sie ein Kürzel aus ROLES sind. */
-export function parseOnboarding(content: string): { benefits: string[]; roles: string[] } {
-  let data: { benefits?: unknown; rollen?: unknown };
+/**
+ * Antwort auf onboardingPrompt(). Die Stellen kommen, wie sie in der Tabelle
+ * stehen; `rolesFromTitles` macht Kürzel daraus, wo eins passt, und lässt den
+ * Rest als Freitext („Praxisanleiter“). Der alte Schlüssel `rollen` (nur
+ * Kürzel) wird weiter verstanden.
+ */
+export function parseOnboarding(content: string): { benefits: string[]; roles: string[]; roleFreeText: string } {
+  let data: { benefits?: unknown; rollen?: unknown; stellen?: unknown };
   try {
     data = JSON.parse(unfence(content));
   } catch {
     throw new Error("Mistral hat kein lesbares JSON geliefert.");
   }
-  const list = (v: unknown) => (Array.isArray(v) ? v.map(str).filter((s): s is string => Boolean(s)) : []);
-  const roles: string[] = [];
-  for (const r of list(data.rollen)) {
-    const code = CODES.get(r.toLowerCase());
-    if (code && !roles.includes(code)) roles.push(code);
-  }
-  return { benefits: list(data.benefits).map((b) => b.replace(/^[-–•*]\s*/, "")), roles };
+  const { roles, free } = rolesFromTitles([...strings(data.stellen), ...strings(data.rollen)]);
+  return { benefits: strings(data.benefits).map((b) => b.replace(/^[-–•*]\s*/, "")), roles, roleFreeText: free };
 }
 
 function locationPrompt(description: string): string {
@@ -163,8 +173,9 @@ Lies heraus:
 1. Die Standorte, für die je eine eigene Anzeigengruppe entstehen soll – jede Einrichtung, jeder Ort, jede Stadt, die die Beschreibung als Ziel nennt. Je Standort ein Eintrag: die vollständige Adresse (Straße, PLZ, Ort), falls genannt, sonst nur der Ortsname. Nennt die Beschreibung keinen Standort, eine leere Liste. Ein Standort, der nur als Sitz des Unternehmens erwähnt wird und nicht als Ziel der Anzeigen, zählt nicht.
 2. Einen Hinweis, welches Lead-Formular zu wählen ist – ein Name oder Ort, wie er in der Beschreibung steht (z. B. „Renningen“). Nennt die Beschreibung keins, null.
 3. Einen ausdrücklich genannten Umkreis bzw. Radius in Kilometern („Umkreis 30 km“, „Radius: 25km“). Steht keiner drin, null – nie schätzen.
+4. Die gesuchten Stellen, falls die Beschreibung welche nennt – jede Stelle als kurze Berufsbezeichnung, so wie sie dasteht („PFK“, „Pflegefachkraft“, „Praxisanleiter“). Ein Standort ist keine Stelle. Nennt die Beschreibung keine, eine leere Liste.
 
-Erfinde nichts. Antworte ausschließlich mit JSON: {"standorte": ["…"], "formular": "…" oder null, "umkreis_km": Zahl oder null}
+Erfinde nichts. Antworte ausschließlich mit JSON: {"standorte": ["…"], "formular": "…" oder null, "umkreis_km": Zahl oder null, "stellen": ["…"]}
 
 BESCHREIBUNG:
 ${description}`;
@@ -176,9 +187,9 @@ function onboardingPrompt(csv: string): string {
 
 Lies heraus:
 1. Benefits: AUSSCHLIESSLICH aus dem Block „Wie gestaltet sich Ihr Jobangebot?“, und dort nur die Zeilen unter „Besteht aktuell“. Zeilen unter „Weitere Vorschläge“ oder einer ähnlichen Überschrift NIEMALS übernehmen – auch nicht, wenn sie stärker klingen. Jede Zeile wörtlich, ohne führendes „- “.
-2. Rollen: aus „Welche fachlichen Voraussetzungen muss der Kandidat erfüllen?“, als Kürzel aus dieser Liste: ${codes}. Nur Kürzel, die klar passen (exam. FK → FK, Pflegefachkraft → PFK); im Zweifel weglassen.
+2. Stellen: AUSSCHLIESSLICH aus dem Block „Welche fachlichen Voraussetzungen muss der Kandidat erfüllen?“. Dort steht, wen der Arbeitgeber sucht – oft mit Datum und Bedingungen („1.9.26: - 12h-Dienste als PA“, „- FK – aktuell nur mit FKs BGs vereinbaren“, „- Praxisanleiter (2 Tage arbeiten, 2 Tage frei)“). Je gesuchter Stelle ein Eintrag, als kurze Berufsbezeichnung ohne die Bedingungen. Wo eins dieser Kürzel klar passt, das Kürzel: ${codes}. Sonst die Bezeichnung, wie sie dasteht (z. B. „Praxisanleiter“). Gehalt, Dienstzeiten, Auszeichnungen sind keine Stellen.
 
-Antworte ausschließlich mit JSON: {"benefits": ["…"], "rollen": ["FK"]}
+Antworte ausschließlich mit JSON: {"benefits": ["…"], "stellen": ["FK", "Praxisanleiter"]}
 
 CSV:
 ${csv}`;
@@ -189,7 +200,8 @@ async function readOnboarding(
   deps: BriefDeps,
   warnings: string[],
   emit: OnBriefEvent,
-): Promise<{ folderId?: string; benefits: string[]; roles: string[] }> {
+): Promise<{ folderId?: string; benefits: string[]; roles: string[]; roleFreeText: string }> {
+  const none = { benefits: [], roles: [], roleFreeText: "" };
   emit({ type: "step", step: "drive", status: "running" });
   let folderId = brief.driveUrl ? deps.folderIdFromUrl(brief.driveUrl) : undefined;
   if (folderId) emit({ type: "step", step: "drive", status: "done", detail: "Drive-Link aus der Aufgabe" });
@@ -208,14 +220,14 @@ async function readOnboarding(
       warnings.push(`Drive nicht erreichbar: ${(e as Error).message}`);
       emit({ type: "step", step: "drive", status: "failed", detail: (e as Error).message });
       emit({ type: "step", step: "onboarding", status: "skipped", detail: "ohne Drive-Ordner" });
-      return { benefits: [], roles: [] };
+      return none;
     }
   }
   if (!folderId) {
     warnings.push(`Kein Drive-Ordner für „${brief.customer}“ gefunden – Benefits bitte eintragen.`);
     emit({ type: "step", step: "drive", status: "failed", detail: `kein Ordner für „${brief.customer}“` });
     emit({ type: "step", step: "onboarding", status: "skipped", detail: "ohne Drive-Ordner" });
-    return { benefits: [], roles: [] };
+    return none;
   }
   emit({ type: "step", step: "onboarding", status: "running" });
   try {
@@ -223,7 +235,7 @@ async function readOnboarding(
     if (!sheet) {
       warnings.push("Keine Onboarding-Tabelle im Drive-Ordner gefunden – Benefits bitte eintragen.");
       emit({ type: "step", step: "onboarding", status: "failed", detail: "keine Tabelle im Ordner" });
-      return { folderId, benefits: [], roles: [] };
+      return { folderId, ...none };
     }
     const parsed = parseOnboarding(await deps.mistral(onboardingPrompt(await deps.exportCsv(sheet.id)), { temperature: 0 }));
     emit({
@@ -232,7 +244,7 @@ async function readOnboarding(
       status: "done",
       detail: [
         `${parsed.benefits.length} Benefits aus „Besteht aktuell“`,
-        parsed.roles.length ? `Rollen ${parsed.roles.join(", ")}` : undefined,
+        rolesLine(parsed.roles, parsed.roleFreeText),
       ]
         .filter(Boolean)
         .join(" · "),
@@ -241,9 +253,13 @@ async function readOnboarding(
   } catch (e) {
     warnings.push(`Onboarding-Tabelle nicht gelesen: ${(e as Error).message}`);
     emit({ type: "step", step: "onboarding", status: "failed", detail: (e as Error).message });
-    return { folderId, benefits: [], roles: [] };
+    return { folderId, ...none };
   }
 }
+
+/** „Stellen PFK, PDL · Praxisanleiter“ – für die Werkstatt-Zeile. */
+const rolesLine = (roles: string[], free?: string) =>
+  roles.length || free ? `Stellen ${[roles.join(", "), free].filter(Boolean).join(" · ")}` : undefined;
 
 export async function assembleBrief(
   taskId: string,
@@ -259,12 +275,16 @@ export async function assembleBrief(
   if (brief.dailyBudgetEuros) out.dailyBudgetEuros = { value: brief.dailyBudgetEuros, source: "clickup" };
   if (brief.spendCapEuros) out.spendCapEuros = { value: brief.spendCapEuros, source: "clickup" };
 
-  // Das Feld vor dem Namen: es ist die ausdrückliche Angabe. Der Name trägt
-  // die Rollen nur, wenn er nach der Konvention gebaut ist.
+  // Das Feld vor allem anderen: es ist die ausdrückliche Angabe. Dann die
+  // Beschreibung (unten, per Mistral), dann der Name – der trägt die Rollen
+  // nur, wenn er nach der Konvention gebaut ist. Die Aufgabe insgesamt vor der
+  // Onboarding-Tabelle: wer die Aufgabe schreibt, weiß, was diesmal gesucht
+  // wird; die Tabelle sagt, was der Kunde grundsätzlich sucht.
   const fromField = brief.rolesText ? parseRoles(brief.rolesText) : { roles: [], free: "" };
-  const roles = fromField.roles.length ? fromField.roles : rolesFromTaskName(brief.name);
+  const roles = fromField.roles;
   if (roles.length) out.roles = { value: roles, source: "clickup" };
   if (fromField.roles.length && fromField.free) out.roleFreeText = { value: fromField.free, source: "clickup" };
+  const hasRoles = () => Boolean(out.roles || out.roleFreeText);
 
   emit({
     type: "step",
@@ -274,7 +294,7 @@ export async function assembleBrief(
       brief.customer || undefined,
       brief.dailyBudgetEuros ? `${money.format(brief.dailyBudgetEuros)} pro Tag` : undefined,
       brief.spendCapEuros ? `Limit ${money.format(brief.spendCapEuros)}` : undefined,
-      roles.length ? `Rollen ${roles.join(", ")}` : undefined,
+      rolesLine(roles, out.roleFreeText?.value),
     ]
       .filter(Boolean)
       .join(" · "),
@@ -283,7 +303,7 @@ export async function assembleBrief(
   const readDescription = async () => {
     if (!brief.description.trim()) {
       emit({ type: "step", step: "description", status: "skipped", detail: "die Aufgabe hat keine Beschreibung" });
-      return {} as ReturnType<typeof parseLocationHint>;
+      return { locations: [], titles: [] } satisfies LocationHint;
     }
     emit({ type: "step", step: "description", status: "running" });
     try {
@@ -294,6 +314,7 @@ export async function assembleBrief(
           : hint.locations[0],
         hint.formHint ? `Formular „${hint.formHint}“` : undefined,
         hint.radiusKm ? `Umkreis ${hint.radiusKm} km` : undefined,
+        rolesLine(rolesFromTitles(hint.titles).roles, rolesFromTitles(hint.titles).free),
       ].filter(Boolean);
       emit({
         type: "step",
@@ -305,7 +326,7 @@ export async function assembleBrief(
     } catch (e) {
       warnings.push(`Standort aus der Aufgabe nicht gelesen: ${(e as Error).message}`);
       emit({ type: "step", step: "description", status: "failed", detail: (e as Error).message });
-      return {} as ReturnType<typeof parseLocationHint>;
+      return { locations: [], titles: [] } satisfies LocationHint;
     }
   };
 
@@ -315,9 +336,22 @@ export async function assembleBrief(
   if (hint.formHint) out.formHint = { value: hint.formHint, source: "clickup" };
   if (hint.radiusKm) out.radiusKm = { value: hint.radiusKm, source: "clickup" };
 
+  // Stellen: Feld → Beschreibung → Aufgabenname → Onboarding-Tabelle. Sagt
+  // die Aufgabe irgendwo etwas, gilt nur das; die Tabelle nur, wenn sie schweigt.
+  if (!hasRoles()) {
+    const fromDescription = rolesFromTitles(hint.titles);
+    const fromName = rolesFromTaskName(brief.name);
+    const pick = fromDescription.roles.length || fromDescription.free ? fromDescription : { roles: fromName, free: "" };
+    if (pick.roles.length) out.roles = { value: pick.roles, source: "clickup" };
+    if (pick.free) out.roleFreeText = { value: pick.free, source: "clickup" };
+  }
+
   if (sheet.folderId) out.driveFolderId = { value: sheet.folderId, source: "clickup" };
   if (sheet.benefits.length) out.benefits = { value: sheet.benefits.join("\n"), source: "onboarding" };
-  if (!out.roles && sheet.roles.length) out.roles = { value: sheet.roles, source: "onboarding" };
+  if (!hasRoles()) {
+    if (sheet.roles.length) out.roles = { value: sheet.roles, source: "onboarding" };
+    if (sheet.roleFreeText) out.roleFreeText = { value: sheet.roleFreeText, source: "onboarding" };
+  }
 
   // Fallback, nur wenn die Beschreibung keinen Ort hergab – ein Aufruf
   // weniger gegen ClickUp, und die Beschreibung ist ohnehin die genauere
@@ -329,7 +363,7 @@ export async function assembleBrief(
       if (overview.address) out.locations = { value: [overview.address], source: "clickup" };
       if (overview.radiusKm && !out.radiusKm) out.radiusKm = { value: overview.radiusKm, source: "clickup" };
       const roles = overview.rolesText ? parseRoles(overview.rolesText).roles : [];
-      if (!out.roles && roles.length) out.roles = { value: roles, source: "clickup" };
+      if (!hasRoles() && roles.length) out.roles = { value: roles, source: "clickup" };
       emit({
         type: "step",
         step: "overview",

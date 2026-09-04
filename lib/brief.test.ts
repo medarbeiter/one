@@ -5,17 +5,17 @@ import type { Brief } from "./clickup";
 test("parseLocationHint nimmt Adresse, Ort und Formular-Hinweis aus dem JSON", () => {
   expect(
     parseLocationHint('{"adresse":"Mühlgasse 24+26, 71272 Renningen","ort":"Renningen","formular":"Renningen"}'),
-  ).toEqual({ locations: ["Mühlgasse 24+26, 71272 Renningen"], formHint: "Renningen" });
+  ).toEqual({ locations: ["Mühlgasse 24+26, 71272 Renningen"], formHint: "Renningen", titles: [] });
 });
 
 test("parseLocationHint verträgt Markdown-Zaun und null-Werte", () => {
-  expect(parseLocationHint('```json\n{"adresse":null,"ort":null,"formular":null}\n```')).toEqual({ locations: [] });
+  expect(parseLocationHint('```json\n{"adresse":null,"ort":null,"formular":null}\n```')).toEqual({ locations: [], titles: [] });
 });
 
 test("parseLocationHint nimmt mehrere Standorte, ohne Doppelte", () => {
   expect(
     parseLocationHint('{"standorte":["Renningen","Stuttgart","renningen"],"formular":null}'),
-  ).toEqual({ locations: ["Renningen", "Stuttgart"] });
+  ).toEqual({ locations: ["Renningen", "Stuttgart"], titles: [] });
 });
 
 test("parseLocationHint liest einen genannten Umkreis, aber keinen erfundenen", () => {
@@ -29,14 +29,27 @@ test("parseLocationHint wirft bei Unlesbarem", () => {
   expect(() => parseLocationHint("keine Ahnung")).toThrow();
 });
 
-test("parseOnboarding liefert Benefits als Zeilen und nur bekannte Rollen-Kürzel", () => {
+test("parseOnboarding liefert Benefits als Zeilen; Stellen als Kürzel, Unbekanntes als Freitext", () => {
   expect(
     parseOnboarding('{"benefits":["jedes 2. Wochenende bleibt frei","33 Urlaubstage"],"rollen":["FK","XYZ","pdl"]}'),
-  ).toEqual({ benefits: ["jedes 2. Wochenende bleibt frei", "33 Urlaubstage"], roles: ["FK", "PDL"] });
+  ).toEqual({ benefits: ["jedes 2. Wochenende bleibt frei", "33 Urlaubstage"], roles: ["FK", "PDL"], roleFreeText: "XYZ" });
+  // Die Tabelle aus der Probe vom 2026-09-04: PA, FK, Praxisanleiter.
+  expect(parseOnboarding('{"benefits":[],"stellen":["PA","FK","Praxisanleiter","Pflegefachkraft"]}')).toEqual({
+    benefits: [],
+    roles: ["PA", "FK", "PFK"],
+    roleFreeText: "Praxisanleiter",
+  });
 });
 
 test("parseOnboarding: leere oder fehlende Listen sind leer, kein Fehler", () => {
-  expect(parseOnboarding("{}")).toEqual({ benefits: [], roles: [] });
+  expect(parseOnboarding("{}")).toEqual({ benefits: [], roles: [], roleFreeText: "" });
+});
+
+test("parseLocationHint nimmt die Stellen aus der Beschreibung mit", () => {
+  expect(parseLocationHint('{"standorte":[],"formular":null,"stellen":["Praxisanleiter","PDL"]}').titles).toEqual([
+    "Praxisanleiter",
+    "PDL",
+  ]);
 });
 
 // --- assembleBrief mit gestubbten Quellen
@@ -178,6 +191,37 @@ test("assembleBrief: Rollen aus der Onboarding-Tabelle, wenn ClickUp keine hat",
   );
   expect(out.roles).toEqual({ value: ["PFK"], source: "onboarding" });
   expect(out.benefits).toBeUndefined();
+});
+
+test("assembleBrief: Stellen aus der Beschreibung schlagen Aufgabenname und Tabelle", async () => {
+  const out = await assembleBrief(
+    "t1",
+    deps({
+      getBrief: async () => ({ ...brief, rolesText: "s. OB" }),
+      mistral: async (c) =>
+        typeof c === "string" && c.includes("CSV")
+          ? '{"benefits":[],"stellen":["FK","PA"]}'
+          : '{"standorte":["Renningen"],"formular":null,"stellen":["Praxisanleiter","Pflegedienstleitung"]}',
+    }),
+  );
+  expect(out.roles).toEqual({ value: ["PDL"], source: "clickup" });
+  expect(out.roleFreeText).toEqual({ value: "Praxisanleiter", source: "clickup" });
+});
+
+test("assembleBrief: schweigt die Aufgabe, kommen die Stellen aus der Tabelle – auch als Freitext", async () => {
+  const out = await assembleBrief(
+    "t1",
+    deps({
+      getBrief: async () => ({ ...brief, name: "MeVita - Kampagne", rolesText: undefined }),
+      mistral: async (c) =>
+        typeof c === "string" && c.includes("CSV")
+          ? '{"benefits":[],"stellen":["12h-Dienste als PA","FK","Praxisanleiter"]}'
+          : '{"standorte":["Renningen"],"formular":null,"stellen":[]}',
+    }),
+  );
+  // „12h-Dienste als PA“ trägt das Kürzel im Titel – es zählt als PA, nicht als Freitext.
+  expect(out.roles).toEqual({ value: ["PA", "FK"], source: "onboarding" });
+  expect(out.roleFreeText).toEqual({ value: "Praxisanleiter", source: "onboarding" });
 });
 
 test("assembleBrief: nur der Ort, wenn keine Adresse genannt ist", async () => {

@@ -116,6 +116,37 @@ export function parseRoles(text: string): { roles: string[]; free: string } {
 }
 
 /**
+ * Stellen, wie Mistral sie aus der Beschreibung oder der Onboarding-Tabelle
+ * liest („PA“, „Pflegefachkraft“, „Praxisanleiter“): was ein Kürzel oder ein
+ * Label aus ROLES ist, wird Kürzel; alles andere bleibt als Freitext stehen –
+ * der Assistent darf Stellen erfinden, die die Liste nicht kennt, aber die
+ * Liste ist der bessere Weg, wo sie passt.
+ */
+const BY_LABEL = new Map(ROLES.map((r) => [r.label.toLowerCase(), r.code]));
+export function rolesFromTitles(titles: string[]): { roles: string[]; free: string } {
+  const roles: string[] = [];
+  const free: string[] = [];
+  for (const raw of titles.map((t) => t.trim()).filter(Boolean)) {
+    // „sPDL“ und „stellv. PDL“ sind dasselbe Kürzel wie „Stv. PDL“.
+    const title = raw.replace(/^s(?:tellv|tv)?\.?\s*pdl$/i, "Stv. PDL");
+    // Plural zurück auf das Label: „Pflegefachkräfte“ → „pflegefachkraft“,
+    // „Betreuungskräfte“ → „betreuungskraft“, „Pflegehelfer“ bleibt.
+    const singular = title.toLowerCase().replace(/kräfte$/, "kraft").replace(/(?<!kraf)te?n?$/, "");
+    const code =
+      BY_TOKEN.get(title.toLowerCase().replace(/[^a-z]/g, "")) ??
+      BY_LABEL.get(title.toLowerCase()) ??
+      BY_LABEL.get(singular) ??
+      BY_LABEL.get(title.toLowerCase().replace(/e?n$/, ""));
+    // „Pflegekräfte (PFK)“: das Kürzel steckt im Titel – dann zählt es allein.
+    const inside = code ? [code] : parseRoles(title).roles;
+    if (inside.length) {
+      for (const c of inside) if (!roles.includes(c)) roles.push(c);
+    } else if (!free.some((f) => f.toLowerCase() === title.toLowerCase())) free.push(title);
+  }
+  return { roles, free: free.join(" / ") };
+}
+
+/**
  * Aufgabennamen nach der Konvention aus lib/naming.ts: „Kunde - Rollen ab
  * Datum Kürzel“. Zwischen „ - “ und „ ab “ stehen die Rollen, oft mit dem Ort
  * („PFK Renningen“) – der Ort ist kein Freitext, deshalb nur die Kürzel.
