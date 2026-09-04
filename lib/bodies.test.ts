@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { parseBody, parseTitles, roleLabels } from "./bodies";
+import { mistral, parseBody, parseTitles, roleLabels } from "./bodies";
 
 test("parseTitles liest die Liste, wirft zu Lange weg und kappt bei fünf", () => {
   expect(parseTitles('{"titel": ["Kurz", "  Pflege-Jobs (m/w/d)  "]}')).toEqual([
@@ -33,4 +33,29 @@ test("roleLabels übersetzt Kürzel und hängt den Freitext an", () => {
     "Koch",
   ]);
   expect(roleLabels(["unbekannt"], "")).toEqual([]);
+});
+
+test("mistral(): höchstens zwei gleichzeitig, mindestens 600 ms zwischen zwei Starts", async () => {
+  process.env.MISTRAL_API_KEY = "test";
+  const starts: number[] = [];
+  let inflight = 0;
+  let maxInflight = 0;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    starts.push(Date.now());
+    inflight++;
+    maxInflight = Math.max(maxInflight, inflight);
+    await new Promise((r) => setTimeout(r, 200));
+    inflight--;
+    return new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }] }), { status: 200 });
+  }) as unknown as typeof fetch;
+  try {
+    const out = await Promise.all(Array.from({ length: 7 }, () => mistral("p")));
+    expect(out).toEqual(Array(7).fill("ok"));
+    expect(maxInflight).toBeLessThanOrEqual(2);
+    starts.sort((a, b) => a - b);
+    for (let i = 1; i < starts.length; i++) expect(starts[i] - starts[i - 1]).toBeGreaterThanOrEqual(590);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });

@@ -203,10 +203,10 @@ const MODEL = "mistral-medium-latest";
 /** Ein Prompt, eine Antwort als roher Text – geteilt von Text, Überschriften
  *  und Beschreibung; mit Bildteilen im Inhalt auch von lib/headline.ts.
  *
- *  429 wird mit Backoff wiederholt – anders als bei Metas Stundenbudget
- *  (lib/graph.ts) ist Mistrals Limit ein Requests-pro-Sekunde-Fenster: die
- *  fünf parallelen Aufrufe des Dialogs reißen es kurz, Sekunden später ist
- *  es wieder frei. */
+ *  Alle Aufrufe laufen gedrosselt (acquire unten); ein 429 wird trotzdem mit
+ *  Backoff wiederholt – anders als bei Metas Stundenbudget (lib/graph.ts) ist
+ *  Mistrals Limit ein Requests-pro-Sekunde-Fenster, Sekunden später ist es
+ *  wieder frei. */
 export async function mistral(
   content: string | { type: string; [k: string]: string }[],
   opts: { model?: string; temperature?: number } = {},
@@ -214,6 +214,45 @@ export async function mistral(
   const key = process.env.MISTRAL_API_KEY;
   if (!key) throw new Error("MISTRAL_API_KEY fehlt in der Umgebung (.env.local).");
 
+  const release = await acquire();
+  try {
+    return await request(key, content, opts);
+  } finally {
+    release();
+  }
+}
+
+// Mistrals Limit ist ein Requests-pro-Sekunde-Fenster. Der Dialog feuert sieben
+// Aufrufe je Standort, ein PDF-Export zwölf Überschriften – alle zur selben
+// Millisekunde. Hier laufen alle Aufrufe durch: höchstens SLOTS gleichzeitig,
+// und zwischen zwei Starts mindestens GAP_MS.
+// ponytail: prozessweit, ohne Prioritäten – je Nutzer drosseln, falls mehrere
+// Bediener gleichzeitig arbeiten und sich gegenseitig bremsen.
+const SLOTS = 2;
+const GAP_MS = 600;
+let running = 0;
+let lastStart = 0;
+const waiting: (() => void)[] = [];
+
+async function acquire(): Promise<() => void> {
+  if (running >= SLOTS) await new Promise<void>((r) => waiting.push(r));
+  running++;
+  // Startzeit sofort reservieren, dann erst schlafen – sonst lesen zwei Wartende
+  // denselben lastStart und starten doch gleichzeitig.
+  const start = Math.max(Date.now(), lastStart + GAP_MS);
+  lastStart = start;
+  if (start > Date.now()) await new Promise((r) => setTimeout(r, start - Date.now()));
+  return () => {
+    running--;
+    waiting.shift()?.();
+  };
+}
+
+async function request(
+  key: string,
+  content: string | { type: string; [k: string]: string }[],
+  opts: { model?: string; temperature?: number },
+): Promise<string> {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch("https://api.mistral.ai/v1/chat/completions", {
       method: "POST",
