@@ -264,12 +264,18 @@ export async function thumbnail(id: string): Promise<Response | null> {
  * Mit `range` nur ein Ausschnitt (Bytes from..to, to exklusiv): so geht ein
  * Video stückweise von Drive zu Meta, ohne je ganz im Speicher zu liegen.
  */
-export const download = (id: string, range?: { from: number; to: number }) =>
+export const download = (id: string, range?: { from: number; to: number } | string) =>
   api(
     `files/${encodeURIComponent(id)}`,
     { alt: "media" },
-    range ? { range: `bytes=${range.from}-${range.to - 1}` } : {},
+    // Ein String ist der Range-Header des Browsers, wörtlich durchgereicht –
+    // so spult ein <video> in der Vorschau, ohne dass der Server rechnet.
+    typeof range === "string" ? { range } : range ? { range: `bytes=${range.from}-${range.to - 1}` } : {},
   );
+
+/** Die Datei oder der Ordner in Drive selbst – zum Nachsehen in einem neuen Tab. */
+export const driveUrl = (f: DriveFile) =>
+  isFolder(f) ? `https://drive.google.com/drive/folders/${f.id}` : `https://drive.google.com/file/d/${f.id}/view`;
 
 /** Name, Typ und Größe einer Datei – der Server traut der Größe aus dem Browser nicht. */
 export const fileMeta = async (id: string): Promise<DriveFile> =>

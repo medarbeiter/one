@@ -27,6 +27,7 @@ import {
   TextInput,
 } from "@astryxdesign/core";
 import {
+  ArrowSquareOutIcon,
   CheckIcon,
   FolderSimpleIcon,
   ImageIcon,
@@ -34,7 +35,8 @@ import {
   PlayIcon,
 } from "@phosphor-icons/react";
 import type { DriveFolder, DriveSearch } from "@/app/api/drive/route";
-import type { DriveFile } from "@/lib/drive";
+import { driveUrl, type DriveFile } from "@/lib/drive";
+import { DrivePreview, PreviewCorner } from "./drive-preview";
 
 const FOLDER = "application/vnd.google-apps.folder";
 const isFolder = (f: DriveFile) => f.mimeType === FOLDER;
@@ -68,6 +70,7 @@ export function DriveDialog({
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [selected, setSelected] = useState<Map<string, DriveFile>>(new Map());
+  const [preview, setPreview] = useState<DriveFile>();
 
   const guarded = async (work: () => Promise<void>) => {
     setError(null);
@@ -192,20 +195,34 @@ export function DriveDialog({
                 <Skeleton height={20} width={260} radius={1} />
               ) : (
                 folders.length > 0 && (
-                  <Breadcrumbs label="Ordnerpfad">
-                    <BreadcrumbItem isCurrent={!inFolder} onClick={() => setPath([])}>
-                      Treffer
-                    </BreadcrumbItem>
-                    {path.map((f, i) => (
-                      <BreadcrumbItem
-                        key={f.id}
-                        isCurrent={i === path.length - 1}
-                        onClick={() => void open(path.slice(0, i + 1))}
-                      >
-                        {f.name}
+                  <div className="flex items-center gap-2">
+                    <Breadcrumbs label="Ordnerpfad">
+                      <BreadcrumbItem isCurrent={!inFolder} onClick={() => setPath([])}>
+                        Treffer
                       </BreadcrumbItem>
-                    ))}
-                  </Breadcrumbs>
+                      {path.map((f, i) => (
+                        <BreadcrumbItem
+                          key={f.id}
+                          isCurrent={i === path.length - 1}
+                          onClick={() => void open(path.slice(0, i + 1))}
+                        >
+                          {f.name}
+                        </BreadcrumbItem>
+                      ))}
+                    </Breadcrumbs>
+                    {inFolder && (
+                      <a
+                        href={driveUrl(path[path.length - 1])}
+                        target="_blank"
+                        rel="noreferrer"
+                        aria-label="Ordner in Drive öffnen"
+                        title="In Drive öffnen"
+                        className="text-ink-500 hover:text-ink-900 focus-visible:ring-gold-500 shrink-0 rounded focus-visible:ring-2 focus-visible:outline-none"
+                      >
+                        <ArrowSquareOutIcon size={16} weight="bold" aria-hidden />
+                      </a>
+                    )}
+                  </div>
                 )
               )}
 
@@ -260,7 +277,8 @@ export function DriveDialog({
                             file={m}
                             isSelected={selected.has(m.id)}
                             onToggle={(on) => setMany([m], on)}
-                            />
+                            onPreview={setPreview}
+                          />
                         ))}
                       </ul>
                     </Section>
@@ -291,6 +309,7 @@ export function DriveDialog({
           </LayoutFooter>
         }
       />
+      <DrivePreview file={preview} onClose={() => setPreview(undefined)} />
     </Dialog>
   );
 }
@@ -344,10 +363,12 @@ function FileTile({
   file,
   isSelected,
   onToggle,
+  onPreview,
 }: {
   file: DriveFile;
   isSelected: boolean;
   onToggle: (on: boolean) => void;
+  onPreview: (f: DriveFile) => void;
 }) {
   const [thumb, setThumb] = useState<"loading" | "ready" | "none">(
     file.hasThumbnail ? "loading" : "none",
@@ -356,7 +377,8 @@ function FileTile({
   const size = file.size ? `${Math.round(Number(file.size) / 1e6)} MB` : "";
 
   return (
-    <li>
+    <li className="relative">
+      <PreviewCorner file={file} onPreview={onPreview} />
       <button
         type="button"
         role="checkbox"
@@ -398,14 +420,6 @@ function FileTile({
           >
             {isSelected && <CheckIcon size={12} weight="bold" />}
           </span>
-          {isVideo && thumb === "ready" && (
-            <span
-              className="bg-ink-900/70 absolute right-1.5 bottom-1.5 rounded-full p-1 text-white"
-              aria-hidden
-            >
-              <PlayIcon size={12} weight="fill" />
-            </span>
-          )}
         </div>
         <span className="min-w-0 px-0.5">
           <span className="block truncate text-xs font-medium">{file.name}</span>

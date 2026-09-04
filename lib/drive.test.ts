@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createVerify, generateKeyPairSync } from "node:crypto";
-import { assertion, bestLanding, findSheet, folderIdFromUrl, landing, searchTerms, type DriveFile } from "./drive";
+import { assertion, bestLanding, driveUrl, findSheet, folderIdFromUrl, landing, searchTerms, type DriveFile } from "./drive";
 
 test("das JWT trägt Dienstkonto und Lesezugriff und ist mit dem Schlüssel signiert", () => {
   const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -213,4 +213,9 @@ test("findSheet findet die Onboarding-Tabelle im Kundenordner, notfalls eine Ebe
 test("findSheet gibt ohne Tabelle nichts zurück und gräbt nicht endlos", async () => {
   const loop: Record<string, DriveFile[]> = { a: [f("b", "x")], b: [f("a", "y")] };
   expect(await findSheet("a", async (id) => loop[id] ?? [])).toBeUndefined();
+});
+
+test("driveUrl führt zum Ordner bzw. zur Datei in Drive", () => {
+  expect(driveUrl(folder("abc", "Kunde"))).toBe("https://drive.google.com/drive/folders/abc");
+  expect(driveUrl(video("v", "x.mp4"))).toBe("https://drive.google.com/file/d/v/view");
 });

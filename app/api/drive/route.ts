@@ -3,7 +3,7 @@
  *   ?q=<Kundenname>  → passende Kundenordner, der wahrscheinlichste schon geöffnet
  *   ?folder=<id>     → Inhalt eines Ordners (Unterordner und Medien) – zum Korrigieren
  *   ?thumb=<id>      → Drives Vorschaubild dazu, ebenso durchgereicht
- *   ?file=<id>       → die Datei selbst, durchgereicht als Strom
+ *   ?file=<id>       → die Datei selbst, durchgereicht als Strom (mit Range: zum Abspielen)
  *   ?land=<Ordner-ID> → wie ?q=, aber ab einem bekannten Ordner (Drive-Link aus ClickUp)
  *   &hint=Renningen,FK → Ort und Rollen der Aufgabe: wählen unter datierten Unterordnern
  *
@@ -27,13 +27,15 @@ export async function GET(request: Request) {
 
   try {
     if (file) {
-      const upstream = await download(file);
+      const upstream = await download(file, request.headers.get("range") ?? undefined);
+      const passed = ["content-type", "content-length", "content-range", "accept-ranges"] as const;
       return new Response(upstream.body, {
+        status: upstream.status,
         headers: {
-          "content-type": upstream.headers.get("content-type") ?? "application/octet-stream",
-          ...(upstream.headers.get("content-length") && {
-            "content-length": upstream.headers.get("content-length")!,
-          }),
+          "content-type": "application/octet-stream",
+          // Drive sagt es beim vollen Abruf nicht dazu – <video> spult nur, wenn es dasteht.
+          "accept-ranges": "bytes",
+          ...Object.fromEntries(passed.flatMap((h) => (upstream.headers.get(h) ? [[h, upstream.headers.get(h)!]] : []))),
           "cache-control": "no-store",
         },
       });

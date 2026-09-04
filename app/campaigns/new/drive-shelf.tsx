@@ -12,11 +12,12 @@
 
 import { useEffect, useState } from "react";
 import { Banner, Button, Skeleton, Text } from "@astryxdesign/core";
-import { FolderSimpleIcon, ImageIcon, PlayIcon } from "@phosphor-icons/react";
+import { ArrowSquareOutIcon, FolderSimpleIcon, ImageIcon, PlayIcon } from "@phosphor-icons/react";
 import type { DriveSearch } from "@/app/api/drive/route";
-import type { DriveFile } from "@/lib/drive";
+import { driveUrl, type DriveFile } from "@/lib/drive";
 import { plural } from "@/lib/labels";
 import { DriveDialog } from "./drive-dialog";
+import { DrivePreview, PreviewCorner } from "./drive-preview";
 import { report } from "./activity";
 
 const FOLDER = "application/vnd.google-apps.folder";
@@ -44,6 +45,7 @@ export function DriveShelf({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
   const [dialog, setDialog] = useState(false);
+  const [preview, setPreview] = useState<DriveFile>();
 
   const hintKey = (hint ?? []).filter(Boolean).join(",");
   useEffect(() => {
@@ -102,6 +104,18 @@ export function DriveShelf({
                 ? path.map((p) => p.name).join(" › ")
                 : "Kein Drive-Ordner gefunden"}
           </Text>
+          {path.length > 0 && !loading && (
+            <a
+              href={driveUrl(path[path.length - 1])}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Ordner in Drive öffnen"
+              title="In Drive öffnen"
+              className="text-ink-500 hover:text-ink-900 focus-visible:ring-gold-500 shrink-0 rounded focus-visible:ring-2 focus-visible:outline-none"
+            >
+              <ArrowSquareOutIcon size={16} weight="bold" aria-hidden />
+            </a>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {open.length > 0 && (
@@ -129,7 +143,8 @@ export function DriveShelf({
             const done = taken.has(m.name);
             const video = m.mimeType.startsWith("video/");
             return (
-              <li key={m.id}>
+              <li key={m.id} className="relative">
+                <PreviewCorner file={m} onPreview={setPreview} />
                 <button
                   type="button"
                   disabled={done}
@@ -174,6 +189,7 @@ export function DriveShelf({
       )}
 
       <DriveDialog isOpen={dialog} onOpenChange={setDialog} business={business} onFiles={onFiles} />
+      <DrivePreview file={preview} onClose={() => setPreview(undefined)} />
     </div>
   );
 }
