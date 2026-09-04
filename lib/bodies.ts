@@ -222,14 +222,16 @@ export async function mistral(
   }
 }
 
-// Mistrals Limit ist ein Requests-pro-Sekunde-Fenster. Der Dialog feuert sieben
-// Aufrufe je Standort, ein PDF-Export zwölf Überschriften – alle zur selben
-// Millisekunde. Hier laufen alle Aufrufe durch: höchstens SLOTS gleichzeitig,
-// und zwischen zwei Starts mindestens GAP_MS.
+// Der Dialog feuert sieben Aufrufe je Standort, ein PDF-Export zwölf
+// Überschriften – alle zur selben Millisekunde. Hier laufen alle Aufrufe
+// durch: höchstens SLOTS gleichzeitig, zwischen zwei Starts mindestens GAP_MS.
+// Mit Pay-as-you-go erlaubt Mistral 1000 Anfragen/Minute – die Drossel ist
+// nur noch Schutz gegen Stoßlasten, nicht mehr das Tempo. Ohne Pay-as-you-go
+// steht das Limit auf 0 und keine Drossel hilft (x-ratelimit-limit-req-minute).
 // ponytail: prozessweit, ohne Prioritäten – je Nutzer drosseln, falls mehrere
 // Bediener gleichzeitig arbeiten und sich gegenseitig bremsen.
-const SLOTS = 2;
-const GAP_MS = 600;
+const SLOTS = 6;
+const GAP_MS = 100;
 let running = 0;
 let lastStart = 0;
 const waiting: (() => void)[] = [];
