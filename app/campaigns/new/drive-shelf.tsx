@@ -11,13 +11,12 @@
  */
 
 import { useEffect, useState } from "react";
-import { Banner, Button, Skeleton, Text, useToast } from "@astryxdesign/core";
+import { Banner, Button, Skeleton, Text } from "@astryxdesign/core";
 import { FolderSimpleIcon, ImageIcon, PlayIcon } from "@phosphor-icons/react";
 import type { DriveSearch } from "@/app/api/drive/route";
 import type { DriveFile } from "@/lib/drive";
 import { plural } from "@/lib/labels";
 import { DriveDialog } from "./drive-dialog";
-import { fetchDriveFiles } from "./drive-fetch";
 import { report } from "./activity";
 
 const FOLDER = "application/vnd.google-apps.folder";
@@ -26,24 +25,27 @@ const isMedia = (f: DriveFile) => f.mimeType !== FOLDER;
 export function DriveShelf({
   business,
   folderId,
+  hint,
   taken,
   onFiles,
 }: {
   business: string;
   /** Aus ClickUp – dann startet das Regal dort statt bei der Namenssuche. */
   folderId?: string;
+  /** Ort und Rollen der Aufgabe – wählen unter datierten Unterordnern („13.9.26 FK Renningen“). */
+  hint?: string[];
   /** Dateinamen, die schon in der Anzeigengruppe liegen (Anzeigen, Ablage, laufende Uploads). */
   taken: ReadonlySet<string>;
-  onFiles: (files: File[]) => void;
+  /** Die Einträge selbst, nicht ihre Bytes: die Warteschlange holt, was sie braucht. */
+  onFiles: (files: DriveFile[]) => void;
 }) {
-  const toast = useToast();
   const [path, setPath] = useState<DriveFile[]>([]);
   const [entries, setEntries] = useState<DriveFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
-  const [fetching, setFetching] = useState<{ done: number; total: number } | null>(null);
   const [dialog, setDialog] = useState(false);
 
+  const hintKey = (hint ?? []).filter(Boolean).join(",");
   useEffect(() => {
     if (!business.trim() && !folderId) return;
     let cancelled = false;
@@ -52,6 +54,7 @@ export function DriveShelf({
     const label = "Drive-Regal";
     report({ id: "regal", label, status: "running", detail: "öffnet den Kundenordner, holt Videos und Bilder…" });
     const params: Record<string, string> = folderId ? { land: folderId } : { q: business.trim() };
+    if (hintKey) params.hint = hintKey;
     fetch(`/api/drive?${new URLSearchParams(params)}`)
       .then(async (res) => {
         const json = (await res.json()) as DriveSearch & { error?: string };
@@ -80,20 +83,12 @@ export function DriveShelf({
     return () => {
       cancelled = true;
     };
-  }, [business, folderId]);
+  }, [business, folderId, hintKey]);
 
   const media = entries.filter(isMedia);
   const open = media.filter((m) => !taken.has(m.name));
 
-  const take = async (wanted: DriveFile[]) => {
-    if (!wanted.length || fetching) return;
-    setFetching({ done: 0, total: wanted.length });
-    const { files, failed } = await fetchDriveFiles(wanted, (done, total) => setFetching({ done, total }));
-    setFetching(null);
-    if (failed.length)
-      toast({ type: "error", body: <div>{`Nicht aus Drive geladen: ${failed.join(", ")}`}</div> });
-    if (files.length) onFiles(files);
-  };
+  const take = (wanted: DriveFile[]) => wanted.length && onFiles(wanted);
 
   return (
     <div className="bg-surface-secondary border-line space-y-3 rounded-xl border p-4">
@@ -112,12 +107,7 @@ export function DriveShelf({
           {open.length > 0 && (
             <Button
               size="sm"
-              label={
-                fetching
-                  ? `${fetching.done} / ${fetching.total} geladen…`
-                  : `Alle übernehmen (${open.length})`
-              }
-              isLoading={fetching !== null}
+              label={`Alle übernehmen (${open.length})`}
               onClick={() => take(open)}
             />
           )}
@@ -142,7 +132,7 @@ export function DriveShelf({
               <li key={m.id}>
                 <button
                   type="button"
-                  disabled={done || fetching !== null}
+                  disabled={done}
                   aria-label={done ? `${m.name} – schon übernommen` : `${m.name} übernehmen`}
                   onClick={() => take([m])}
                   className={[

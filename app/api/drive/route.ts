@@ -5,6 +5,7 @@
  *   ?thumb=<id>      → Drives Vorschaubild dazu, ebenso durchgereicht
  *   ?file=<id>       → die Datei selbst, durchgereicht als Strom
  *   ?land=<Ordner-ID> → wie ?q=, aber ab einem bekannten Ordner (Drive-Link aus ClickUp)
+ *   &hint=Renningen,FK → Ort und Rollen der Aufgabe: wählen unter datierten Unterordnern
  *
  * Der Umweg über den Server, weil nur er den Dienstkonto-Schlüssel hat; der
  * Browser reiht das Ergebnis dann wie eine lokal gewählte Datei ein. Angemeldet
@@ -22,6 +23,7 @@ export async function GET(request: Request) {
   const thumb = url.searchParams.get("thumb");
   const land = url.searchParams.get("land");
   const q = url.searchParams.get("q")?.trim();
+  const hint = (url.searchParams.get("hint") ?? "").split(",").map((h) => h.trim()).filter(Boolean);
 
   try {
     if (file) {
@@ -47,11 +49,11 @@ export async function GET(request: Request) {
         },
       });
     }
-    if (land) return Response.json({ folders: [], landed: await landingAt(land) } satisfies DriveSearch);
+    if (land) return Response.json({ folders: [], landed: await landingAt(land, hint) } satisfies DriveSearch);
     if (folder) return Response.json({ entries: await entriesOf(folder) } satisfies DriveFolder);
     if (!q) return Response.json({ error: "Kein Suchbegriff." }, { status: 400 });
 
-    return Response.json((await bestLanding(await findFolders(q))) satisfies DriveSearch);
+    return Response.json((await bestLanding(await findFolders(q), undefined, hint)) satisfies DriveSearch);
   } catch (e) {
     return Response.json({ error: (e as Error).message }, { status: 502 });
   }

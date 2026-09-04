@@ -153,7 +153,7 @@ export function toBrief(raw: RawTask): Brief {
  * Nur diese zwei Werte verlassen die Funktion, der Rest der Seite bleibt
  * ungelesen im Aufrufer.
  */
-export function overviewFacts(markdown: string): { address?: string; rolesText?: string } {
+export function overviewFacts(markdown: string): { address?: string; rolesText?: string; radiusKm?: number } {
   // [ \t] statt \s: \s schließt \n ein und würde sonst über die Zeile hinaus
   // bis in den nächsten Wert hinein fressen, wenn der Wert leer ist.
   const pick = (label: string) => {
@@ -161,7 +161,13 @@ export function overviewFacts(markdown: string): { address?: string; rolesText?:
     const v = m?.[1]?.replace(/^\*+|\*+$/g, "").trim();
     return v || undefined;
   };
-  return { address: pick("Adresse"), rolesText: pick("Offene Stellen") };
+  // „Umkreis: 30 km“ – eine Zahl, sonst nichts; der Rest der Zeile ist Prosa.
+  const km = Number(pick("(?:Umkreis|Radius)")?.match(/\d+/)?.[0]);
+  return {
+    address: pick("Adresse"),
+    rolesText: pick("Offene Stellen"),
+    ...(km > 0 && { radiusKm: km }),
+  };
 }
 
 function token(): string {
@@ -206,7 +212,7 @@ type DocPage = { id: string; name: string; content?: string; pages?: DocPage[] }
  * kein solches Doc gibt – der Aufrufer macht daraus keine Warnung, nur einen
  * Fehler beim Netzzugriff propagiert.
  */
-export async function customerOverview(folderId: string): Promise<{ address?: string; rolesText?: string }> {
+export async function customerOverview(folderId: string): Promise<ReturnType<typeof overviewFacts>> {
   const { views } = await api<{ views: FolderView[] }>(`folder/${folderId}/view`);
   const view = views.find((v) => v.type === "doc" && /kunden.?übersicht/i.test(v.name));
   if (!view) return {};

@@ -66,15 +66,17 @@ export type DriveFile = {
   size?: string;
   /** Drive hat ein Vorschaubild gerendert – abrufbar über thumbnail(). */
   hasThumbnail?: boolean;
+  /** Bei Videos: die Maße, die Drive beim Verarbeiten gelesen hat. */
+  videoMediaMetadata?: { width?: number; height?: number };
 };
 
-async function api(path: string, params: Record<string, string>): Promise<Response> {
+async function api(path: string, params: Record<string, string>, headers: Record<string, string> = {}): Promise<Response> {
   const url = new URL(`${API}/${path}`);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   // Geteilte Ablagen und „Meine Ablage“ gleichermaßen – ohne das sieht Drive
   // nur, was dem Dienstkonto selbst gehört, also nichts.
   url.searchParams.set("supportsAllDrives", "true");
-  const res = await fetch(url, { headers: { authorization: `Bearer ${await token()}` } });
+  const res = await fetch(url, { headers: { ...headers, authorization: `Bearer ${await token()}` } });
   if (!res.ok) throw new Error(`Drive ${res.status}: ${(await res.text()).slice(0, 200)}`);
   return res;
 }
@@ -86,7 +88,7 @@ async function list(q: string): Promise<DriveFile[]> {
     const page = (await (
       await api("files", {
         q: `${q} and trashed = false`,
-        fields: "nextPageToken,files(id,name,mimeType,size,hasThumbnail)",
+        fields: "nextPageToken,files(id,name,mimeType,size,hasThumbnail,videoMediaMetadata(width,height))",
         pageSize: "200",
         includeItemsFromAllDrives: "true",
         orderBy: "name",
@@ -136,23 +138,34 @@ export const isFolder = (f: DriveFile) => f.mimeType === FOLDER;
 export const isMedia = (f: DriveFile) =>
   f.mimeType.startsWith("video/") || f.mimeType === "image/jpeg" || f.mimeType === "image/png";
 
+/**
+ * „Beispielvideo 1.MOV“ und „Beispielvideo 2.MOV“ liegen in jedem Kundenordner
+ * – dieselben zwei Vorlagen, in keiner Kampagne je gewollt. Sie zählen nirgends
+ * als Medien: sonst hielten sie den Abstieg genau dort an, wo nur sie liegen.
+ */
+const SAMPLE = /^beispielvideo/i;
+/** Ordner, in die der Assistent nie von selbst hineingeht. */
+const JUNK = /nicht verwenden|^alt\b|^x-?\s*ordner/i;
+
 /** Ein Ordnerinhalt, wie der Dialog ihn zeigt: Unterordner zum Hineingehen, Medien zum Abhaken. */
 export const entriesOf = async (folderId: string, kids = children): Promise<DriveFile[]> =>
-  (await kids(folderId)).filter((f) => isFolder(f) || isMedia(f));
+  (await kids(folderId)).filter((f) => isFolder(f) || (isMedia(f) && !SAMPLE.test(f.name)));
 
 export type Landing = { path: DriveFile[]; entries: DriveFile[] };
 
 /**
  * Der beste Tipp, wo die Videos liegen – der Dialog lässt von dort aus jeden
  * Schritt korrigieren. Erst „1 - Recruiting“ (bei älteren Kunden
- * „1 - Mitarbeitergewinnung“); dort liegen meist nur Beispielvideos, das
- * Eigentliche steckt in „Werbemotive“ – oder, wo es die nicht gibt, in „UGC
- * Videos“. Dann weiter hinein, solange hier keine Medien liegen, aber ein
- * Unterordner offensichtlich der richtige ist: einer, der nach UGC oder Video
- * heißt, oder schlicht der einzige. Bei mehreren gleichwertigen bleibt es
- * stehen – raten wäre hier nur falsch.
+ * „1 - Mitarbeitergewinnung“; manche Kunden haben die Stufe gar nicht); dort
+ * liegen nur die Beispielvideos, das Eigentliche steckt in „Werbemotive“ –
+ * oder, wo es die nicht gibt, in „UGC Videos“. Dann weiter hinein, solange hier
+ * keine Medien liegen, aber ein Unterordner offensichtlich der richtige ist:
+ * einer, der zur Aufgabe passt (`hint`: Ort und Rollen – „13.9.26 FK
+ * Renningen“), einer, der nach UGC oder Video heißt, oder schlicht der
+ * einzige. Bei mehreren gleichwertigen bleibt es stehen – raten wäre hier nur
+ * falsch.
  */
-export async function landing(customer: DriveFile, kids = children): Promise<Landing> {
+export async function landing(customer: DriveFile, kids = children, hint: string[] = []): Promise<Landing> {
   const path = [customer];
   let entries = await entriesOf(customer.id, kids);
   const descend = async (next: DriveFile) => {
@@ -160,14 +173,15 @@ export async function landing(customer: DriveFile, kids = children): Promise<Lan
     entries = await entriesOf(next.id, kids);
   };
 
-  // Je Stufe der erste Ausdruck, der einen nicht leeren Ordner findet; findet
-  // keiner, ist Schluss. Ein leeres „Werbemotive“ (angelegt, nie befüllt) soll
-  // nicht vor einem vollen „UGC Videos“ daneben gewinnen.
+  // Je Stufe der erste Ausdruck, der einen nicht leeren Ordner findet; fehlt
+  // die Stufe, geht es auf derselben Ebene mit der nächsten weiter. Ein leeres
+  // „Werbemotive“ (angelegt, nie befüllt) soll nicht vor einem vollen „UGC
+  // Videos“ daneben gewinnen.
   const steps = [[/^1\s*-|recruiting|mitarbeitergewinnung/i], [/werbemotiv/i, /ugc/i]];
   for (const patterns of steps) {
     const folders = entries.filter(isFolder);
     const candidates = patterns.map((p) => folders.find((f) => p.test(f.name))).filter((f): f is DriveFile => Boolean(f));
-    if (!candidates.length) break;
+    if (!candidates.length) continue;
     let chosen = candidates[0];
     let inside = await entriesOf(chosen.id, kids);
     for (const other of candidates.slice(1)) {
@@ -180,12 +194,34 @@ export async function landing(customer: DriveFile, kids = children): Promise<Lan
   }
   // ponytail: höchstens fünf Stufen tiefer – gegen Endlosverschachtelung, nicht gegen echte Ordner.
   for (let depth = 0; depth < 5 && !entries.some(isMedia); depth++) {
-    const folders = entries.filter(isFolder);
-    const next = folders.find((f) => /ugc|video/i.test(f.name)) ?? (folders.length === 1 ? folders[0] : undefined);
+    const folders = entries.filter(isFolder).filter((f) => !JUNK.test(f.name));
+    const next =
+      pickByHint(folders, hint) ??
+      folders.find((f) => /ugc|video/i.test(f.name)) ??
+      (folders.length === 1 ? folders[0] : undefined);
     if (!next) break;
     await descend(next);
   }
   return { path, entries };
+}
+
+/**
+ * Der Ordner, in dessen Namen die meisten Stichworte der Aufgabe stehen (Ort,
+ * Rollen) – nur bei einem eindeutigen Sieger. „13.9.26 FK Renningen“ schlägt
+ * „4.9.26 FK Waldenbuch“ mit zwei Treffern gegen einen; zwei Ordner mit je
+ * einem Treffer heißen: stehen bleiben.
+ */
+export function pickByHint(folders: DriveFile[], hint: string[]): DriveFile | undefined {
+  const words = hint.map((h) => h.trim().toLowerCase()).filter((h) => h.length >= 2);
+  if (!words.length || !folders.length) return undefined;
+  const scored = folders.map((f) => ({
+    f,
+    score: words.filter((w) => new RegExp(`(^|[^a-zäöüß])${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-zäöüß]|$)`, "i").test(f.name)).length,
+  }));
+  const best = Math.max(...scored.map((s) => s.score));
+  if (best === 0) return undefined;
+  const winners = scored.filter((s) => s.score === best);
+  return winners.length === 1 ? winners[0].f : undefined;
 }
 
 /**
@@ -198,9 +234,10 @@ export async function landing(customer: DriveFile, kids = children): Promise<Lan
 export async function bestLanding(
   folders: DriveFile[],
   kids = children,
+  hint: string[] = [],
 ): Promise<{ folders: DriveFile[]; landed: Landing | null }> {
   if (!folders.length) return { folders, landed: null };
-  const tried = await Promise.all(folders.slice(0, 5).map((f) => landing(f, kids)));
+  const tried = await Promise.all(folders.slice(0, 5).map((f) => landing(f, kids, hint)));
   const best = tried.reduce((a, b) => (b.path.length > a.path.length ? b : a));
   const winner = best.path[0];
   return { folders: [winner, ...folders.filter((f) => f.id !== winner.id)], landed: best };
@@ -222,8 +259,23 @@ export async function thumbnail(id: string): Promise<Response | null> {
   return res.ok ? res : null;
 }
 
-/** Die Datei selbst, als Strom – der Route Handler reicht sie unverändert weiter. */
-export const download = (id: string) => api(`files/${encodeURIComponent(id)}`, { alt: "media" });
+/**
+ * Die Datei selbst, als Strom – der Route Handler reicht sie unverändert weiter.
+ * Mit `range` nur ein Ausschnitt (Bytes from..to, to exklusiv): so geht ein
+ * Video stückweise von Drive zu Meta, ohne je ganz im Speicher zu liegen.
+ */
+export const download = (id: string, range?: { from: number; to: number }) =>
+  api(
+    `files/${encodeURIComponent(id)}`,
+    { alt: "media" },
+    range ? { range: `bytes=${range.from}-${range.to - 1}` } : {},
+  );
+
+/** Name, Typ und Größe einer Datei – der Server traut der Größe aus dem Browser nicht. */
+export const fileMeta = async (id: string): Promise<DriveFile> =>
+  (await (
+    await api(`files/${encodeURIComponent(id)}`, { fields: "id,name,mimeType,size,videoMediaMetadata(width,height)" })
+  ).json()) as DriveFile;
 
 /** Die Ordner-ID aus einem Drive-Link – beide Formen, die ClickUp-Felder enthalten. */
 export function folderIdFromUrl(url: string): string | undefined {
@@ -258,9 +310,9 @@ export const exportCsv = async (fileId: string): Promise<string> =>
   (await api(`files/${encodeURIComponent(fileId)}/export`, { mimeType: "text/csv" })).text();
 
 /** landing() ab einem bekannten Ordner – wenn ClickUp den Drive-Link liefert. */
-export async function landingAt(folderId: string): Promise<Landing> {
+export async function landingAt(folderId: string, hint: string[] = []): Promise<Landing> {
   const meta = (await (
     await api(`files/${encodeURIComponent(folderId)}`, { fields: "id,name,mimeType" })
   ).json()) as DriveFile;
-  return landing(meta);
+  return landing(meta, children, hint);
 }

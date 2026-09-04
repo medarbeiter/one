@@ -326,6 +326,17 @@ const brief: AssembledBrief = {
   warnings: [],
 };
 
+test("applyBrief setzt einen genannten Umkreis auf alle Gruppen, die noch auf 17 km stehen", () => {
+  const s = applyBrief(initialState("act_1", "", "KF"), {
+    ...brief,
+    locations: { value: ["Renningen", "Stuttgart"], source: "clickup" },
+    radiusKm: { value: 30, source: "clickup" },
+  });
+  expect(s.adSets.map((a) => a.radiusKm)).toEqual([30, 30]);
+  // Ohne Nennung bleibt der Hausstandard – und damit die Reichweiten-Leiter an.
+  expect(applyBrief(initialState("act_1", "", "KF"), brief).adSets[0].radiusKm).toBe(17);
+});
+
 test("applyBrief füllt ein leeres Formular und merkt sich je Feld die Herkunft", () => {
   const s = applyBrief(initialState("act_1", "", "KF"), brief);
   expect(s.business).toBe("MeVita Pflegedienst GmbH");

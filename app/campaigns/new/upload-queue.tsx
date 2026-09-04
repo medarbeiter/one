@@ -4,10 +4,14 @@ import { useEffect, useSyncExternalStore } from "react";
 import { useToast, type ShowToastFn } from "@astryxdesign/core";
 import { ProgressRing } from "@/app/shell/progress-ring";
 import { createConvoy, type Convoy } from "@/lib/convoy";
+import type { DirectEvent } from "@/app/api/upload/route";
+import type { DriveFile } from "@/lib/drive";
 import { createGate } from "@/lib/gate";
 import { orientationOf, type Orientation } from "@/lib/media";
+import { readNdjson } from "@/lib/ndjson";
 import { toMetaReady } from "@/lib/transcode";
 import { unzipMedia } from "@/lib/unzip";
+import { fetchDriveFiles } from "./drive-fetch";
 import type { WizardLooseAsset } from "./state";
 
 /**
@@ -56,6 +60,11 @@ const CONVERT_LANES = 6;
 const UPLOAD_GROUP = CONVERT_LANES;
 
 const encoder = createGate(CONVERT_LANES);
+/**
+ * Direktwege zugleich: jeder ist ein offener Strom vom Server zu Drive und zu
+ * Meta. Vier halten die Leitung voll; vierzig hielten nur Metas Rate-Limit an.
+ */
+const direktLanes = createGate(4);
 
 export type UploadPhase =
   | "queued"
@@ -95,10 +104,20 @@ export type UploadJob = {
    * nimmt beides mit, und dann ist die Auswahl ohnehin neu zu treffen.
    */
   file: File;
+  /**
+   * Aus dem Drive-Regal: die Bytes liegen noch bei Google. Ein Video geht
+   * direkt vom Server zu Meta (driveId an /api/upload); `file` ist dann nur
+   * eine leere Hülle mit Namen und Typ, damit die Kachel etwas zu zeigen hat.
+   */
+  remote?: DriveFile;
   target: Target;
 };
 
 type Target = { adSetId: string; adSetName: string; adAccount: string };
+/** Was sich einreihen lässt: eine Datei vom Rechner oder ein Eintrag aus Drive. */
+export type Pickable = File | DriveFile;
+const isRemote = (p: Pickable): p is DriveFile => !(p instanceof File);
+const shell = (m: DriveFile) => new File([], m.name, { type: m.mimeType });
 
 /** Ein Schwung ist, was in einem Griff ausgewählt wurde – ein Toast je Schwung. */
 type Batch = {
@@ -255,7 +274,7 @@ export function drainArrived(): Map<string, WizardLooseAsset[]> {
  * sofort mit, statt auf den laufenden Schwung zu warten. ZIPs werden vorher
  * ausgepackt; ihre Medien reihen sich ein wie direkt gewählte Dateien.
  */
-export function enqueue(files: File[], target: Target): void {
+export function enqueue(files: Pickable[], target: Target): void {
   // Eine neue Auswahl räumt die Fehler des letzten Durchgangs weg; ein zweiter
   // Versuch (retryUploads) darf das nicht, sonst nähme er den übrigen
   // Fehlschlägen ihren eigenen Knopf.
@@ -264,11 +283,11 @@ export function enqueue(files: File[], target: Target): void {
 
 /** ZIPs durch ihren Medieninhalt ersetzen – ein unlesbares Archiv wird zum
  *  Toast, nicht zum Abbruch der übrigen Dateien. */
-async function withZipsExpanded(files: File[]): Promise<File[]> {
-  if (!files.some((file) => /\.zip$/i.test(file.name))) return files;
-  const out: File[] = [];
+async function withZipsExpanded(files: Pickable[]): Promise<Pickable[]> {
+  if (!files.some((file) => !isRemote(file) && /\.zip$/i.test(file.name))) return files;
+  const out: Pickable[] = [];
   for (const file of files) {
-    if (!/\.zip$/i.test(file.name)) {
+    if (isRemote(file) || !/\.zip$/i.test(file.name)) {
       out.push(file);
       continue;
     }
@@ -297,7 +316,7 @@ export function retryUploads(adSetId: string): void {
   // Der Schwung ist der, mit dem sie ausgewählt wurden – der Toast zählt sie
   // dadurch als eigenen Durchgang und nicht als Nachzügler eines vergangenen.
   start(
-    failed.map((job) => job.file),
+    failed.map((job) => job.remote ?? job.file),
     failed[0].target,
     false,
   );
@@ -319,18 +338,19 @@ function rejection(file: File): string {
     : "Dieser Dateityp wird nicht unterstützt — exportiere als JPEG, PNG oder MP4.";
 }
 
-/** Dieselbe Datei ist schon unterwegs – aus zwei Ordnern gewählt, oder zweimal fallen gelassen. */
-const inFlight = (file: File, adSetId: string) =>
-  jobs.some(
-    (job) =>
-      job.adSetId === adSetId && !job.error && job.file.name === file.name && job.file.size === file.size,
-  );
+/** Name und Größe – bei Drive-Einträgen die Größe laut Drive. */
+const sizeOf = (p: Pickable) => (isRemote(p) ? Number(p.size ?? 0) : p.size);
+const same = (a: Pickable, b: Pickable) => a.name === b.name && sizeOf(a) === sizeOf(b);
 
-function start(files: File[], target: Target, clearFailed: boolean): void {
+/** Dieselbe Datei ist schon unterwegs – aus zwei Ordnern gewählt, oder zweimal fallen gelassen. */
+const inFlight = (file: Pickable, adSetId: string) =>
+  jobs.some((job) => job.adSetId === adSetId && !job.error && same(job.remote ?? job.file, file));
+
+function start(files: Pickable[], target: Target, clearFailed: boolean): void {
   files = files.filter((file, i) => {
     if (inFlight(file, target.adSetId)) return false;
     // Auch innerhalb desselben Griffs nur einmal.
-    return files.findIndex((f) => f.name === file.name && f.size === file.size) === i;
+    return files.findIndex((f) => same(f, file)) === i;
   });
   if (!files.length) return;
 
@@ -346,14 +366,14 @@ function start(files: File[], target: Target, clearFailed: boolean): void {
   batches.set(batch.id, batch);
 
   const started = files.map((file) => ({
-    file,
     job: {
       id: crypto.randomUUID(),
       adSetId: target.adSetId,
       batchId: batch.id,
       name: file.name,
       phase: "queued" as const,
-      file,
+      file: isRemote(file) ? shell(file) : file,
+      ...(isRemote(file) && { remote: file }),
       target,
     },
   }));
@@ -380,18 +400,66 @@ function start(files: File[], target: Target, clearFailed: boolean): void {
       isAutoHide: false,
     }) ?? null;
 
-  for (const { file, job } of started) void run(job.id, file, batch);
+  for (const { job } of started) void run(job.id, job.remote ?? job.file, batch);
 }
 
-async function run(id: string, file: File, batch: Batch) {
+async function run(id: string, source: Pickable, batch: Batch) {
   const patch = (u: Partial<UploadJob>) => {
     jobs = jobs.map((job) => (job.id === id ? { ...job, ...u } : job));
+    changed(batch.adSetId);
+  };
+  const finish = (asset: WizardLooseAsset) => {
+    deposit(batch.adSetId, asset);
+    batch.done++;
+    // Die fertige Karte weicht der Anzeige; gescheiterte bleiben stehen.
+    jobs = jobs.filter((job) => job.id !== id);
     changed(batch.adSetId);
   };
 
   let joined = false;
   try {
     patch({ phase: "preparing" });
+    let file: File;
+    if (isRemote(source)) {
+      // Ein Video aus Drive geht direkt vom Server zu Meta – kein Byte durch
+      // den Browser, kein Encoder (Meta nimmt HEVC und MOV, siehe
+      // lib/transcode.ts). Erst wenn der Server abwinkt (zu klein, Meta
+      // verwirft das Format), holt der Browser die Datei und geht den
+      // gewohnten Weg. Am Sammelpunkt nimmt der Direktweg nicht teil: er
+      // belegt keinen Encoder, auf den andere warten müssten.
+      if (source.mimeType.startsWith("video/")) {
+        await direktLanes.acquire(() => patch({ phase: "queued" }));
+        let result: Awaited<ReturnType<typeof direct>>;
+        try {
+          result = await direct(source, batch.adAccount, (progress) =>
+            patch(progress < 1 ? { phase: "uploading", progress } : { phase: "processing", progress: undefined }),
+          );
+        } catch (e) {
+          // Auch ein Scheitern bei Meta (ProRes, kaputte Datei) ist nur ein
+          // Grund für den Browserweg – der wandelt um, was der Server nicht kann.
+          result = { fallback: (e as Error).message };
+        } finally {
+          direktLanes.release();
+        }
+        if ("id" in result) {
+          batch.convoy.drop();
+          const { width, height } = result;
+          return finish({
+            id: crypto.randomUUID(),
+            kind: "video",
+            videoId: result.id,
+            thumbnailUrl: result.thumbnail,
+            fileName: source.name,
+            orientation: width && height ? orientationOf(width, height) : "square",
+          });
+        }
+        patch({ note: `Über den Browser: ${result.fallback}` });
+      }
+      patch({ phase: "preparing", progress: undefined });
+      const { files, failed } = await fetchDriveFiles([source]);
+      if (!files[0]) throw new Error(`Nicht aus Drive geladen: ${failed[0] ?? source.name}`);
+      file = files[0];
+    } else file = source;
     if (!accepts(file)) throw new Error(rejection(file));
     // Die Maße kommen aus dem Original, nicht aus der umgewandelten Datei.
     const orientation = await orientationOfFile(file);
@@ -447,8 +515,7 @@ async function run(id: string, file: File, batch: Batch) {
     );
     if (json.error) throw new Error(json.error);
 
-    deposit(
-      batch.adSetId,
+    finish(
       json.kind === "video"
         ? {
             id: crypto.randomUUID(),
@@ -468,13 +535,8 @@ async function run(id: string, file: File, batch: Batch) {
             headline: json.headline || undefined,
           },
     );
-
-    batch.done++;
-    // Die fertige Karte weicht der Anzeige; gescheiterte bleiben stehen.
-    jobs = jobs.filter((job) => job.id !== id);
-    changed(batch.adSetId);
   } catch (e) {
-    batch.failed.push(file.name);
+    batch.failed.push(source.name);
     patch({ error: (e as Error).message });
     // Wer es nicht bis zum Sammelpunkt schafft, meldet sich ab: sonst warten die
     // schon Fertigen auf einen Mitfahrer, der nie kommt.
@@ -569,6 +631,33 @@ function BatchToast({ batchId }: { batchId: string }) {
 }
 
 // ------------------------------------------------------------------ Werkzeuge
+
+/**
+ * Der Direktweg: /api/upload holt das Video aus Drive und schiebt es zu Meta,
+ * der Strom meldet die Bytes. Ein `fallback` heißt nicht Fehler, sondern
+ * „das kann nur der Browser“; ein `error` bricht ab wie jeder andere.
+ */
+async function direct(
+  remote: DriveFile,
+  adAccount: string,
+  onProgress: (p: number) => void,
+): Promise<{ id: string; thumbnail: string; width?: number; height?: number } | { fallback: string }> {
+  const body = new FormData();
+  body.set("driveId", remote.id);
+  body.set("adAccount", adAccount);
+  const res = await fetch("/api/upload", { method: "POST", body });
+  if (!res.ok || !res.body) {
+    const json = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(json.error ?? `Upload fehlgeschlagen (${res.status})`);
+  }
+  for await (const event of readNdjson<DirectEvent>(res.body)) {
+    if ("error" in event) throw new Error(event.error);
+    if ("fallback" in event) return event;
+    if ("kind" in event) return event;
+    onProgress(event.progress);
+  }
+  throw new Error("Der Direktweg endete ohne Ergebnis.");
+}
 
 /**
  * fetch() kennt keinen Upload-Fortschritt, XHR schon – und bei 500-MB-Videos

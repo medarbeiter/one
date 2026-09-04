@@ -218,6 +218,11 @@ export function applyBrief(state: WizardState, brief: AssembledBrief): WizardSta
     ];
     sources.location = brief.locations!.source;
   }
+  // Ein in der Aufgabe genannter Umkreis gilt für alle Gruppen, die noch auf
+  // dem Hausstandard stehen – und hält damit die Reichweiten-Leiter an
+  // (wizard.tsx passt nur Gruppen mit DEFAULT_RADIUS_KM an).
+  if (brief.radiusKm)
+    next.adSets = next.adSets.map((a) => (a.radiusKm === DEFAULT_RADIUS_KM ? { ...a, radiusKm: brief.radiusKm!.value } : a));
   return { ...next, sources };
 }
 

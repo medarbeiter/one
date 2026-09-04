@@ -1,16 +1,19 @@
 /**
  * Videos Meta-tauglich machen – im Browser, bevor sie hochgeladen werden.
  *
- * Meta nimmt MP4 *und* MOV als Container an. Abgelehnt wird, was drinsteckt:
- * HEVC (seit iOS 11 die Standardaufnahme des iPhones) und ProRes (was
- * Schnittprogramme in ein .mov exportieren). Entschieden wird deshalb nach
- * Codec, nicht nach Dateiendung – ein .mov mit H.264 läuft längst durch, ein
- * .mp4 mit HEVC nicht.
+ * Probe vom 2026-09-04 (drei echte UGC-Clips aus dem Drive, direkt per API ins
+ * Werbekonto): Meta nimmt HEVC in MOV *und* MP4 an, auch 4K HDR mit 54 Mbit/s
+ * und 176 MB – Status „ready“, vier Renditionen. Die Annahme aus der Spec vom
+ * 2026-08-13, HEVC werde abgelehnt, war nie geprüft und ist falsch. Umgewandelt
+ * wird deshalb nur noch, was Meta nachweislich nicht nimmt oder für Instagram
+ * verwirft: fremde Codecs (ProRes, VP9, Opus) und zu kleine Bilder.
  */
 
 /** H.264 heißt bei mediabunny "avc". */
 const META_VIDEO = "avc";
 const META_AUDIO = "aac";
+/** Was Meta unverändert nimmt – geprüft, nicht gelesen. */
+const ACCEPTED_VIDEO = new Set(["avc", "hevc"]);
 
 /**
  * Metas eigene Empfehlung für 1080p – und die Grenze, ab der Uploads kippen:
@@ -32,7 +35,7 @@ const MIN_EDGE = 500;
 /** Worauf hochskaliert wird: kurze Kante 1080, lange gedeckelt bei MAX_EDGE. */
 const HD_EDGE = 1080;
 
-export type Action = "passthrough" | "remux" | "transcode";
+export type Action = "passthrough" | "transcode";
 
 export type Probe = {
   /** Container-Name laut mediabunny, z. B. "MP4" oder "QuickTime File Format". */
@@ -51,26 +54,15 @@ export type Probe = {
  * WebCodecs testen lässt.
  */
 export function planConversion(probe: Probe): Action {
-  const { container, video, audio } = probe;
-  if (video !== META_VIDEO) return "transcode";
+  const { video, audio } = probe;
+  if (video === null || !ACCEPTED_VIDEO.has(video)) return "transcode";
   // Kein Ton ist in Ordnung; Autoplay läuft ohnehin stumm.
   if (audio !== null && audio !== META_AUDIO) return "transcode";
-  // Der Codec kann stimmen und die Datei trotzdem nicht hochgehen. Eine Drohnen-
-  // aufnahme ist H.264 in MP4 – und mit 20 Mbit/s zu groß für einen Upload.
-  if (tooBig(probe)) return "transcode";
-  // Und zu klein geht auch nicht: unter Instagrams Minimum hilft nur
-  // Hochskalieren, und das heißt neu kodieren.
+  // Unter Instagrams Minimum hilft nur Hochskalieren, und das heißt neu kodieren.
+  // Bitrate und 4K sind kein Grund mehr: Meta rechnet selbst herunter, und seit
+  // dem stückweisen Upload (lib/uploads.ts) reißt auch 176 MB nichts mehr ab.
   if (tooSmall(probe)) return "transcode";
-  // MOV nähme Meta zwar an, aber Apple legt Edit-Lists hinein, die die Spec
-  // ausdrücklich ausschließt. Der Containerwechsel schreibt sie weg und kostet
-  // fast nichts: die Packets werden kopiert, nicht neu kodiert.
-  return container === "MP4" ? "passthrough" : "remux";
-}
-
-/** Unbekannte Maße gelten als in Ordnung – geraten wird nicht. */
-function tooBig({ bitrate, width, height }: Probe): boolean {
-  if (bitrate !== undefined && bitrate > MAX_BITRATE) return true;
-  return Math.max(width ?? 0, height ?? 0) > MAX_EDGE;
+  return "passthrough";
 }
 
 /** Unter Instagrams Minimum – nur bei bekannten Maßen, geraten wird nicht. */
@@ -190,23 +182,19 @@ export async function toMetaReady(
     registerAacEncoder();
   }
 
-  // Ein Remux kopiert nur Packets – dafür braucht der Browser den Codec nicht
-  // zu beherrschen. Geprüft wird deshalb erst vor einer echten Umwandlung.
-  if (action === "transcode") {
-    const blocker = await cannotHandle(mb, videoTrack, target);
-    // Lieber das Original hochladen als den Upload zu verweigern: bisher ging
-    // die Datei ja auch unverändert raus. Ein zu kleines Video wird Meta für
-    // Instagram allerdings ablehnen – das steht dann dran, statt später als
-    // Rätsel im Anzeigenentwurf aufzutauchen.
-    if (blocker)
-      return {
-        file,
-        action: "passthrough",
-        note: tooSmall(probe)
-          ? `Auflösung unter Instagrams Minimum (${MIN_EDGE} px), Hochskalieren nicht möglich – ${blocker}`
-          : blocker,
-      };
-  }
+  const blocker = await cannotHandle(mb, videoTrack, target);
+  // Lieber das Original hochladen als den Upload zu verweigern: bisher ging
+  // die Datei ja auch unverändert raus. Ein zu kleines Video wird Meta für
+  // Instagram allerdings ablehnen – das steht dann dran, statt später als
+  // Rätsel im Anzeigenentwurf aufzutauchen.
+  if (blocker)
+    return {
+      file,
+      action: "passthrough",
+      note: tooSmall(probe)
+        ? `Auflösung unter Instagrams Minimum (${MIN_EDGE} px), Hochskalieren nicht möglich – ${blocker}`
+        : blocker,
+    };
 
   const output = new mb.Output({
     format: new mb.Mp4OutputFormat(),
@@ -222,16 +210,9 @@ export async function toMetaReady(
     output,
     video: {
       codec: META_VIDEO,
-      // Nur beim echten Umkodieren: ein Remux soll ein Remux bleiben, und
-      // Größe wie Bitrate wären dort ohnehin nur zu erreichen, indem jedes
-      // Bild neu berechnet wird.
-      ...(action === "transcode"
-        ? {
-            ...(target.bitrate ? { quality: new mb.Quality({ bitrate: target.bitrate }) } : {}),
-            ...(target.width && target.height
-              ? { width: target.width, height: target.height, fit: "contain" as const }
-              : {}),
-          }
+      ...(target.bitrate ? { quality: new mb.Quality({ bitrate: target.bitrate }) } : {}),
+      ...(target.width && target.height
+        ? { width: target.width, height: target.height, fit: "contain" as const }
         : {}),
     },
     audio: { codec: META_AUDIO },

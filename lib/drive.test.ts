@@ -56,6 +56,29 @@ const tree: Record<string, DriveFile[]> = {
   zwei: [folder("rec4", "1 - Recruiting")],
   rec4: [folder("ugc4", "UGC Videos")],
   ugc4: [folder("a", "Anna"), folder("b", "Ben")],
+  // Echte Kunden (Probe 2026-09-04): die zwei Beispielvideos liegen in
+  // Recruiting, das Eigentliche eine oder zwei Stufen tiefer.
+  hansen: [folder("rec7", "1 - Recruiting")],
+  rec7: [video("b1", "Beispielvideo 1.MOV"), video("b2", "Beispielvideo 2.MOV"), folder("wm7", "Werbemotive")],
+  wm7: [folder("ugc7", "UGC-Videos"), folder("x7", "X- Ordner")],
+  ugc7: [video("carl", "Carl1.MOV")],
+  // Ohne die Stufe „1 - Recruiting“: die Beispielvideos liegen im Kundenordner selbst.
+  mevita: [video("b3", "Beispielvideo 1.MOV"), video("b4", "Beispielvideo 2.MOV"), folder("up", "Uploads"), folder("wm8", "Werbemotive")],
+  up: [{ id: "img", name: "IMG_8323.JPG", mimeType: "image/jpeg" }],
+  wm8: [folder("ugc8", "UGC-Videos")],
+  ugc8: [
+    folder("ren", "13.9.26 FK Renningen"),
+    folder("wal", "4.9.26 FK Waldenbuch"),
+    folder("altalt", "alt alt FK"),
+    folder("pdl", "PDL"),
+  ],
+  ren: [video("m1", "M-1 Renningen.mp4")],
+  wal: [video("w1", "M-1 Waldenbuch.mp4")],
+  // Nur Müll-Ordner neben dem einen echten: der einzige zählt.
+  latter: [folder("rec9", "1 - Recruiting")],
+  rec9: [folder("wm9", "Werbemotive")],
+  wm9: [folder("nv", "nicht verwenden"), folder("alt9", "alt"), folder("fin", "Final")],
+  fin: [video("f1", "jana1.MOV")],
 };
 const kids = async (id: string) => tree[id] ?? [];
 const names = (l: { path: DriveFile[]; entries: DriveFile[] }) => ({
@@ -98,6 +121,37 @@ test("ohne Medien geht es weiter: nach Video-Namen, dann in den einzigen Ordner"
     "UGC",
     "Videos final",
     "Runde 2",
+  ]);
+});
+
+test("die Beispielvideos in Recruiting halten den Abstieg nicht an", async () => {
+  expect(names(await landing(folder("hansen", "Hansen"), kids))).toEqual({
+    path: ["Hansen", "1 - Recruiting", "Werbemotive", "UGC-Videos"],
+    entries: ["carl"],
+  });
+});
+
+test("ohne Recruiting-Stufe geht es im Kundenordner mit Werbemotive weiter", async () => {
+  // Ohne Hinweis: vier Unterordner, keiner heißt nach Video – stehen bleiben, Beispielvideos weg.
+  expect(names(await landing(folder("mevita", "MeVita"), kids))).toEqual({
+    path: ["MeVita", "Werbemotive", "UGC-Videos"],
+    entries: ["ren", "wal", "altalt", "pdl"],
+  });
+  // Mit Ort und Rolle aus der Aufgabe: der Ordner mit den meisten Treffern.
+  expect(names(await landing(folder("mevita", "MeVita"), kids, ["Renningen", "FK"]))).toEqual({
+    path: ["MeVita", "Werbemotive", "UGC-Videos", "13.9.26 FK Renningen"],
+    entries: ["m1"],
+  });
+  // Nur die Rolle: drei Ordner mit je einem Treffer – nicht raten.
+  expect(names(await landing(folder("mevita", "MeVita"), kids, ["FK"])).path).toEqual(["MeVita", "Werbemotive", "UGC-Videos"]);
+});
+
+test("„nicht verwenden“ und „alt“ zählen nicht mit – der übrige einzige gewinnt", async () => {
+  expect(names(await landing(folder("latter", "Lattermann"), kids)).path).toEqual([
+    "Lattermann",
+    "1 - Recruiting",
+    "Werbemotive",
+    "Final",
   ]);
 });
 

@@ -18,6 +18,13 @@ test("parseLocationHint nimmt mehrere Standorte, ohne Doppelte", () => {
   ).toEqual({ locations: ["Renningen", "Stuttgart"] });
 });
 
+test("parseLocationHint liest einen genannten Umkreis, aber keinen erfundenen", () => {
+  expect(parseLocationHint('{"standorte":["Renningen"],"formular":null,"umkreis_km":30}').radiusKm).toBe(30);
+  expect(parseLocationHint('{"standorte":["Renningen"],"formular":null,"umkreis_km":"25"}').radiusKm).toBe(25);
+  expect(parseLocationHint('{"standorte":[],"formular":null,"umkreis_km":null}').radiusKm).toBeUndefined();
+  expect(parseLocationHint('{"standorte":[],"formular":null,"umkreis_km":0}').radiusKm).toBeUndefined();
+});
+
 test("parseLocationHint wirft bei Unlesbarem", () => {
   expect(() => parseLocationHint("keine Ahnung")).toThrow();
 });

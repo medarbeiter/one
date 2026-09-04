@@ -94,6 +94,12 @@ test("overviewFacts liest Adresse und offene Stellen aus der Kundenübersicht", 
   expect(overviewFacts(md)).toEqual({ address: "Am Illgenberg 2, 76530 Baden-Baden", rolesText: "PDL" });
 });
 
+test("overviewFacts liest einen Umkreis, wenn die Übersicht einen nennt", () => {
+  expect(overviewFacts("Adresse: Musterstr. 1, 12345 Musterstadt\nUmkreis: 30 km\n").radiusKm).toBe(30);
+  expect(overviewFacts("Radius: **25km** bitte nicht größer\n").radiusKm).toBe(25);
+  expect(overviewFacts("Umkreis: egal\n").radiusKm).toBeUndefined();
+});
+
 test("overviewFacts: nur die Adresse steht drin", () => {
   const md = "Adresse: Musterstr. 1, 12345 Musterstadt\n";
   expect(overviewFacts(md)).toEqual({ address: "Musterstr. 1, 12345 Musterstadt", rolesText: undefined });

@@ -98,7 +98,9 @@ liegen in allen. Texte schreibt jede Gruppe selbst (der Ort steht drin). Wer die
 Anzeigen eines Spiegels anfasst, übernimmt ihn. Den Umkreis wählt der Assistent
 (`fitRadiusAction`): ab 17 km die Leiter 17·20·25·30·40·50·65·80 hinauf, bis Metas
 Schätzung mindestens 150 000 Menschen nennt; ein von Hand oder aus der letzten
-Kampagne gesetzter Radius bleibt. Solange irgendetwas läuft, zeigt der Vorschlag nur
+Kampagne gesetzter Radius bleibt – ebenso ein in der Aufgabe genannter („Umkreis
+30 km“, Mistral-Feld `umkreis_km`, sonst die Zeile „Umkreis:“ der Kundenübersicht;
+Ergänzung 2026-09-04). Solange irgendetwas läuft, zeigt der Vorschlag nur
 den Inhalt der ersten Gruppe – das Einzige, was in der Zeit von Hand zu tun ist;
 Kopf, Standort, Formular, Texte, Optional und Vorschau erscheinen, sobald alles
 steht, und bleiben dann stehen.
@@ -289,6 +291,29 @@ ausgegraut – der zweite Klick lädt nichts doppelt.
 
 Ohne Treffer: Satz „Kein Drive-Ordner gefunden" plus „Ordner wählen"; die
 Ablagezone darunter steht ohnehin.
+
+### 6a. Direktweg und Ordnerwahl (Ergänzung 2026-09-04)
+
+**Ordner.** In jedem Kundenordner liegen „Beispielvideo 1.MOV“ und „Beispielvideo
+2.MOV“ – zwei Vorlagen, nie gewollt. `entriesOf` blendet sie aus, damit sie den
+Abstieg nicht dort anhalten, wo nur sie liegen. Fehlt die Stufe „1 - Recruiting“
+(MeVita, Rottweil), geht die Leiter auf derselben Ebene mit „Werbemotive“/„UGC“
+weiter. Beim Abstieg zählen „nicht verwenden“, „alt…“ und „X-Ordner“ nicht mit.
+Liegen unter dem UGC-Ordner nur datierte Unterordner („13.9.26 FK Renningen“),
+wählt `pickByHint` den mit den meisten Treffern aus Ort und Rollen der Aufgabe
+(`?hint=Renningen,FK`) – nur bei eindeutigem Sieger, sonst bleibt es stehen.
+
+**Upload.** Das Regal und der Dialog reichen die Drive-Einträge selbst weiter,
+nicht ihre Bytes (`Pickable = File | DriveFile`). Ein Video geht als `driveId`
+an `POST /api/upload`; der Server holt es per Range-Request stückweise aus Drive
+und reicht es Metas stückweisem Upload weiter (`VideoSource` in `lib/uploads.ts`)
+– nie ganz im Speicher, kein Byte durch den Browser, kein Encoder (Meta nimmt
+HEVC und MOV, Probe 2026-09-04). Die Antwort ist ein NDJSON-Strom
+(`DirectEvent`: Bytes, Ergebnis, `fallback`, `error`). Winkt der Server ab (kein
+Video, kurze Kante unter 500 px) oder scheitert Meta, holt der Browser die Datei
+und geht den bisherigen Weg (Umwandlung, Upload). Bilder aus Drive gehen immer
+über den Browser: Fingerabdruck und Überschrift brauchen die Pixel dort. Vier
+Direktwege laufen zugleich.
 
 ## 7. Datei-Aufbau
 

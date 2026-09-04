@@ -38,18 +38,40 @@ export async function imageUrl(hash: string, acct = meta.adAccount): Promise<str
  */
 export const CHUNKED_ABOVE = 50 * 1024 * 1024;
 
+/**
+ * Woher die Bytes kommen: eine Datei im Speicher oder – beim Direktweg von
+ * Drive – ein Range-Request je Stück. Meta sagt die Offsets, die Quelle
+ * liefert genau die; ganz im Speicher liegt das Video so nie.
+ */
+export type VideoSource = {
+  name: string;
+  size: number;
+  /** Bytes from..to, to exklusiv. */
+  read: (from: number, to: number) => Promise<Blob>;
+};
+
+const fromFile = (file: File): VideoSource => ({
+  name: file.name,
+  size: file.size,
+  read: async (from, to) => file.slice(from, to),
+});
+
+/** `onProgress` läuft 0–1 über die Bytes; die 1 heißt: alles drüben, Meta verarbeitet. */
 export async function uploadVideo(
-  file: File,
+  file: File | VideoSource,
   acct = meta.adAccount,
+  onProgress?: (progress: number) => void,
 ): Promise<string> {
-  const id = file.size > CHUNKED_ABOVE ? await inChunks(file, acct) : await inOnePiece(file, acct);
+  const src = file instanceof File ? fromFile(file) : file;
+  const id = src.size > CHUNKED_ABOVE ? await inChunks(src, acct, onProgress) : await inOnePiece(src, acct);
+  onProgress?.(1);
   await waitForVideo(id);
   return id;
 }
 
-async function inOnePiece(file: File, acct: string): Promise<string> {
+async function inOnePiece(src: VideoSource, acct: string): Promise<string> {
   const fd = new FormData();
-  fd.append("source", file);
+  fd.append("source", await src.read(0, src.size), src.name);
   const { id } = await graph<{ id: string }>(`${acct}/advideos`, {
     method: "POST",
     body: fd,
@@ -69,10 +91,10 @@ type Session = {
  * Stück als Nächstes drankommt, finish schließt ab. Die Stückgröße gibt Meta vor
  * – wir rechnen sie nicht aus, wir folgen den Offsets.
  */
-async function inChunks(file: File, acct: string): Promise<string> {
+async function inChunks(src: VideoSource, acct: string, onProgress?: (progress: number) => void): Promise<string> {
   const session = await phase<Session>(acct, {
     upload_phase: "start",
-    file_size: String(file.size),
+    file_size: String(src.size),
   });
 
   let { start_offset: from, end_offset: to } = session;
@@ -84,13 +106,14 @@ async function inChunks(file: File, acct: string): Promise<string> {
         upload_session_id: session.upload_session_id,
         start_offset: from,
       },
-      file.slice(Number(from), Number(to)),
-      file.name,
+      await src.read(Number(from), Number(to)),
+      src.name,
     );
     // Ohne diese Prüfung liefe ein Offset, der stehen bleibt, endlos – und der
     // Upload sähe von außen nur aus, als hinge er.
     if (next.start_offset === from)
-      throw new Error(`Upload kam nicht voran (Offset ${from} von ${file.size})`);
+      throw new Error(`Upload kam nicht voran (Offset ${from} von ${src.size})`);
+    onProgress?.(Number(to) / src.size);
     ({ start_offset: from, end_offset: to } = next);
   }
 

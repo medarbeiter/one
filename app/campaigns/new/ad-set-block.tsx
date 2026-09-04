@@ -29,7 +29,7 @@ import { BODY_TEMPLATE_COUNT, TITLE_COUNT } from "@/lib/bodies";
 import { plural } from "@/lib/labels";
 import { LocationField } from "./location-field";
 import { checkCopy, type CopyField, type Notice } from "@/lib/copy";
-import { enqueue, retryUploads, useUploads } from "./upload-queue";
+import { enqueue, retryUploads, useUploads, type Pickable } from "./upload-queue";
 import { AdTile, ContentGrid, LooseTile, UploadTile, type AssetSlot } from "./content-grid";
 import {
   applyCrop,
@@ -766,7 +766,7 @@ export function AdSetBlock({
    * nicht. Von hier bleibt nur das Anschauen – die Karten unten und der Toast
    * kommen aus demselben Store.
    */
-  const onFiles = (files: File[]) =>
+  const onFiles = (files: Pickable[]) =>
     enqueue(files, { adSetId: value.id, adSetName: value.name, adAccount });
 
   /** Zwei liegengebliebene Hälften von Hand zusammenziehen. */
@@ -906,6 +906,7 @@ export function AdSetBlock({
         <DriveShelf
           business={business}
           folderId={driveFolderId}
+          hint={[cityOf(value.addressString), ...roles]}
           taken={taken}
           onFiles={onFiles}
         />

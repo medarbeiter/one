@@ -71,6 +71,8 @@ export type AssembledBrief = {
   locations?: Sourced<string[]>;
   /** Ein Name oder Ort, nach dem das Lead-Formular zu wählen ist („Renningen“). */
   formHint?: Sourced<string>;
+  /** Ein in der Aufgabe genannter Umkreis – dann wählt der Assistent keinen. */
+  radiusKm?: Sourced<number>;
   dailyBudgetEuros?: Sourced<number>;
   spendCapEuros?: Sourced<number>;
   driveFolderId?: Sourced<string>;
@@ -87,7 +89,7 @@ export type BriefDeps = {
   findSheet: (folderId: string) => Promise<DriveFile | undefined>;
   exportCsv: (fileId: string) => Promise<string>;
   mistral: (content: string, opts?: { temperature?: number }) => Promise<string>;
-  customerOverview: (folderId: string) => Promise<{ address?: string; rolesText?: string }>;
+  customerOverview: (folderId: string) => Promise<{ address?: string; rolesText?: string; radiusKm?: number }>;
 };
 
 const realDeps: BriefDeps = {
@@ -109,8 +111,8 @@ const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : unde
  * Warnung daraus. `standorte` ist die Liste; die alten Schlüssel `adresse`/`ort`
  * (ein Standort) werden weiter verstanden.
  */
-export function parseLocationHint(content: string): { locations: string[]; formHint?: string } {
-  let data: { standorte?: unknown; adresse?: unknown; ort?: unknown; formular?: unknown };
+export function parseLocationHint(content: string): { locations: string[]; formHint?: string; radiusKm?: number } {
+  let data: { standorte?: unknown; adresse?: unknown; ort?: unknown; formular?: unknown; umkreis_km?: unknown };
   try {
     data = JSON.parse(unfence(content));
   } catch {
@@ -127,9 +129,11 @@ export function parseLocationHint(content: string): { locations: string[]; formH
   };
   if (Array.isArray(data.standorte)) data.standorte.forEach(add);
   else add(str(data.adresse) ?? str(data.ort));
-  const out: { locations: string[]; formHint?: string } = { locations };
+  const out: { locations: string[]; formHint?: string; radiusKm?: number } = { locations };
   const formHint = str(data.formular);
   if (formHint) out.formHint = formHint;
+  const radiusKm = Number(data.umkreis_km);
+  if (Number.isFinite(radiusKm) && radiusKm > 0) out.radiusKm = Math.round(radiusKm);
   return out;
 }
 
@@ -158,8 +162,9 @@ function locationPrompt(description: string): string {
 Lies heraus:
 1. Die Standorte, für die je eine eigene Anzeigengruppe entstehen soll – jede Einrichtung, jeder Ort, jede Stadt, die die Beschreibung als Ziel nennt. Je Standort ein Eintrag: die vollständige Adresse (Straße, PLZ, Ort), falls genannt, sonst nur der Ortsname. Nennt die Beschreibung keinen Standort, eine leere Liste. Ein Standort, der nur als Sitz des Unternehmens erwähnt wird und nicht als Ziel der Anzeigen, zählt nicht.
 2. Einen Hinweis, welches Lead-Formular zu wählen ist – ein Name oder Ort, wie er in der Beschreibung steht (z. B. „Renningen“). Nennt die Beschreibung keins, null.
+3. Einen ausdrücklich genannten Umkreis bzw. Radius in Kilometern („Umkreis 30 km“, „Radius: 25km“). Steht keiner drin, null – nie schätzen.
 
-Erfinde nichts. Antworte ausschließlich mit JSON: {"standorte": ["…"], "formular": "…" oder null}
+Erfinde nichts. Antworte ausschließlich mit JSON: {"standorte": ["…"], "formular": "…" oder null, "umkreis_km": Zahl oder null}
 
 BESCHREIBUNG:
 ${description}`;
@@ -288,6 +293,7 @@ export async function assembleBrief(
           ? `${hint.locations.length} Standorte: ${hint.locations.join(" · ")}`
           : hint.locations[0],
         hint.formHint ? `Formular „${hint.formHint}“` : undefined,
+        hint.radiusKm ? `Umkreis ${hint.radiusKm} km` : undefined,
       ].filter(Boolean);
       emit({
         type: "step",
@@ -307,6 +313,7 @@ export async function assembleBrief(
 
   if (hint.locations?.length) out.locations = { value: hint.locations, source: "clickup" };
   if (hint.formHint) out.formHint = { value: hint.formHint, source: "clickup" };
+  if (hint.radiusKm) out.radiusKm = { value: hint.radiusKm, source: "clickup" };
 
   if (sheet.folderId) out.driveFolderId = { value: sheet.folderId, source: "clickup" };
   if (sheet.benefits.length) out.benefits = { value: sheet.benefits.join("\n"), source: "onboarding" };
@@ -320,6 +327,7 @@ export async function assembleBrief(
     try {
       const overview = await deps.customerOverview(brief.folderId);
       if (overview.address) out.locations = { value: [overview.address], source: "clickup" };
+      if (overview.radiusKm && !out.radiusKm) out.radiusKm = { value: overview.radiusKm, source: "clickup" };
       const roles = overview.rolesText ? parseRoles(overview.rolesText).roles : [];
       if (!out.roles && roles.length) out.roles = { value: roles, source: "clickup" };
       emit({

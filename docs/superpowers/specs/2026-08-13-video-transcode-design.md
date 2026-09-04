@@ -2,6 +2,18 @@
 
 Stand 2026-08-13. Betrifft `/campaigns/new`, Schritt 2 „Ad sets".
 
+> **Überholt am 2026-09-04.** Die Annahme unten – Meta lehne HEVC ab – war nie
+> geprüft und ist falsch. Drei echte UGC-Clips direkt per API ins Werbekonto:
+> HEVC in MOV (22 MB), HEVC 1080p (61 MB) und 4K HDR HEVC mit 54 Mbit/s
+> (176 MB, stückweise) – alle „ready“ mit vier Renditionen. `planConversion`
+> lässt HEVC und MOV deshalb durch; umgewandelt wird nur noch, was Meta
+> nachweislich nicht nimmt (ProRes, VP9/Opus) oder für Instagram verwirft
+> (kurze Kante unter 500 px). Die Bitrate-Decke ist gefallen: seit dem
+> stückweisen Upload reißt nichts mehr ab. Videos aus dem Drive-Regal gehen
+> seither direkt vom Server zu Meta (Spec 2026-09-02, §6a) und berühren den
+> Browser gar nicht mehr. Der Rest dieser Spec beschreibt den Weg, der bleibt,
+> wenn der Server abwinkt.
+
 ## Problem
 
 Videos werden als `.mov` hochgeladen und von Meta abgelehnt. Die naheliegende

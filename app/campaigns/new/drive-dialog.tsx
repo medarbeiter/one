@@ -25,7 +25,6 @@ import {
   Skeleton,
   Text,
   TextInput,
-  useToast,
 } from "@astryxdesign/core";
 import {
   CheckIcon,
@@ -36,7 +35,6 @@ import {
 } from "@phosphor-icons/react";
 import type { DriveFolder, DriveSearch } from "@/app/api/drive/route";
 import type { DriveFile } from "@/lib/drive";
-import { fetchDriveFiles } from "./drive-fetch";
 
 const FOLDER = "application/vnd.google-apps.folder";
 const isFolder = (f: DriveFile) => f.mimeType === FOLDER;
@@ -58,9 +56,9 @@ export function DriveDialog({
   onOpenChange: (open: boolean) => void;
   /** Der Kundenname aus dem Assistenten – die Vorbelegung der Suche. */
   business: string;
-  onFiles: (files: File[]) => void;
+  /** Die Einträge selbst, nicht ihre Bytes: die Warteschlange holt, was sie braucht. */
+  onFiles: (files: DriveFile[]) => void;
 }) {
-  const toast = useToast();
   const [query, setQuery] = useState(business);
   const [folders, setFolders] = useState<DriveFile[]>([]);
   /** Leer heißt: die Trefferliste ist zu sehen. */
@@ -70,7 +68,6 @@ export function DriveDialog({
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [selected, setSelected] = useState<Map<string, DriveFile>>(new Map());
-  const [fetching, setFetching] = useState<{ done: number; total: number } | null>(null);
 
   const guarded = async (work: () => Promise<void>) => {
     setError(null);
@@ -144,20 +141,15 @@ export function DriveDialog({
     return () => document.removeEventListener("keydown", onKey);
   }, [isOpen, entries]);
 
-  const take = async () => {
+  const take = () => {
     const wanted = [...selected.values()];
     if (!wanted.length) return;
-    setFetching({ done: 0, total: wanted.length });
-    const { files, failed } = await fetchDriveFiles(wanted, (done, total) => setFetching({ done, total }));
-    setFetching(null);
-    if (failed.length)
-      toast({ type: "error", body: <div>{`Nicht aus Drive geladen: ${failed.join(", ")}`}</div> });
-    if (files.length) onFiles(files);
+    onFiles(wanted);
     onOpenChange(false);
   };
 
   const count = selected.size;
-  const busy = loading || fetching !== null;
+  const busy = loading;
   const inFolder = path.length > 0;
   const subfolders = entries.filter(isFolder);
   const media = entries.filter((f) => !isFolder(f));
@@ -258,7 +250,6 @@ export function DriveDialog({
                           size="sm"
                           label={allHere ? "Alle hier abwählen" : "Alle hier auswählen"}
                           onClick={() => setMany(media, !allHere)}
-                          isDisabled={fetching !== null}
                         />
                       }
                     >
@@ -269,8 +260,7 @@ export function DriveDialog({
                             file={m}
                             isSelected={selected.has(m.id)}
                             onToggle={(on) => setMany([m], on)}
-                            isDisabled={fetching !== null}
-                          />
+                            />
                         ))}
                       </ul>
                     </Section>
@@ -289,23 +279,13 @@ export function DriveDialog({
           <LayoutFooter hasDivider>
             <div className="flex items-center gap-3">
               <Text type="supporting" as="div" className="min-w-0 flex-1 truncate">
-                {fetching
-                  ? `${fetching.done} von ${fetching.total} geladen …`
-                  : count
-                    ? `${count} ${count === 1 ? "Datei" : "Dateien"} ausgewählt`
-                    : "Nichts ausgewählt"}
+                {count ? `${count} ${count === 1 ? "Datei" : "Dateien"} ausgewählt` : "Nichts ausgewählt"}
               </Text>
-              <Button
-                variant="secondary"
-                label="Abbrechen"
-                onClick={() => onOpenChange(false)}
-                isDisabled={fetching !== null}
-              />
+              <Button variant="secondary" label="Abbrechen" onClick={() => onOpenChange(false)} />
               <Button
                 label={count ? `${count} übernehmen` : "Übernehmen"}
-                onClick={() => void take()}
+                onClick={take}
                 isDisabled={busy || !count}
-                isLoading={fetching !== null}
               />
             </div>
           </LayoutFooter>
@@ -364,12 +344,10 @@ function FileTile({
   file,
   isSelected,
   onToggle,
-  isDisabled,
 }: {
   file: DriveFile;
   isSelected: boolean;
   onToggle: (on: boolean) => void;
-  isDisabled: boolean;
 }) {
   const [thumb, setThumb] = useState<"loading" | "ready" | "none">(
     file.hasThumbnail ? "loading" : "none",
@@ -384,11 +362,8 @@ function FileTile({
         role="checkbox"
         aria-checked={isSelected}
         aria-label={file.name}
-        disabled={isDisabled}
         onClick={() => onToggle(!isSelected)}
-        className={`group flex w-full flex-col gap-1.5 rounded-lg text-left focus-visible:outline-none ${
-          isDisabled ? "opacity-60" : ""
-        }`}
+        className="group flex w-full flex-col gap-1.5 rounded-lg text-left focus-visible:outline-none"
       >
         <div
           className={`bg-canvas relative aspect-square w-full overflow-hidden rounded-lg border transition-colors ${
