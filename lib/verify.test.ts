@@ -82,6 +82,31 @@ test("a correctly built campaign passes every check", () => {
   expect(checkCampaign(good as any, intent).every((c) => c.ok)).toBe(true);
 });
 
+test("a single-image ad's lead form is found in link data", () => {
+  const tree = {
+    status: "PAUSED",
+    adsets: {
+      data: [
+        adSet([
+          {
+            name: "Creative 7",
+            status: "ACTIVE",
+            creative: {
+              object_story_spec: {
+                link_data: {
+                  call_to_action: { value: { lead_gen_form_id: "f1" } },
+                },
+              },
+            },
+          },
+        ]),
+      ],
+    },
+  };
+
+  expect(find(tree, { ...intent, adCount: 1 }, "Lead-Formular").ok).toBe(true);
+});
+
 test("an ad pointing at the wrong form fails the form check", () => {
   const bad = { status: "PAUSED", adsets: { data: [adSet([ugcAd("a"), ugcAd("b", "WRONG")])] } };
   const check = find(bad, intent, "Lead-Formular");

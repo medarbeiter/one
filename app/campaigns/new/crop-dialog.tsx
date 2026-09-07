@@ -332,8 +332,13 @@ export function CropDialog({
                       center(n);
                     }}
                     onError={() => setError("Das Bild konnte nicht geladen werden.")}
-                    className="pointer-events-none absolute max-w-none select-none"
+                    className="pointer-events-none absolute select-none"
+                    // Astryx' Reset (:where(img) { max-width: 100% }) liegt in
+                    // @layer astryx-base hinter Tailwinds Utilities – `max-w-none`
+                    // verliert, das Bild würde auf Rahmenbreite gestaucht. Inline
+                    // schlägt jede Ebene.
                     style={{
+                      maxWidth: "none",
                       width: shown.w,
                       height: shown.h,
                       left: pos.x,

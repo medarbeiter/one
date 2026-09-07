@@ -16,12 +16,12 @@ export type Intent = {
 };
 
 /**
- * Bei einer UGC-Anzeige hängt das Formular am object_story_spec, bei einer
- * Split-Anzeige im asset_feed_spec. Nur an der ersten Stelle zu suchen hieße:
- * jede Split-Anzeige fällt mit "falsches Formular" durch, obwohl ihres stimmt.
+ * Bei einer UGC-Anzeige hängt das Formular an video_data, bei einem Einzelbild
+ * an link_data und bei einer Split-Anzeige im asset_feed_spec.
  */
 const formOf = (ad: any) =>
   ad?.creative?.object_story_spec?.video_data?.call_to_action?.value?.lead_gen_form_id ??
+  ad?.creative?.object_story_spec?.link_data?.call_to_action?.value?.lead_gen_form_id ??
   ad?.creative?.asset_feed_spec?.call_to_actions?.[0]?.value?.lead_gen_form_id;
 
 const same = (a: string[] = [], b: readonly string[]) =>
