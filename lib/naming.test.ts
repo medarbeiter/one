@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { adSetName, campaignName, formatDate, initialsOf, ROLES } from "./naming";
+import { adSetName, campaignName, formatDate, initialsOf, parseCampaignName, ROLES } from "./naming";
 
 test("the campaign name follows the agency convention", () => {
   expect(
@@ -86,4 +86,14 @@ test("initialsOf bei einem Wort: die ersten zwei Buchstaben", () => {
 test("initialsOf bei nichts: nichts", () => {
   expect(initialsOf("")).toBe("");
   expect(initialsOf("   ")).toBe("");
+});
+
+test("parseCampaignName reads business and roles back out of a conventional name", () => {
+  expect(parseCampaignName("Herzhalt Pflegedienst GmbH - PFK/Stv. PDL Verwaltungskraft ab 12.08.26 MH (via One)")).toEqual({
+    business: "Herzhalt Pflegedienst GmbH",
+    roles: ["PFK", "Stv. PDL"],
+    roleFreeText: "Verwaltungskraft",
+  });
+  expect(parseCampaignName("Firma - ab 01.01.2026 XY")).toEqual({ business: "Firma", roles: [], roleFreeText: "" });
+  expect(parseCampaignName("Leads Altbestand 2024")).toBeUndefined();
 });

@@ -9,6 +9,7 @@ export const HERKUNFT_LABEL: Record<Source, string> = {
   previous: "aus der letzten Kampagne",
   session: "aus der Anmeldung",
   user: "aus deinem Hinweis",
+  campaign: "aus der Vorlage",
 };
 
 // Kurzformen fürs Verbinden: „aus ClickUp + Onboarding“ liest sich, „aus
@@ -19,6 +20,7 @@ const KURZ: Record<Source, string> = {
   previous: "der letzten Kampagne",
   session: "der Anmeldung",
   user: "deinem Hinweis",
+  campaign: "der Vorlage",
 };
 
 /** Eine Quelle wie bisher, mehrere in gegebener Reihenfolge mit „+“ verbunden. */

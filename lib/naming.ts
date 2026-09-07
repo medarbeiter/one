@@ -61,6 +61,30 @@ export function campaignName(p: NameParts): string {
     .join(" ");
 }
 
+/**
+ * Der Weg zurück: aus einem Namen nach der Konvention wieder Firma und Rollen
+ * lesen, damit eine duplizierte Kampagne ihre Rollen kennt und der neue Name
+ * mit heutigem Datum entsteht. Altbestände ohne " - " und " ab " geben nichts
+ * zurück – dann bleibt der Name, wie er ist, und die Rollen sind zu wählen.
+ */
+export function parseCampaignName(
+  name: string,
+): { business: string; roles: string[]; roleFreeText: string } | undefined {
+  const m = /^(.+?) - (?:(.*?) )?ab \d{2}\.\d{2}\.\d{2,4}\b/.exec(name.trim());
+  if (!m) return undefined;
+  // Längste Kürzel zuerst, sonst nähme "PDL" dem "Stv. PDL" die Hälfte weg.
+  const codes = [...ROLES.map((r) => r.code)].sort((a, b) => b.length - a.length);
+  const roles: string[] = [];
+  let rest = (m[2] ?? "").trim();
+  for (;;) {
+    const code = codes.find((c) => rest === c || rest.startsWith(`${c}/`) || rest.startsWith(`${c} `));
+    if (!code) break;
+    roles.push(code);
+    rest = rest.slice(code.length).replace(/^\//, "").trim();
+  }
+  return { business: m[1].trim(), roles, roleFreeText: rest };
+}
+
 // Der erste heißt immer "Ads"; erst bei mehreren Standorten braucht er den Ort.
 export function adSetName(index: number, city?: string): string {
   if (index === 0) return "Ads";

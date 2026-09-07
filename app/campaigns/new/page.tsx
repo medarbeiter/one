@@ -1,5 +1,7 @@
 import { cookies } from "next/headers";
+import { Banner } from "@/app/shell/ui";
 import { Blatt, Blattkopf } from "@/app/shell/blattkopf";
+import { readCampaignSeed, type CampaignSeed } from "@/lib/seed";
 import {
   clients,
   listCustomers,
@@ -65,19 +67,41 @@ export default async function NewCampaignPage({ searchParams }: PageProps<"/camp
     (requestedClient ? resolveClientByName(clientOptions, requestedClient)?.name : undefined) ??
     "";
 
+  // Eine bestehende Kampagne als Vorlage: ?from= dupliziert (neu anlegen mit
+  // denselben Werten), ?edit= ändert sie. Ein Lesefehler zeigt sich als
+  // Banner über einem leeren Assistenten – die Person kann trotzdem arbeiten.
+  const mode = typeof sp.edit === "string" ? "edit" : typeof sp.from === "string" ? "copy" : undefined;
+  const seedId = mode === "edit" ? (sp.edit as string) : mode === "copy" ? (sp.from as string) : undefined;
+  let seed: { seed: CampaignSeed; mode: "copy" | "edit" } | undefined;
+  let seedError: string | undefined;
+  if (mode && seedId) {
+    try {
+      seed = { seed: await readCampaignSeed(seedId), mode };
+    } catch (e) {
+      seedError = (e as Error).message;
+    }
+  }
+  const titel = mode === "edit" ? "Kampagne bearbeiten" : mode === "copy" ? "Kampagne duplizieren" : "Neue Kampagne";
+  const stand =
+    mode === "edit"
+      ? "Liest die Kampagne aus Meta, zeigt sie als Vorschlag, ändert sie an Ort und Stelle."
+      : mode === "copy"
+        ? "Liest die Kampagne aus Meta, baut daraus einen neuen Vorschlag, legt alles pausiert an."
+        : "Wählt einen Auftrag aus ClickUp, baut den Vorschlag, legt alles pausiert an.";
+
   return (
     <>
       {/* Der Assistent hat keine Zahl – er hat einen Satz, der sagt, was am
           Ende entsteht. Er steht in der Standzeile, wo sonst der Stand des
           Blattes steht: hier ist der Stand "noch nichts, und zwar pausiert". */}
-      <Blattkopf
-        titel="Neue Kampagne"
-        meaning="add"
-        stand="Wählt einen Auftrag aus ClickUp, baut den Vorschlag, legt alles pausiert an."
-      />
+      <Blattkopf titel={titel} meaning="add" stand={stand} />
 
       <Blatt>
+        {seedError && (
+          <Banner status="error" title="Kampagne konnte nicht gelesen werden" description={seedError} />
+        )}
         <Wizard
+          seed={seed}
           accounts={accounts}
           clients={clientOptions}
           initials={initialsOf(person?.name ?? "")}

@@ -264,12 +264,12 @@ test("a split ad is happy with a single body and headline", () => {
 
 function fakeGraph(fail?: (path: string, n: number, params: any) => boolean) {
   let n = 0;
-  const calls: { path: string; params: any }[] = [];
+  const calls: { path: string; params: any; opts?: any }[] = [];
   // Generisch wie `graph()` selbst getypt, sonst weist TS die Fake-Funktion
   // wegen `<T>` nicht als `LaunchDeps["graph"]` zu (Laufzeitverhalten bleibt gleich).
   const g = async <T = any>(path: string, opts: any = {}): Promise<T> => {
     n++;
-    calls.push({ path, params: opts.params });
+    calls.push({ path, params: opts.params, opts });
     if (fail?.(path, n, opts.params)) throw new Error("boom");
     return { id: `${path.split("/").pop()}-${n}` } as T;
   };
@@ -962,4 +962,125 @@ test("eine gewöhnliche Anzeigenpanne liefert auf beiden Wegen dieselbe Fehlerfo
   expect(batched.ads).toBe(8);
   expect(pool.failed).toEqual([{ adSetIndex: 0, adSetName: "Ads", adName: "a0.mp4" }]);
   expect(batched.failed).toEqual([{ adSetIndex: 0, adSetName: "Ads", adName: "a0.mp4" }]);
+});
+
+// ----------------------------------------------------------------- Update Mode
+
+import type { CampaignSeed } from "./seed";
+
+const seedFixture: CampaignSeed = {
+  campaignId: "c1",
+  name: "Old Campaign",
+  status: "ACTIVE",
+  adSets: [
+    {
+      metaId: "as1",
+      name: "Old Ad Set 1",
+      addressString: "",
+      radiusKm: 17,
+      formId: "f1",
+      bodies: ["b1", "b2"],
+      titles: ["t1", "t2"],
+      description: "d",
+      ads: [
+        { metaId: "ad1", name: "ad1", type: "ugc", asset: { kind: "video", videoId: "v1", fileName: "v1" } },
+        { metaId: "ad2", name: "ad2", type: "ugc", asset: { kind: "video", videoId: "v2", fileName: "v2" } },
+      ],
+    },
+    {
+      metaId: "as9",
+      name: "Old Ad Set 9",
+      addressString: "",
+      radiusKm: 17,
+      formId: "f9",
+      bodies: ["b9"],
+      titles: ["t9"],
+      description: "d9",
+      ads: [],
+    }
+  ],
+  warnings: [],
+};
+
+const updateInput = {
+  adAccount: "act_1",
+  pageId: "p1",
+  campaignName: "Updated Campaign",
+  dailyBudgetCents: 2000,
+  existingCampaignId: "c1",
+  update: true,
+  adSets: [
+    {
+      existingAdSetId: "as1",
+      name: "Updated Ad Set 1",
+      addressString: "Dresden",
+      radiusKm: 17,
+      formId: "f1",
+      bodies: ["b1", "b2"], // Unchanged
+      titles: ["t1", "t2"],
+      description: "d",
+      ads: [
+        { existingAdId: "ad1", name: "ad1", type: "ugc", asset: { kind: "video", videoId: "v1", fileName: "v1" } } as AdInput,
+      ],
+    },
+  ],
+};
+
+test("unchanged ad -> no adcreatives call, receipt adIds contains ad1", async () => {
+  const { g, calls } = fakeGraph();
+  const r = await launch(updateInput, { graph: g, readSeed: async () => seedFixture });
+  expect(calls.filter(c => c.path.endsWith("/adcreatives"))).toHaveLength(0);
+  expect(r.adSets[0].adIds).toContain("ad1");
+});
+
+test("changed body -> one adcreatives POST and POST ad1 { creative: { creative_id } }", async () => {
+  const { g, calls } = fakeGraph();
+  const changed = { ...updateInput, adSets: [{ ...updateInput.adSets[0], bodies: ["b1", "b3"] }] };
+  await launch(changed, { graph: g, readSeed: async () => seedFixture });
+
+  const cr = calls.filter(c => c.path.endsWith("/adcreatives") && c.params?.method !== "DELETE");
+  expect(cr).toHaveLength(1);
+
+  const adUpdates = calls.filter(c => c.path.endsWith("ad1") && c.params?.creative);
+  expect(adUpdates).toHaveLength(1);
+});
+
+test("ad 'ad2' not submitted -> DELETE ad2", async () => {
+  const { g, calls } = fakeGraph();
+  await launch(updateInput, { graph: g, readSeed: async () => seedFixture });
+
+  const deleteAd2 = calls.find(c => c.path.endsWith("ad2") && c.opts?.method === "DELETE");
+  expect(deleteAd2).toBeDefined();
+});
+
+test("seed ad set 'as9' not submitted -> DELETE as9", async () => {
+  const { g, calls } = fakeGraph();
+  await launch(updateInput, { graph: g, readSeed: async () => seedFixture });
+
+  const deleteAs9 = calls.find(c => c.path.endsWith("as9") && c.opts?.method === "DELETE");
+  expect(deleteAs9).toBeDefined();
+});
+
+test("a new ad set (no existingAdSetId) in update mode -> POST act_x/adsets with campaign_id: existingCampaignId", async () => {
+  const { g, calls } = fakeGraph();
+  const withNewSet = { ...updateInput, adSets: [...updateInput.adSets, { ...updateInput.adSets[0], existingAdSetId: undefined, name: "New Set" }] };
+  await launch(withNewSet, { graph: g, readSeed: async () => seedFixture });
+
+  const adsetPost = calls.find(c => c.path.endsWith("/adsets") && c.params?.campaign_id === "c1");
+  expect(adsetPost).toBeDefined();
+});
+
+test("campaign POST params contain name and daily_budget but no status", async () => {
+  const { g, calls } = fakeGraph();
+  await launch(updateInput, { graph: g, readSeed: async () => seedFixture });
+
+  const campaignPost = calls.find(c => c.path.endsWith("c1") && c.params?.name === "Updated Campaign");
+  expect(campaignPost).toBeDefined();
+  expect(campaignPost?.params?.status).toBeUndefined();
+  expect(campaignPost?.params?.daily_budget).toBe(2000);
+});
+
+test("launchSteps in update mode = 1 + adSets + ads", () => {
+  // 1 campaign + 1 ad set + 1 ad = 3
+  expect(launchSteps(updateInput)).toBe(3);
 });

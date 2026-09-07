@@ -25,10 +25,16 @@ export type FormatAsset =
  * "single" ist das einzelne Bild: nicht jedes Motiv gibt es in zwei Formaten,
  * und ein Bild, das nur im Feed laufen soll, ist kein halbes Paar.
  */
-export type AdInput =
-  | { name: string; type: "ugc"; asset: Extract<FormatAsset, { kind: "video" }> }
-  | { name: string; type: "single"; asset: Extract<FormatAsset, { kind: "image" }> }
-  | { name: string; type: "split"; portrait: FormatAsset; square: FormatAsset };
+export type AdInput = {
+  name: string;
+  /** Beim Bearbeiten: die Anzeige gibt es bei Meta schon. Unverändert bleibt sie
+   *  stehen, geändert bekommt sie eine neue Anzeigengestaltung (lib/launch.ts). */
+  existingAdId?: string;
+} & (
+  | { type: "ugc"; asset: Extract<FormatAsset, { kind: "video" }> }
+  | { type: "single"; asset: Extract<FormatAsset, { kind: "image" }> }
+  | { type: "split"; portrait: FormatAsset; square: FormatAsset }
+);
 
 export type CreativeInput = {
   pageId: string;
@@ -261,6 +267,7 @@ function splitCreative(i: CreativeInput, ad: Extract<AdInput, { type: "split" }>
 }
 
 import { batch as realBatch, graph as realGraph, unwrapBatchItem, GraphError } from "./graph";
+import { readCampaignSeed, type CampaignSeed } from "./seed";
 import { buildTargeting } from "./targeting";
 import type { GeoPlace } from "./geo";
 
@@ -292,6 +299,14 @@ export type LaunchInput = {
   adSets: AdSetInput[];
   /** Vorhandene Kampagne weiterbauen statt neu anlegen (Retry). */
   existingCampaignId?: string;
+  /**
+   * Bearbeiten statt anlegen: existingCampaignId ist Pflicht. Kampagne und
+   * Anzeigengruppen mit existingAdSetId werden an Ort und Stelle geändert,
+   * Anzeigen mit existingAdId nur, wenn sich Texte, Formular oder Motiv
+   * unterschieden; was bei Meta steht und hier fehlt, wird gelöscht. Der
+   * Status der Kampagne bleibt, wie er ist.
+   */
+  update?: boolean;
 };
 
 export type Receipt = {
@@ -323,14 +338,20 @@ export type Receipt = {
  */
 export type LaunchProgress = { label: string; done: number; total: number };
 
+
 export type LaunchDeps = {
   graph?: typeof realGraph;
   batch?: typeof realBatch;
+  readSeed?: typeof readCampaignSeed;
   onProgress?: (p: LaunchProgress) => void;
 };
 
 /** Jeder Aufruf, den launch() gegen Meta macht – die Nenner der Fortschrittsanzeige. */
 export function launchSteps(input: LaunchInput): number {
+  if (input.update) {
+    // ponytail: Löschungen zählt der Nenner nicht mit – dafür müsste er den Stand bei Meta kennen.
+    return 1 + input.adSets.reduce((n, s) => n + 1 + s.ads.length, 0);
+  }
   return (
     (input.existingCampaignId ? 0 : 1) +
     input.adSets.reduce((n, s) => n + (s.existingAdSetId ? 0 : 1) + s.ads.length, 0)
@@ -588,9 +609,26 @@ export async function launch(
   };
   const ctx: Ctx = { graph, batch: batchFn, acct, pageId: input.pageId, receipt, step, stepDone };
 
+  let seed: CampaignSeed | undefined;
+  if (input.update && input.existingCampaignId) {
+    seed = await (deps.readSeed ?? readCampaignSeed)(input.existingCampaignId, { graph });
+  }
+
   // Kampagne pausiert, alles darunter aktiv: so startet Metas Prüfung sofort,
   // ohne dass Budget fließt. Genau die Reihenfolge des manuellen Ablaufs.
-  if (input.existingCampaignId) {
+  if (input.update && input.existingCampaignId) {
+    step(`Kampagne „${input.campaignName}“ wird geändert`);
+    await graph(input.existingCampaignId, {
+      method: "POST",
+      params: {
+        name: input.campaignName,
+        daily_budget: input.dailyBudgetCents,
+        ...(input.spendCapCents ? { spend_cap: input.spendCapCents } : {}),
+      },
+    });
+    receipt.campaignId = input.existingCampaignId;
+    stepDone();
+  } else if (input.existingCampaignId) {
     receipt.campaignId = input.existingCampaignId;
   } else {
     step(`Kampagne „${input.campaignName}“ wird erstellt`);
@@ -617,14 +655,46 @@ export async function launch(
   }
 
   const jobs: AdJob[] = [];
+  const submittedAdSetIds = new Set<string>();
+  const submittedAdIds = new Set<string>();
 
   for (const [adSetIndex, set] of input.adSets.entries()) {
     const entry: Receipt["adSets"][number] = { index: adSetIndex, name: set.name, adIds: [] };
     receipt.adSets.push(entry);
 
     if (set.existingAdSetId) {
-      // Retry: das Ad Set gibt es schon, nur ein Teil seiner Anzeigen fehlt.
+      submittedAdSetIds.add(set.existingAdSetId);
       entry.id = set.existingAdSetId;
+      if (input.update) {
+        try {
+          step(`Anzeigengruppe „${set.name}“ wird geändert`);
+          await graph(set.existingAdSetId, {
+            method: "POST",
+            params: {
+              name: set.name,
+              targeting: buildTargeting({
+                addressString: set.addressString,
+                radiusKm: set.radiusKm,
+                place: set.place,
+              }),
+              ...(set.dailyBudgetCents ? { daily_budget: set.dailyBudgetCents } : {}),
+            },
+          });
+          stepDone();
+        } catch (e) {
+          entry.error = causeOf(e);
+          for (const ad of set.ads) {
+            receipt.failed.push({
+              adSetIndex,
+              adSetName: set.name,
+              adName: ad.name,
+              error: entry.error,
+            });
+          }
+          done += set.ads.length;
+          continue;
+        }
+      }
     } else {
       try {
         step(`Anzeigengruppe „${set.name}“ wird erstellt`);
@@ -670,11 +740,112 @@ export async function launch(
       }
     }
 
-    for (const ad of set.ads) jobs.push({ set, entry, ad, adSetIndex });
+    const seedSet = seed?.adSets.find((s) => s.metaId === set.existingAdSetId);
+    for (const ad of set.ads) {
+      if (input.update && set.existingAdSetId && ad.existingAdId) {
+        submittedAdIds.add(ad.existingAdId);
+        const seedAd = seedSet?.ads.find((a) => a.metaId === ad.existingAdId);
+
+        const arraysEqual = (a: string[], b: string[]) => {
+          if (a.length !== b.length) return false;
+          const sA = [...a].sort();
+          const sB = [...b].sort();
+          return sA.every((v, i) => v === sB[i]);
+        };
+        const assetsEqual = (a: FormatAsset, b: FormatAsset) => {
+          if (a.kind !== b.kind) return false;
+          if (a.kind === "video" && b.kind === "video") return a.videoId === b.videoId;
+          if (a.kind === "image" && b.kind === "image") return a.hash === b.hash;
+          return false;
+        };
+        const isMatch = (() => {
+          if (!seedAd || !seedSet) return false;
+          if (set.formId !== seedSet.formId) return false;
+          if (!arraysEqual(set.bodies.map(b => b.trim()).filter(Boolean), seedSet.bodies)) return false;
+          if (!arraysEqual(set.titles.map(t => t.trim()).filter(Boolean), seedSet.titles)) return false;
+          if (set.description.trim() !== seedSet.description) return false;
+
+          if (ad.type !== seedAd.type) return false;
+          if (ad.type === "ugc" && seedAd.type === "ugc") return assetsEqual(ad.asset, seedAd.asset);
+          if (ad.type === "single" && seedAd.type === "single") return assetsEqual(ad.asset, seedAd.asset);
+          if (ad.type === "split" && seedAd.type === "split") {
+            return assetsEqual(ad.portrait, seedAd.portrait) && assetsEqual(ad.square, seedAd.square);
+          }
+          return false;
+        })();
+
+        if (isMatch) {
+          entry.adIds.push(ad.existingAdId);
+          stepDone();
+          if (ad.name !== seedAd!.name) {
+            try {
+              await graph(ad.existingAdId, { method: "POST", params: { name: ad.name } });
+            } catch (e) {
+              fail(ctx, { set, entry, ad, adSetIndex }, causeOf(e));
+            }
+          }
+        } else {
+          try {
+            step(`Anzeige „${ad.name}“ in „${set.name}“ wird ersetzt`);
+            const job = { set, entry, ad, adSetIndex };
+            const creative = await graph<{ id: string }>(`${acct}/adcreatives`, {
+              method: "POST",
+              params: creativeParams(ctx, job),
+            });
+            await graph(ad.existingAdId, {
+              method: "POST",
+              params: { name: ad.name, creative: { creative_id: creative.id } },
+            });
+            entry.adIds.push(ad.existingAdId);
+          } catch (e) {
+            fail(ctx, { set, entry, ad, adSetIndex }, causeOf(e));
+          } finally {
+            stepDone();
+          }
+        }
+      } else {
+        jobs.push({ set, entry, ad, adSetIndex });
+      }
+    }
   }
 
   if (jobs.length >= BATCH_THRESHOLD) await batchAds(ctx, jobs);
   else await poolAds(ctx, jobs);
+
+  if (input.update && seed) {
+    for (const seedSet of seed.adSets) {
+      if (!submittedAdSetIds.has(seedSet.metaId)) {
+        try {
+          step(`Anzeigengruppe „${seedSet.name}“ wird gelöscht`);
+          await graph(seedSet.metaId, { method: "DELETE" });
+        } catch (e) {
+          receipt.failed.push({
+            adSetIndex: -1,
+            adSetName: seedSet.name,
+            adName: "",
+            error: `Konnte nicht gelöscht werden: ${causeOf(e)}`,
+          });
+        }
+      } else {
+        const submittedIndex = receipt.adSets.findIndex(s => s.id === seedSet.metaId);
+        for (const seedAd of seedSet.ads) {
+          if (!submittedAdIds.has(seedAd.metaId)) {
+            try {
+              step(`Anzeige „${seedAd.name}“ wird gelöscht`);
+              await graph(seedAd.metaId, { method: "DELETE" });
+            } catch (e) {
+              receipt.failed.push({
+                adSetIndex: submittedIndex,
+                adSetName: seedSet.name,
+                adName: seedAd.name,
+                error: `Konnte nicht gelöscht werden: ${causeOf(e)}`,
+              });
+            }
+          }
+        }
+      }
+    }
+  }
 
   return receipt;
 }

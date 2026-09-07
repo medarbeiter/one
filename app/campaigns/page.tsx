@@ -131,6 +131,13 @@ export default async function CampaignsPage({ searchParams }: PageProps<"/campai
                       <span className="text-ink-900 block font-medium">{c.name}</span>
                       {!scope && <span className="text-ink-500 block text-xs">{c.customerName}</span>}
                     </Link>
+                    {/* Die zwei Wege in den Assistenten, direkt an der Zeile –
+                        wer 200 Kunden betreut, dupliziert aus der Liste heraus. */}
+                    <span className="text-ink-500 block text-xs">
+                      <Link href={`/campaigns/new?from=${c.id}`} className="hover:underline">Duplizieren</Link>
+                      {" · "}
+                      <Link href={`/campaigns/new?edit=${c.id}`} className="hover:underline">Bearbeiten</Link>
+                    </span>
                   </UI.TableCell>
                   <UI.TableCell>
                     <StatusSwitch id={c.id} name={c.name} status={c.status} />

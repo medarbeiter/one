@@ -47,7 +47,7 @@ import {
 } from "./drive";
 import { ROLES } from "./naming";
 
-export type Source = "clickup" | "onboarding" | "previous" | "session" | "user";
+export type Source = "clickup" | "onboarding" | "previous" | "session" | "user" | "campaign";
 export type Sourced<T> = { value: T; sources: Source[] };
 const SOURCES: readonly Source[] = ["clickup", "onboarding", "previous", "session", "user"];
 

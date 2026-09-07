@@ -24,8 +24,8 @@ export type GeoPlace = {
   primaryCity?: string;
 };
 
-/** Welcher Topf in `geo_locations` welchen Typ aufnimmt. */
-const BUCKET = {
+/** Welcher Topf in `geo_locations` welchen Typ aufnimmt – auch lib/prefill.ts liest damit zurück. */
+export const BUCKET = {
   city: "cities",
   zip: "zips",
   region: "regions",

@@ -8,7 +8,7 @@
  * in der neuen, was schlimmer ist als ein leeres Feld – ein leeres Feld sieht
  * man, einen falschen Text von letztem Mal nicht.
  */
-import type { GeoPlace } from "./geo";
+import { BUCKET, toGeoPlace, type GeoPlace } from "./geo";
 import { graph } from "./graph";
 
 export type Prefill = {
@@ -19,17 +19,16 @@ export type Prefill = {
 
 export function defaultsFromAdSet(set: any): Prefill {
   const geo = set?.targeting?.geo_locations;
-  // Zielte die letzte Kampagne auf eine Stadt statt auf eine Adresse, steht der
-  // Ort in einem anderen Topf. Nur custom_locations zu lesen hieße: der Kunde
-  // bekommt ein leeres Feld, obwohl sein Ort bei Meta steht. Namen liefert Meta
-  // beim Lesen nicht mit – der Schlüssel allein reicht fürs Targeting, die
-  // Beschriftung holt der Assistent über die Ortssuche nach.
-  const city = geo?.cities?.[0];
-  if (city?.key)
-    return {
-      place: { type: "city", key: String(city.key), name: geo.cities[0].name ?? String(city.key) },
-      radiusKm: city.radius,
-    };
+  // Zielte die letzte Kampagne auf einen Ort statt auf eine Adresse, steht er in
+  // einem anderen Topf – Stadt, PLZ, Bundesland, Bezirk oder Stadtteil. Nur
+  // custom_locations zu lesen hieße: der Kunde bekommt ein leeres Feld, obwohl
+  // sein Ort bei Meta steht. Beim Lesen liefert Meta Schlüssel und Namen mit;
+  // toGeoPlace() in lib/geo.ts kennt die Töpfe und ihre Typen.
+  for (const [type, bucket] of Object.entries(BUCKET)) {
+    const item = geo?.[bucket]?.[0];
+    const place = item && toGeoPlace({ ...item, type });
+    if (place) return { place, radiusKm: item.radius };
+  }
   const loc = geo?.custom_locations?.[0];
   return { addressString: loc?.address_string, radiusKm: loc?.radius };
 }

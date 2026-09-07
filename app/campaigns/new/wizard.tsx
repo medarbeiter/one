@@ -33,6 +33,7 @@ import {
   edited,
   emptyAdSet,
   initialState,
+  stateFromSeed,
   syncLinkedAds,
   textInstructions,
   toAdInput,
@@ -53,6 +54,7 @@ import { activitySnapshot, clearActivity, report, useActivity } from "./activity
 import { Werkstattleiste, announceBriefPlan, reportBriefEvent } from "./werkstatt";
 import type { BriefStreamEvent } from "@/app/api/brief/route";
 import type { AssembledBrief } from "@/lib/brief";
+import type { CampaignSeed } from "@/lib/seed";
 import { readNdjson } from "@/lib/ndjson";
 import {
   closeBriefAction,
@@ -241,6 +243,13 @@ type WizardProps = {
   defaultBusiness: string;
   initials: string;
   email: string;
+  /**
+   * Eine bestehende Kampagne als Ausgangsstand (lib/seed.ts): „copy“ legt eine
+   * neue mit denselben Werten an, „edit“ ändert sie. Kommt einmal mit der URL
+   * (?from= / ?edit=) und wird beim Übernehmen aus ihr entfernt, damit ein
+   * Neuladen den Entwurf zeigt und nicht wieder die Vorlage.
+   */
+  seed?: { seed: CampaignSeed; mode: "copy" | "edit" };
 };
 
 export function Wizard(props: WizardProps) {
@@ -257,8 +266,9 @@ function WizardSteps({
   defaultBusiness,
   initials,
   email,
+  seed,
 }: WizardProps) {
-  const { state, setState, loaded, restored, others, save, resume, remove, discard, forget } =
+  const { state, setState, loaded, restored, others, save, start, resume, remove, discard, forget } =
     useWizardState(initialState(defaultAccount, defaultBusiness, initials));
   // Kurz „Gespeichert“ zeigen, dann zurück – ein Knopf ohne Reaktion sieht
   // kaputt aus, ein Toast wäre für diese eine Bestätigung zu viel Apparat.
@@ -517,6 +527,34 @@ function WizardSteps({
   // Server-Daten; alle anderen sind lokaler Formularzustand, an dem Nachlesen
   // nichts ändert.
   const router = useRouter();
+
+  // Die Vorlage in den Assistenten – einmal, sobald die Entwürfe gelesen sind
+  // (vorher überschriebe der wiederhergestellte Entwurf sie gleich wieder).
+  // Der Kunde folgt der Seite aus promoted_object; kennt die Meta-Liste sie
+  // nicht, bleibt der Name aus dem Kampagnennamen stehen und Schirm 1 sagt das.
+  // Ins Protokoll kommt, was übernommen wurde – dieselbe Werkstatt wie beim
+  // Auftrag, nur mit einer Kampagne statt einer Aufgabe als Quelle.
+  useEffect(() => {
+    if (!loaded || !seed) return;
+    const { seed: vorlage, mode } = seed;
+    const known = clients.find((c) => c.pageId === vorlage.pageId);
+    clearActivity();
+    setRevealed(false);
+    setManual(false);
+    start(stateFromSeed(vorlage, { mode, adAccount: defaultAccount, business: known?.name ?? "", initials }));
+    setWarnings(vorlage.warnings);
+    const ads = vorlage.adSets.reduce((n, s) => n + s.ads.length, 0);
+    report({
+      id: "vorlage",
+      label: mode === "edit" ? "Kampagne bearbeiten" : "Vorlage",
+      status: "done",
+      detail: `„${vorlage.name}“ · ${plural(vorlage.adSets.length, "Standort", "Standorte")} · ${plural(ads, "Anzeige", "Anzeigen")}${known ? "" : " · Kunde nicht in der Meta-Liste – bitte wählen"}`,
+      source: "campaign",
+    });
+    setStep(known ? "1" : "0");
+    router.replace("/campaigns/new");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded]);
   // Ein Kunde entsteht im Business Manager (Seite dem System User zuweisen),
   // nicht hier. Der Knopf holt danach nur die Liste: ohne den Tag-Wurf hielte
   // der Portfolio-Cache die neue Seite bis zu 5 Minuten zurück.
@@ -755,6 +793,9 @@ function WizardSteps({
 
   const onCreate = () =>
     submitWizard({
+      // Bearbeiten: dieselbe Nutzlast, nur mit den Meta-IDs und dem Schalter,
+      // der lib/launch.ts ändern statt anlegen lässt.
+      ...(state.editing ? { existingCampaignId: state.editing.campaignId, update: true } : {}),
       adAccount: state.adAccount,
       // Die Seite folgt dem beworbenen Kunden – der Server löst sie noch einmal
       // selbst auf, ein Client-Feld darf nicht auf eine fremde Seite zeigen.
@@ -777,6 +818,8 @@ function WizardSteps({
     });
 
   const stepIndex = Number(step);
+  const editing = Boolean(state.editing);
+  const steps = editing ? [STEPS[0], STEPS[1], "Übernehmen"] : STEPS;
   const previewSet = state.adSets.find((s) => s.id === previewSetId) ?? state.adSets[0];
   // Alles nach der Kundenwahl hängt am Kunden: die Seite trägt die Anzeigen,
   // sein Name baut den Kampagnennamen. Ohne ihn ist jeder weitere Schritt eine
@@ -844,7 +887,7 @@ function WizardSteps({
             vom fehlenden Formular nach acht Uploads. Gesperrt, solange kein
             Kunde gewählt ist – siehe `locked`. */}
         <Stepper
-          steps={STEPS.map((label, i) => ({ label, issues: stepIssues[i] }))}
+          steps={steps.map((label, i) => ({ label, issues: stepIssues[i] }))}
           current={stepIndex}
           onSelect={(i) => setStep(String(i))}
           lockedFrom={locked ? 1 : STEPS.length}
@@ -1037,7 +1080,11 @@ function WizardSteps({
         {stepIndex === 2 && (
           <Step
             frage="Passt alles?"
-            satz="Kampagne, Anzeigengruppen und Anzeigen werden pausiert angelegt — es läuft nichts los und kostet nichts, bevor du sie bei Meta startest."
+            satz={
+              editing
+                ? `„${state.editing!.name}“ wird bei Meta geändert: Name, Budget, Standorte und Texte an Ort und Stelle. Nur Anzeigen mit geänderten Texten oder Motiven bekommen eine neue Gestaltung; entfernte werden gelöscht. Der Status der Kampagne bleibt, wie er ist.`
+                : "Kampagne, Anzeigengruppen und Anzeigen werden pausiert angelegt — es läuft nichts los und kostet nichts, bevor du sie bei Meta startest."
+            }
           >
             {/* Zwei Spalten, sobald Platz ist: links die Prüfliste, rechts das
                 Telefon. Untereinander ließ die Vorschau die halbe Seite leer –
@@ -1181,7 +1228,7 @@ function WizardSteps({
                 {stepIndex < STEPS.length - 1 ? (
                   <Button
                     isDisabled={locked || (stepIndex === 1 && !ready)}
-                    label={`Weiter: ${STEPS[stepIndex + 1]}`}
+                    label={`Weiter: ${steps[stepIndex + 1]}`}
                     endContent={<Sign meaning="next" />}
                     onClick={() => setStep(String(stepIndex + 1))}
                   />
@@ -1191,7 +1238,15 @@ function WizardSteps({
                     isLoading={pending}
                     isDisabled={pending || blocked}
                     icon={pending ? undefined : <Sign meaning="launch" />}
-                    label={pending ? "Wird erstellt…" : "Erstellen (pausiert)"}
+                    label={
+                      pending
+                        ? editing
+                          ? "Wird geändert…"
+                          : "Wird erstellt…"
+                        : editing
+                          ? "Änderungen übernehmen"
+                          : "Erstellen (pausiert)"
+                    }
                   />
                 )}
               </div>

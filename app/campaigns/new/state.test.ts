@@ -486,3 +486,83 @@ test("draftLabel: ein Entwurf, der nur aus Hinweisen besteht, heißt nach seiner
   expect(draftLabel(draft({ ...initialState("", "Herzhalt"), aiNotes: "Nur PFK" }))).toBe("Herzhalt");
   expect(draftLabel(draft(initialState()))).toBe("Ohne Kunde");
 });
+
+import { stateFromSeed, toAdInput } from "./state";
+import type { CampaignSeed } from "@/lib/seed";
+
+const seed: CampaignSeed = {
+  campaignId: "c1",
+  name: "Herzhalt Pflegedienst GmbH - PFK/PDL ab 12.08.26 MH (via One)",
+  status: "ACTIVE",
+  pageId: "p1",
+  dailyBudgetEuros: 40,
+  spendCapEuros: 500,
+  warnings: [],
+  adSets: [
+    {
+      metaId: "as1",
+      name: "Ads",
+      addressString: "Mühlgasse 24, 71272 Renningen",
+      radiusKm: 25,
+      formId: "f1",
+      bodies: ["b1", "b2"],
+      titles: ["t1"],
+      description: "Das bieten wir:\n✅ JobRad\n✅ 30 Urlaubstage",
+      ads: [
+        { metaId: "ad1", name: "Laura 1", type: "ugc", asset: { kind: "video", videoId: "v1", fileName: "Laura 1" } },
+        {
+          metaId: "ad2",
+          name: "Creative 1",
+          type: "split",
+          portrait: { kind: "image", hash: "hp", fileName: "Creative 1" },
+          square: { kind: "image", hash: "hs", fileName: "Creative 1" },
+        },
+      ],
+    },
+  ],
+};
+
+test("stateFromSeed copy: same values, new name, no Meta ids", () => {
+  const s = stateFromSeed(seed, { mode: "copy", adAccount: "act_1", business: "Herzhalt", initials: "JP" });
+  expect(s.business).toBe("Herzhalt");
+  expect(s.roles).toEqual(["PFK", "PDL"]);
+  expect(s.campaignName).toBe("");
+  expect(s.nameEdited).toBe(false);
+  expect(s.editing).toBeUndefined();
+  expect(s.dailyBudgetEuros).toBe(40);
+  expect(s.spendCapEuros).toBe(500);
+  expect(s.benefits).toBe("JobRad\n30 Urlaubstage");
+  expect(s.sources).toEqual({
+    clientName: ["campaign"],
+    roles: ["campaign"],
+    location: ["campaign"],
+    dailyBudget: ["campaign"],
+    spendCap: ["campaign"],
+    initials: ["session"],
+  });
+  const [set] = s.adSets;
+  expect(set.existingAdSetId).toBeUndefined();
+  expect(set.addressString).toBe("Mühlgasse 24, 71272 Renningen");
+  expect(set.radiusKm).toBe(25);
+  expect(set.formId).toBe("f1");
+  expect(set.bodies).toEqual(["b1", "b2"]);
+  expect(set.ads.map((a) => [a.type, a.existingAdId])).toEqual([["ugc", undefined], ["split", undefined]]);
+  expect(set.ads[0].type === "ugc" && set.ads[0].asset.orientation).toBe("portrait");
+});
+
+test("stateFromSeed edit: keeps name and Meta ids, business falls back to the name", () => {
+  const s = stateFromSeed(seed, { mode: "edit", adAccount: "act_1", business: "", initials: "JP" });
+  expect(s.business).toBe("Herzhalt Pflegedienst GmbH");
+  expect(s.campaignName).toBe(seed.name);
+  expect(s.nameEdited).toBe(true);
+  expect(s.editing).toEqual({ campaignId: "c1", name: seed.name });
+  expect(s.adSets[0].existingAdSetId).toBe("as1");
+  expect(s.adSets[0].ads.map((a) => a.existingAdId)).toEqual(["ad1", "ad2"]);
+  expect(toAdInput(s.adSets[0].ads[0]).existingAdId).toBe("ad1");
+});
+
+test("stateFromSeed without ad sets starts with one empty location", () => {
+  const s = stateFromSeed({ ...seed, adSets: [] }, { mode: "copy", adAccount: "", business: "", initials: "" });
+  expect(s.adSets).toHaveLength(1);
+  expect(s.adSets[0].addressString).toBe("");
+});

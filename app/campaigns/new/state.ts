@@ -7,6 +7,8 @@ import { isSuggestedPair, nextCreativeName, normalizeAdName, planAds, uniqueName
 import type { AssembledBrief, Source } from "@/lib/brief";
 import type { AdInput, AdSetInput, FormatAsset } from "@/lib/launch";
 import type { Orientation } from "@/lib/media";
+import { parseCampaignName } from "@/lib/naming";
+import type { CampaignSeed, SeedAd } from "@/lib/seed";
 
 // Der Einzelentwurf von früher: ein Stand, im sessionStorage dieses Tabs, weg
 // beim Schließen des Fensters. Abgelöst von der Entwurfsliste weiter unten;
@@ -74,6 +76,12 @@ export type WizardState = {
   formHint?: string;
   /** Der Kundenordner in Drive, wenn bekannt – das Regal startet dann dort. */
   driveFolderId?: string;
+  /**
+   * Gesetzt, wenn dieser Entwurf eine bestehende Kampagne ändert statt eine neue
+   * anzulegen: Anzeigengruppen und Anzeigen tragen dann ihre Meta-IDs
+   * (existingAdSetId, existingAdId), und der Anlegen-Knopf heißt „übernehmen“.
+   */
+  editing?: { campaignId: string; name: string };
   adSets: WizardAdSet[];
 };
 
@@ -117,6 +125,8 @@ export type WizardAd = {
   /** Warum der Assistent dieses Paar vorgeschlagen hat – steht an der Karte,
    *  damit ein falscher Vorschlag auffällt statt unbemerkt zu bleiben. */
   reason?: string;
+  /** Beim Bearbeiten: diese Anzeige gibt es bei Meta schon (siehe WizardState.editing). */
+  existingAdId?: string;
 } & (
   | { type: "ugc"; asset: WizardVideoAsset }
   | { type: "single"; asset: WizardImageAsset }
@@ -268,23 +278,112 @@ const toFormatAsset = (a: WizardAsset): FormatAsset =>
 
 /** Der Teil einer WizardAd, den lib/launch.ts kennt – ohne UI-Felder. */
 export function toAdInput(ad: WizardAd): AdInput {
+  const meta = ad.existingAdId ? { existingAdId: ad.existingAdId } : {};
   if (ad.type === "ugc")
     return {
       name: ad.name,
+      ...meta,
       type: "ugc",
       asset: toFormatAsset(ad.asset) as Extract<FormatAsset, { kind: "video" }>,
     };
   if (ad.type === "single")
     return {
       name: ad.name,
+      ...meta,
       type: "single",
       asset: toFormatAsset(ad.asset) as Extract<FormatAsset, { kind: "image" }>,
     };
   return {
     name: ad.name,
+    ...meta,
     type: "split",
     portrait: toFormatAsset(ad.portrait),
     square: toFormatAsset(ad.square),
+  };
+}
+
+/**
+ * Ein Asset aus Meta zurück in den Assistenten. Die Ausrichtung kennt Meta
+ * beim Lesen nicht: bei einem Paar sagt sie der Platz, ein Einzelbild gilt als
+ * quadratisch – das Paaren von Hand liest die Ausrichtung ohnehin neu.
+ */
+const seededAsset = (a: FormatAsset, orientation: Orientation): WizardAsset =>
+  a.kind === "video" ? { ...a, orientation } : { ...a, orientation };
+
+const seededAd = (ad: SeedAd, keepId: boolean): WizardAd => {
+  const base = { id: crypto.randomUUID(), name: ad.name, ...(keepId ? { existingAdId: ad.metaId } : {}) };
+  if (ad.type === "ugc") return { ...base, type: "ugc", asset: seededAsset(ad.asset, "portrait") as WizardVideoAsset };
+  if (ad.type === "single") return { ...base, type: "single", asset: seededAsset(ad.asset, "square") as WizardImageAsset };
+  return { ...base, type: "split", portrait: seededAsset(ad.portrait, "portrait"), square: seededAsset(ad.square, "square") };
+};
+
+/**
+ * Eine bestehende Kampagne als Ausgangsstand des Assistenten. Zwei Spielarten:
+ *
+ * - „copy“ legt eine neue Kampagne mit denselben Werten an: heutiges Datum,
+ *   Name aus der Konvention, Anzeigen ohne Meta-IDs (die Videos und Bilder
+ *   liegen im Werbekonto und werden wiederverwendet, nicht neu hochgeladen).
+ * - „edit“ ändert die Kampagne selbst: Name bleibt, Anzeigengruppen und
+ *   Anzeigen behalten ihre IDs, damit lib/launch.ts sie an Ort und Stelle
+ *   ändert statt daneben neue anzulegen.
+ *
+ * Jedes übernommene Feld trägt die Herkunft „campaign“, bis jemand es ändert.
+ * Die Benefits stehen nicht bei Meta – sie kommen aus der ✅-Liste der
+ * Beschreibung zurück, wenn es eine gibt, damit neue Texte sie wieder kennen.
+ */
+export function stateFromSeed(
+  seed: CampaignSeed,
+  opts: { mode: "copy" | "edit"; adAccount: string; business: string; initials: string },
+): WizardState {
+  const edit = opts.mode === "edit";
+  const parsed = parseCampaignName(seed.name);
+  const business = opts.business || parsed?.business || "";
+  const description = seed.adSets[0]?.description ?? "";
+  const benefits = description.includes("✅")
+    ? description
+        .split("\n")
+        .filter((l) => l.includes("✅"))
+        .map((l) => l.replace(/^[\s✅]+/, "").trim())
+        .filter(Boolean)
+        .join("\n")
+    : "";
+  const sources: Sources = {
+    ...(business ? { clientName: ["campaign"] } : {}),
+    ...(parsed?.roles.length ? { roles: ["campaign"] } : {}),
+    ...(seed.adSets.length ? { location: ["campaign"] } : {}),
+    ...(seed.dailyBudgetEuros !== undefined ? { dailyBudget: ["campaign"] } : {}),
+    ...(seed.spendCapEuros !== undefined ? { spendCap: ["campaign"] } : {}),
+    ...(opts.initials ? { initials: ["session"] } : {}),
+  };
+  const adSets: WizardAdSet[] = seed.adSets.length
+    ? seed.adSets.map((set, i) => ({
+        ...emptyAdSet(i, cityOf(set.addressString)),
+        name: set.name,
+        addressString: set.addressString,
+        radiusKm: set.radiusKm,
+        ...(set.place ? { place: set.place } : {}),
+        formId: set.formId,
+        bodies: set.bodies.length ? set.bodies : [""],
+        titles: set.titles.length ? set.titles : [""],
+        description: set.description,
+        ...(edit ? { existingAdSetId: set.metaId } : {}),
+        ads: set.ads.map((ad) => seededAd(ad, edit)),
+      }))
+    : [emptyAdSet(0)];
+  return {
+    ...initialState(opts.adAccount, business, opts.initials),
+    roles: parsed?.roles ?? [],
+    roleFreeText: parsed?.roleFreeText ?? "",
+    // Beim Bearbeiten bleibt der Name, wie er bei Meta steht – auch ein alter,
+    // der nicht der Konvention folgt. Beim Duplizieren entsteht er neu.
+    campaignName: edit ? seed.name : "",
+    nameEdited: edit,
+    dailyBudgetEuros: seed.dailyBudgetEuros ?? DEFAULT_DAILY_BUDGET,
+    ...(seed.spendCapEuros !== undefined ? { spendCapEuros: seed.spendCapEuros } : {}),
+    benefits,
+    sources,
+    ...(edit ? { editing: { campaignId: seed.campaignId, name: seed.name } } : {}),
+    adSets,
   };
 }
 
@@ -831,6 +930,17 @@ export function useWizardState(defaults: WizardState) {
     rebase();
   };
 
+  /**
+   * Mit einem fertigen Stand beginnen – der Vorlage einer duplizierten oder zu
+   * bearbeitenden Kampagne. Der bisherige Entwurf dieses Tabs bleibt in der
+   * Liste liegen; gezählt wird von vorn, sodass die erste Änderung an der
+   * Vorlage noch keinen Entwurf anlegt, die zweite schon.
+   */
+  const start = (next: WizardState) => {
+    detach();
+    setState(next);
+  };
+
   /** Einen Entwurf aus der Liste in diesen Tab holen. */
   const resume = (id: string) => {
     const found = readDrafts().find((d) => d.id === id);
@@ -895,6 +1005,7 @@ export function useWizardState(defaults: WizardState) {
     restored,
     others: drafts.filter((d) => d.id !== current.current),
     save,
+    start,
     resume,
     remove,
     discard,

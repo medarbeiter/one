@@ -1,5 +1,6 @@
 import * as UI from "@/app/shell/ui";
-import { Badge, Card, Collapsible, CollapsibleGroup, EmptyState } from "@/app/shell/ui";
+import { Badge, Button, Card, Collapsible, CollapsibleGroup, EmptyState } from "@/app/shell/ui";
+import { Sign } from "@/theme/icons";
 import { costPerResult, getCampaign, results, type Insights } from "@/lib/campaigns";
 import { label } from "@/lib/labels";
 import { Blatt, Blattkopf } from "@/app/shell/blattkopf";
@@ -52,6 +53,14 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
           <>
             <Badge variant={c.status === "ACTIVE" ? "success" : "neutral"} label={c.status} />
             <Badge variant="neutral" label={label(c.objective)} />
+          </>
+        }
+        // Beide führen in den Assistenten: Duplizieren baut aus dieser Kampagne
+        // einen neuen Vorschlag, Bearbeiten ändert sie selbst (lib/seed.ts).
+        werkzeuge={
+          <>
+            <Button variant="secondary" size="sm" href={`/campaigns/new?from=${id}`} icon={<Sign meaning="add" />} label="Duplizieren" />
+            <Button variant="secondary" size="sm" href={`/campaigns/new?edit=${id}`} label="Bearbeiten" />
           </>
         }
         nav={<PeriodNav route={`/campaigns/${id}`} period={period} params={sp} />}
