@@ -68,6 +68,8 @@ export type DriveFile = {
   hasThumbnail?: boolean;
   /** Bei Videos: die Maße, die Drive beim Verarbeiten gelesen hat. */
   videoMediaMetadata?: { width?: number; height?: number };
+  /** Bei Bildern dasselbe – der Autopilot liest daran die Ausrichtung ab. */
+  imageMediaMetadata?: { width?: number; height?: number };
 };
 
 async function api(path: string, params: Record<string, string>, headers: Record<string, string> = {}): Promise<Response> {
@@ -88,7 +90,7 @@ async function list(q: string): Promise<DriveFile[]> {
     const page = (await (
       await api("files", {
         q: `${q} and trashed = false`,
-        fields: "nextPageToken,files(id,name,mimeType,size,hasThumbnail,videoMediaMetadata(width,height))",
+        fields: "nextPageToken,files(id,name,mimeType,size,hasThumbnail,videoMediaMetadata(width,height),imageMediaMetadata(width,height))",
         pageSize: "200",
         includeItemsFromAllDrives: "true",
         orderBy: "name",

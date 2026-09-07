@@ -90,6 +90,8 @@ export type AssembledBrief = {
   notes?: string;
   /** Die freien Hinweise, mit denen dieser Brief gebaut wurde – für den Entwurf. */
   aiNotes: string;
+  /** Wem die Aufgabe zugewiesen ist – der Autopilot zeichnet mit diesem Kürzel. */
+  assigneeName?: string;
   /** Stil-, Ton- und Ausschlusswünsche aus den Hinweisen, für jede Textanfrage. */
   copyInstructions: string;
   warnings: string[];
@@ -442,7 +444,7 @@ export async function assembleBrief(
   // Genau diese eine Aufgabe. Geschwister desselben Kunden werden weder
   // gesucht noch zusammengeführt – der Umfang der Kampagne ist die Aufgabe.
   const brief = await deps.getBrief(taskId);
-  const out: AssembledBrief = { taskId, aiNotes, copyInstructions: "", warnings };
+  const out: AssembledBrief = { taskId, aiNotes, copyInstructions: "", warnings, assigneeName: brief.assigneeName };
   if (brief.customer) out.clientName = { value: brief.customer, sources: ["clickup"] };
   if (brief.description.trim()) out.notes = brief.description.trim();
   if (brief.dailyBudgetEuros) out.dailyBudgetEuros = { value: brief.dailyBudgetEuros, sources: ["clickup"] };

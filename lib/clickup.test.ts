@@ -81,12 +81,14 @@ test("toBrief bildet die Aufgabe ab: Ordnername getrimmt, Felder geparst, Leeres
     customer: "MeVita Pflegedienst GmbH",
     folderId: "901511138445",
     assignees: ["f.kinze@med-arbeiter.de"],
+    assigneeName: "Felix Kinze",
     description: "neu anlegen, infos fast identisch zu letzter\nFK für Renningen",
     dailyBudgetEuros: 17.05,
     spendCapEuros: undefined,
     rolesText: "FK",
     driveUrl: undefined,
     createdAt: 1756800000000,
+    updatedAt: 1756800000000,
   });
 });
 

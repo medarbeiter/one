@@ -45,6 +45,8 @@ export type Brief = {
   folderId?: string;
   /** E-Mails der Verantwortlichen – für „meine zuerst“. */
   assignees: string[];
+  /** Name der ersten verantwortlichen Person – ihr Kürzel steht im Kampagnennamen des Autopiloten. */
+  assigneeName?: string;
   /** Die Beschreibung, roh (Markdown). Steht wörtlich im Vorschlag. */
   description: string;
   dailyBudgetEuros?: number;
@@ -54,6 +56,8 @@ export type Brief = {
   /** Custom Field „Drive-Link“ – meist leer, dann sucht lib/drive.ts den Ordner. */
   driveUrl?: string;
   createdAt: number;
+  /** Letzte Änderung – der Autopilot wartet, bis eine Aufgabe eine Minute ruht. */
+  updatedAt: number;
 };
 
 type RawField = { name: string; type: string; value?: unknown };
@@ -64,6 +68,7 @@ export type RawTask = {
   name: string;
   status: { status: string };
   date_created: string;
+  date_updated?: string;
   description?: string | null;
   markdown_description?: string | null;
   folder?: { id?: string; name?: string };
@@ -168,12 +173,14 @@ export function toBrief(raw: RawTask): Brief {
     customer: raw.folder?.name?.trim() ?? "",
     folderId: text(raw.folder?.id),
     assignees: (raw.assignees ?? []).map((a) => a.email ?? "").filter(Boolean),
+    assigneeName: text(raw.assignees?.[0]?.username),
     description: raw.markdown_description ?? raw.description ?? "",
     dailyBudgetEuros: parseEuro(field(raw, "Tagesbudget")),
     spendCapEuros: parseEuro(field(raw, "Ausgabenlimit")),
     rolesText: text(field(raw, "gesuchte Stellen")),
     driveUrl: text(field(raw, "Drive-Link")),
     createdAt: Number(raw.date_created) || 0,
+    updatedAt: Number(raw.date_updated) || Number(raw.date_created) || 0,
   };
 }
 
@@ -276,9 +283,19 @@ export async function listOpenBriefs(): Promise<Brief[]> {
 export const getBrief = async (taskId: string): Promise<Brief> =>
   toBrief(await api<RawTask>(`task/${encodeURIComponent(taskId)}?include_markdown_description=true`));
 
+export const addComment = (taskId: string, text: string): Promise<unknown> =>
+  api(`task/${encodeURIComponent(taskId)}/comment`, { method: "POST", body: JSON.stringify({ comment_text: text }) });
+
+/** Die Kommentare einer Aufgabe, Text und Zeitpunkt – der Autopilot liest daran ab, ob er schon dran war. */
+export async function listComments(taskId: string): Promise<{ text: string; date: number }[]> {
+  const { comments } = await api<{ comments: { comment_text?: string; date?: string }[] }>(
+    `task/${encodeURIComponent(taskId)}/comment`,
+  );
+  return (comments ?? []).map((c) => ({ text: c.comment_text ?? "", date: Number(c.date) || 0 }));
+}
+
 /** Nach dem Anlegen: Status weiter, Kommentar mit dem Ergebnis dran. */
 export async function closeBrief(taskId: string, comment: string): Promise<void> {
-  const path = `task/${encodeURIComponent(taskId)}`;
-  await api(path, { method: "PUT", body: JSON.stringify({ status: DONE_STATUS }) });
-  await api(`${path}/comment`, { method: "POST", body: JSON.stringify({ comment_text: comment }) });
+  await api(`task/${encodeURIComponent(taskId)}`, { method: "PUT", body: JSON.stringify({ status: DONE_STATUS }) });
+  await addComment(taskId, comment);
 }

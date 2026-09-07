@@ -64,6 +64,7 @@ const brief: Brief = {
   spendCapEuros: 2435,
   rolesText: "FK",
   createdAt: 1,
+  updatedAt: 1,
 };
 
 const csv = [

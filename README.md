@@ -54,6 +54,14 @@ bun test         # Checks für lib/meta.ts
    Drive-Dienstkonto geteilt sein, genau wie der Ordner selbst; fehlt die
    Freigabe, meldet der Assistent nur eine Warnung und lässt die Benefits
    leer.
+
+   `AUTOPILOT=1` schaltet den Autopiloten ein (`lib/autopilot.ts`): jede
+   Minute nimmt er sich jede Aufgabe in „kampagne anlegen“, die seit einer
+   Minute ruht, legt die Kampagne pausiert an und schiebt die Aufgabe mit
+   Prüf-Link auf „abnahme kampagne“. Was er nicht entscheiden kann (Kunde
+   mehrdeutig, kein Formular-Hinweis, leerer Drive-Ordner), schreibt er als
+   Kommentar an die Aufgabe und lässt sie stehen. Lokal aus lassen – er
+   arbeitet mit echten Aufgaben.
 4. Deployen. Coolify hängt den Service an sein verwaltetes Netzwerk und erzeugt
    Traefik-Routing sowie TLS-Zertifikate aus der Domain. Deshalb enthält Compose
    bewusst weder eigene Netzwerke noch statische Traefik-Labels.

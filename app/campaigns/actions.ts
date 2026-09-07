@@ -2,7 +2,7 @@
 
 import { updateTag } from "next/cache";
 import { graph } from "@/lib/graph";
-import { setDailyBudget, setStatus } from "@/lib/campaigns";
+import { adsManagerUrl, setDailyBudget, setStatus } from "@/lib/campaigns";
 import type { Receipt } from "@/lib/launch";
 import type { Check } from "@/lib/verify";
 import { getLeadForm, listLeadForms, parseFormId, type LeadForm } from "@/lib/forms";
@@ -242,9 +242,6 @@ export async function briefsAction(): Promise<{ briefs: Brief[]; error?: string 
 }
 
 // Ads Manager erwartet die Konto-ID ohne "act_" – dieselbe Adresse wie in receipt.tsx.
-const adsManagerUrl = (adAccount: string, campaignId: string) =>
-  `https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=${adAccount.replace(/^act_/, "")}&selected_campaign_ids=${campaignId}`;
-
 /**
  * Nach dem Anlegen: Aufgabe auf „abnahme kampagne“, Kommentar mit Name und
  * Link. Ein Fehler hier ist eine Zeile in der Quittung – die Kampagne steht.
