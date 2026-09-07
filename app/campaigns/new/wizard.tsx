@@ -567,23 +567,27 @@ function WizardSteps({
 
   // Adresse, Radius und Texte aus der letzten Kampagne des Kunden übernehmen –
   // aber nur ins erste Ad Set und nur die Felder, die noch am Ausgangswert
-  // stehen (untouchedPrefillPatch). Kein Werbekonto (noch) gewählt heißt: nichts
-  // zu holen. Das Lead-Formular bleibt bewusst außen vor, siehe state.ts/prefill.ts.
+  // stehen (untouchedPrefillPatch). Alle Kampagnen laufen über dasselbe
+  // Zahlerkonto, der Kunde steckt in der Seite: ohne Seite ist die "letzte
+  // Kampagne des Kontos" die eines anderen Kunden – also erst suchen, wenn der
+  // Kunde feststeht. Das ist auch nach dem Auftrag, sodass eine Adresse aus
+  // ClickUp schon steht und Vorrang hat. Das Lead-Formular bleibt bewusst außen vor, siehe state.ts/prefill.ts.
   // Der Zustand ist sichtbar, weil die Vorbelegung Felder ändert, während man
   // hinschaut: ohne Hinweis springt die Adresse aus dem Nichts auf einen Wert,
   // den niemand getippt hat.
   const [prefill, setPrefill] = useState<"loading" | "applied" | "none">("none");
+  const pageId = client?.pageId;
   useEffect(() => {
     const adAccount = state.adAccount;
-    if (!adAccount) return;
+    if (!adAccount || !pageId) return;
     let cancelled = false;
     setPrefill("loading");
-    const label = "Letzte Kampagne des Kontos";
+    const label = "Letzte Kampagne des Kunden";
     report({ id: "previous", label, status: "running", detail: "sucht Standort und Radius der letzten Kampagne…" });
-    prefillAction(adAccount).then((prefill) => {
+    prefillAction(adAccount, pageId).then((prefill) => {
       if (cancelled) return;
       if (!prefill) {
-        report({ id: "previous", label, status: "skipped", detail: "keine frühere Kampagne auf diesem Konto" });
+        report({ id: "previous", label, status: "skipped", detail: "keine frühere Kampagne für diese Seite" });
         return setPrefill("none");
       }
       let applied = false;
@@ -616,7 +620,7 @@ function WizardSteps({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.adAccount]);
+  }, [state.adAccount, pageId]);
 
   // Jede Änderung an den Anzeigengruppen läuft durch syncLinkedAds: geliehene
   // Anzeigen holen sich ihren Inhalt aus der Quelle, und verschwindet die

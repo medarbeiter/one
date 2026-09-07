@@ -98,3 +98,14 @@ test("newestAdSet ignores entries without created_time", () => {
 test("newestAdSet returns undefined for an empty list", () => {
   expect(newestAdSet([])).toBeUndefined();
 });
+
+test("newestAdSet mit Seite: nur Ad Sets dieser Seite zählen, auch wenn ein fremdes neuer ist", () => {
+  const sets = [
+    { id: "fremd-neu", created_time: "2026-09-07T00:00:00+0000", promoted_object: { page_id: "999" } },
+    { id: "eigen-alt", created_time: "2026-01-01T00:00:00+0000", promoted_object: { page_id: "42" } },
+    { id: "eigen-neu", created_time: "2026-06-01T00:00:00+0000", promoted_object: { page_id: 42 as any } },
+    { id: "ohne-seite", created_time: "2026-08-01T00:00:00+0000" },
+  ];
+  expect(newestAdSet(sets, "42")?.id).toBe("eigen-neu");
+  expect(newestAdSet(sets, "1")).toBeUndefined();
+});

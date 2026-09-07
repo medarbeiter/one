@@ -119,9 +119,9 @@ export async function pullFormAction(pageId: string, input: string): Promise<For
 // Lesefehler hier egal genug, um still zu verschlucken: Vorbelegung ist eine
 // Erleichterung, ihr Fehlen darf den Assistenten nicht blockieren oder mit
 // einer Fehlermeldung stören, die niemand angefordert hat.
-export async function prefillAction(adAccount: string): Promise<Prefill | undefined> {
+export async function prefillAction(adAccount: string, pageId: string): Promise<Prefill | undefined> {
   try {
-    return await lastCampaignDefaults(adAccount);
+    return await lastCampaignDefaults(adAccount, pageId);
   } catch {
     return undefined;
   }
