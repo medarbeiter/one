@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { adsFrom, alreadyHandled, autopilotTask, commentFor, MARKER, type Asset, type AutopilotDeps } from "./autopilot";
+import { adsFrom, alreadyHandled, autopilotTask, commentFor, DONE, MARKER, type Asset, type AutopilotDeps } from "./autopilot";
 import type { AssembledBrief } from "./brief";
 import type { Customer } from "./customers";
 import type { DriveFile } from "./drive";
@@ -110,6 +110,8 @@ test("alreadyHandled: ein Marker-Kommentar zählt nur, wenn die Aufgabe seither 
   expect(alreadyHandled(c, 50)).toBe(true);
   expect(alreadyHandled(c, 200)).toBe(false);
   expect(alreadyHandled([{ text: "Hallo", date: 100 }], 50)).toBe(false);
+  // Angelegt heißt angelegt – auch wenn die Aufgabe später geändert wird.
+  expect(alreadyHandled([{ text: `${DONE} (pausiert): N`, date: 100 }], 200)).toBe(true);
 });
 
 test("commentFor nennt Prüf-Link, Ads Manager und jede Lücke", () => {

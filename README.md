@@ -57,8 +57,9 @@ bun test         # Checks für lib/meta.ts
 
    `AUTOPILOT=1` schaltet den Autopiloten ein (`lib/autopilot.ts`): jede
    Minute nimmt er sich jede Aufgabe in „kampagne anlegen“, die seit einer
-   Minute ruht, legt die Kampagne pausiert an und schiebt die Aufgabe mit
-   Prüf-Link auf „abnahme kampagne“. Was er nicht entscheiden kann (Kunde
+   Minute ruht, legt die Kampagne pausiert an und kommentiert die Aufgabe
+   mit Prüf-Link – den Status lässt er stehen, „abnahme kampagne“ setzt, wer
+   geprüft hat. Was er nicht entscheiden kann (Kunde
    mehrdeutig, kein Formular-Hinweis, leerer Drive-Ordner), schreibt er als
    Kommentar an die Aufgabe und lässt sie stehen. Lokal aus lassen – er
    arbeitet mit echten Aufgaben.

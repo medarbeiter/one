@@ -4,8 +4,9 @@
  * eine Minute lang niemand mehr angefasst hat. Jede Minute ein Durchlauf
  * (instrumentation.ts, nur mit AUTOPILOT=1): Auftrag lesen, Kunde und Seite
  * finden, Lead-Formular wählen, Drive-Ordner hochladen und paaren, Umkreis
- * anpassen, Texte schreiben, pausiert anlegen, Aufgabe auf „abnahme kampagne“
- * mit Link zum Prüfen.
+ * anpassen, Texte schreiben, pausiert anlegen, Kommentar mit Link zum Prüfen.
+ * Den Status lässt er stehen: „abnahme kampagne“ setzt, wer die Kampagne
+ * geprüft hat, nicht der Automat.
  *
  * Was der Wizard einer Person überlässt (mehrdeutiger Kunde, kein Formular-
  * Hinweis, leerer Ordner), hält hier an und schreibt einen Kommentar an die
@@ -17,7 +18,7 @@
 import { BODY_TEMPLATE_COUNT, generateBody, generateDescription, generateTitles, type BodiesInput } from "./bodies";
 import { assembleBrief, type AssembledBrief } from "./brief";
 import { adsManagerUrl } from "./campaigns";
-import { addComment, closeBrief, listComments, listOpenBriefs } from "./clickup";
+import { addComment, listComments, listOpenBriefs } from "./clickup";
 import { clients, fuzzyCustomerMatch, listCustomers, payers, resolveClientByName, type Customer } from "./customers";
 import { bestLanding, download, findFolders, isMedia, landingAt, type DriveFile } from "./drive";
 import { listLeadForms, matchFormHint, type LeadForm } from "./forms";
@@ -30,6 +31,8 @@ import { adSetName, campaignName, initialsOf } from "./naming";
 import { uploadImage, uploadVideo, videoThumbnail } from "./uploads";
 
 export const MARKER = "[One Autopilot]";
+/** Der Anfang des Erfolgskommentars – eine so markierte Aufgabe ist für immer erledigt, egal was danach geändert wird. */
+export const DONE = `${MARKER} Kampagne angelegt`;
 export const TICK_MS = 60_000;
 /** Eine Aufgabe, die gerade erst geändert wurde, ist vielleicht noch nicht fertig beschrieben. */
 export const SETTLE_MS = 60_000;
@@ -276,16 +279,20 @@ export function commentFor(outcome: Outcome, base = origin()): string {
       `Aufgabe ergänzen (dann versucht es der Autopilot erneut) oder über den Assistenten anlegen: ${base}/campaigns/new`,
     ].join("\n");
   return [
-    `${MARKER} Kampagne angelegt (pausiert): ${outcome.campaignName}`,
+    `${DONE} (pausiert): ${outcome.campaignName}`,
     `Prüfen: ${base}/campaigns/${outcome.campaignId}`,
     `Ads Manager: ${adsManagerUrl(outcome.adAccount, outcome.campaignId)}`,
     ...notes,
   ].join("\n");
 }
 
-/** Schon dran gewesen – und seither nicht geändert? Dann Ruhe. */
+/**
+ * Schon dran gewesen? Eine angelegte Kampagne zählt für immer – die Aufgabe
+ * behält ihren Status, und eine spätere Änderung darf keine zweite Kampagne
+ * anlegen. Ein Halt zählt nur, bis die Aufgabe wieder geändert wird.
+ */
 export const alreadyHandled = (comments: { text: string; date: number }[], updatedAt: number): boolean =>
-  comments.some((c) => c.text.includes(MARKER) && c.date >= updatedAt);
+  comments.some((c) => c.text.startsWith(DONE) || (c.text.includes(MARKER) && c.date >= updatedAt));
 
 // ponytail: ein Lauf zur Zeit, Aufgaben nacheinander – bei ~200 Kunden kommen
 // am Tag eine Handvoll Aufträge, nicht Dutzende pro Minute.
@@ -305,8 +312,7 @@ export async function autopilotTick(deps: AutopilotDeps = realDeps, log: Pick<Co
         outcome = { halts: [`Abgebrochen: ${causeOf(e)}`], notes: [] };
       }
       log.log(`[autopilot] ${brief.taskId}: ${"halts" in outcome ? outcome.halts.join(" | ") : outcome.campaignId}`);
-      if ("halts" in outcome) await addComment(brief.taskId, commentFor(outcome));
-      else await closeBrief(brief.taskId, commentFor(outcome));
+      await addComment(brief.taskId, commentFor(outcome));
     }
   } catch (e) {
     log.error(`[autopilot] ${causeOf(e)}`);
