@@ -14,6 +14,7 @@ import {
   emptyAdSet,
   initialState,
   promoteLoose,
+  reviewStatus,
   shouldSave,
   swapPair,
   upsertDraft,
@@ -38,6 +39,10 @@ const ready = (patch: Partial<WizardState> = {}): WizardState => ({
 test("ein fertiger Zustand blockiert weder Schritt 1 noch Schritt 3", () => {
   expect(customerBlockers(ready())).toEqual([]);
   expect(detailBlockers(ready())).toEqual([]);
+});
+
+test("die Prüfzeile zählt fertige Bereiche und alle offenen Punkte", () => {
+  expect(reviewStatus([0, 2, 1])).toEqual({ ready: 1, total: 3, open: 3 });
 });
 
 test("das fehlende Werbekonto hält Schritt 1 auf, nicht Schritt 3", () => {

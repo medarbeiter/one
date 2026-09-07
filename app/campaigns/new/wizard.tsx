@@ -714,6 +714,23 @@ function WizardSteps({
   const stepIssues = [issues.customer.length, issues.adSets.length + issues.details.length, 0];
   const allIssues = [...issues.customer, ...issues.details, ...issues.adSets];
   const blocked = allIssues.length > 0;
+  const reviewAreas = [
+    ...issues.perSet.map(({ set, blockers }) => ({
+      id: `pruefung-${set.id}`,
+      label: set.name,
+      issues: blockers.length,
+    })),
+    {
+      id: "pruefung-kampagne",
+      label: "Kampagne",
+      issues: issues.details.length,
+    },
+    {
+      id: "pruefung-konto",
+      label: "Konto & Einstellungen",
+      issues: issues.customer.length,
+    },
+  ];
 
   // Kein Fehler, sondern Geld: zwei Anzeigengruppen am selben Ort bieten bei
   // Meta gegeneinander und treiben den eigenen Preis je Lead hoch. Meta meldet
@@ -861,10 +878,10 @@ function WizardSteps({
         {/* -------------------------------------------- Schirm 2: Vorschlag */}
         {stepIndex === 1 && (
           <Step
-            frage={ready ? "Passt der Vorschlag?" : "Welche Videos und Bilder?"}
+            frage={ready ? "Prüfe den KI-Vorschlag" : "Welche Videos und Bilder?"}
             satz={
               ready
-                ? "Alles unten ist vorbelegt, wo es ging — Etiketten sagen, woher. Standort, Lead-Formular und Tagesbudget sind Pflicht; Dateien laden im Hintergrund weiter."
+                ? "Die KI hat vorbereitet, was sie sicher ableiten konnte. Prüfe die offenen Punkte und überarbeite den Rest direkt im Formular."
                 : "Der Assistent liest und schreibt noch. Wähle inzwischen die Inhalte — alles andere erscheint, sobald es steht."
             }
           >
@@ -874,7 +891,7 @@ function WizardSteps({
             <div className="flex min-w-0 flex-col gap-6">
                 {/* Was noch läuft – Texte, Regal, Formulare, letzte Kampagne –
                     in einer Zeile, aufklappbar zum Protokoll des Zusammenbaus. */}
-                <Werkstattleiste />
+                <Werkstattleiste areas={reviewAreas} />
 
                 {/* Ein Standort je Zeile, aufgeklappt nur der, an dem gearbeitet
                     wird. Die Kopfzeile trägt, was sonst erst im Block steht:
@@ -896,11 +913,11 @@ function WizardSteps({
                       // Jeder Standort in einem eigenen Rahmen: aufgeklappt sind
                       // es zwei Bildschirmhöhen Felder, und ohne Kante war nicht
                       // zu sehen, wo der eine aufhört und der nächste anfängt.
-                      <Collapsible
-                        key={set.id}
-                        value={set.id}
-                        className="border-line bg-surface collapsible-wide-trigger rounded-2xl border px-4"
-                        trigger={
+                      <div key={set.id} id={`pruefung-${set.id}`} className="pruefbereich">
+                        <Collapsible
+                          value={set.id}
+                          className="border-line bg-surface collapsible-wide-trigger rounded-2xl border px-4"
+                          trigger={
                           <span className="flex items-center gap-3 text-left">
                             <span className="min-w-0 flex-1">
                               <span className="block truncate font-medium">{set.name}</span>
@@ -918,9 +935,9 @@ function WizardSteps({
                             />
                             <IssueChip count={blockers.length} />
                           </span>
-                        }
-                      >
-                        <AdSetBlock
+                          }
+                        >
+                          <AdSetBlock
                           value={set}
                           pageId={client?.pageId ?? ""}
                           pageName={client?.pageName ?? ""}
@@ -954,8 +971,9 @@ function WizardSteps({
                           onChange={(patch) => updateAdSet(i, patch)}
                           onRemove={() => removeAdSet(i)}
                           canRemove={state.adSets.length > 1}
-                        />
-                      </Collapsible>
+                          />
+                        </Collapsible>
+                      </div>
                       ),
                     )}
                   </div>
@@ -982,18 +1000,22 @@ function WizardSteps({
 
                     <Divider />
 
-                    <VorschlagKopf state={state} setState={setState} warnings={warnings} />
+                    <div id="pruefung-kampagne" className="pruefbereich">
+                      <VorschlagKopf state={state} setState={setState} warnings={warnings} />
+                    </div>
 
                     <Divider />
 
-                    <Optional
-                      state={state}
-                      setState={setState}
-                      accountSource={accountSource}
-                      accountItem={accountItem}
-                      prefill={prefill}
-                      fixed={FIXED}
-                    />
+                    <div id="pruefung-konto" className="pruefbereich">
+                      <Optional
+                        state={state}
+                        setState={setState}
+                        accountSource={accountSource}
+                        accountItem={accountItem}
+                        prefill={prefill}
+                        fixed={FIXED}
+                      />
+                    </div>
                   </div>
                 )}
             </div>
@@ -1108,7 +1130,13 @@ function WizardSteps({
             24/16 px wie der Inhalt darüber, also fluchtet der Zurück-Knopf mit
             dem Text. */}
         {!showsList && (
-          <Section variant="muted" padding={6} paddingBlock={4} dividers={["top"]}>
+          <Section
+            variant="muted"
+            padding={6}
+            paddingBlock={4}
+            dividers={["top"]}
+            className="wizard-footer"
+          >
             {/* Umbrechend statt starr nebeneinander: auf dem Telefon rutscht der
                 Hinweis über die Knöpfe, statt den Weiter-Knopf zu zerdrücken. */}
             <div className="flex flex-wrap items-center justify-between gap-3">

@@ -1175,12 +1175,12 @@ export function AdSetBlock({
 
       <FieldsetSection
         legend="Texte"
-        satz="Aus Rollen, Standort und Benefits geschrieben. Jede Zeile lässt sich ändern, jede Gruppe neu schreiben."
+        satz="Von der KI aus Rollen, Standort und Benefits vorbereitet. Jede Zeile bleibt direkt bearbeitbar."
         action={
           <Button
             variant="secondary"
             icon={<SparkleIcon size={16} weight="fill" />}
-            label="Alle Texte neu schreiben"
+            label="Alle mit KI überarbeiten"
             onClick={generateAll}
             isDisabled={anyGenerating}
           />
@@ -1225,7 +1225,7 @@ export function AdSetBlock({
                 variant="ghost"
                 size="sm"
                 icon={<SparkleIcon size={14} weight="bold" />}
-                label="Neu schreiben"
+                label="Mit KI überarbeiten"
                 onClick={generateBodies}
                 isDisabled={pendingBodies.some(Boolean)}
               />
@@ -1262,7 +1262,7 @@ export function AdSetBlock({
                 variant="ghost"
                 size="sm"
                 icon={<SparkleIcon size={14} weight="bold" />}
-                label="Neu schreiben"
+                label="Mit KI überarbeiten"
                 onClick={generateTitles}
                 isDisabled={pendingTitles.some(Boolean)}
               />
@@ -1285,7 +1285,7 @@ export function AdSetBlock({
                 variant="ghost"
                 size="sm"
                 icon={<SparkleIcon size={14} weight="bold" />}
-                label="Neu schreiben"
+                label="Mit KI überarbeiten"
                 onClick={generateDescription}
                 isDisabled={pendingDescription}
               />

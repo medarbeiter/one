@@ -28,6 +28,7 @@ import type { BriefEvent, BriefStep, Source } from "@/lib/brief";
 import type { Brief } from "@/lib/clickup";
 import { report, useActivity, type Activity, type ActivityStatus } from "./activity";
 import { Herkunft } from "./herkunft";
+import { reviewStatus } from "./state";
 
 /** Die Quellen des Zusammenbaus, in der Reihenfolge, in der lib/brief.ts sie anfasst. */
 export const BRIEF_STEPS: readonly BriefStep[] = ["task", "description", "drive", "onboarding", "overview"];
@@ -244,16 +245,24 @@ function zusammenfassung(entries: Activity[]): string {
  * Schirm 2: der Assistent sagt in einem Satz, was er tut oder getan hat.
  * Darunter, eingeklappt, das Protokoll in zwei Gruppen.
  */
-export function Werkstattleiste() {
+export function Werkstattleiste({
+  areas,
+}: {
+  areas: readonly { id: string; label: string; issues: number }[];
+}) {
   const entries = useActivity();
   if (!entries.length) return null;
   const running = entries.some((e) => e.status === "running");
   const failed = entries.some((e) => e.status === "failed");
   const auftrag = entries.filter((e) => AUFTRAG_IDS.has(e.id));
   const vorschlag = entries.filter((e) => !AUFTRAG_IDS.has(e.id));
+  const review = reviewStatus(areas.map((area) => area.issues));
   return (
-    <div className="bg-surface-secondary border-line flex flex-col gap-5 rounded-2xl border p-6">
-      <div className="flex gap-5">
+    <section
+      className="ki-arbeitsplatz border-line flex flex-col gap-5 rounded-2xl border p-6"
+      aria-labelledby="ki-vorschlag"
+    >
+      <div className="flex flex-wrap items-start gap-5">
         {running ? (
           <Marke status="running" size={9} />
         ) : (
@@ -268,9 +277,9 @@ export function Werkstattleiste() {
             <SparkleIcon size={18} weight="fill" />
           </span>
         )}
-        <div className="flex min-w-0 flex-col gap-1.5 pt-0.5">
-          <Text type="large" weight="medium" as="h3">
-            {running ? "Der Assistent arbeitet" : "Der Vorschlag steht"}
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5 pt-0.5">
+          <Text id="ki-vorschlag" type="large" weight="medium" as="h3">
+            {running ? "Die KI arbeitet am Vorschlag" : "KI-Vorschlag"}
           </Text>
           {/* Zwei Zeilen hoch, auch wenn der Satz eine ist: der Wechsel von
               „läuft noch“ zu „Gelesen … Geschrieben …“ darf den Inhalt darunter
@@ -279,11 +288,44 @@ export function Werkstattleiste() {
             {zusammenfassung(entries)}
           </Text>
         </div>
+        {!running && (
+          <span
+            className={`rounded-full border px-3 py-1 text-xs font-semibold tabular-nums ${
+              review.open
+                ? "border-danger bg-attention text-danger-700"
+                : "border-gold-600 bg-gold-100 text-gold-700"
+            }`}
+          >
+            {review.open
+              ? `${review.ready} von ${review.total} bereit · ${review.open} offen`
+              : `${review.total} von ${review.total} bereit`}
+          </span>
+        )}
       </div>
+
+      {!running && areas.length > 0 && (
+        <nav
+          aria-label="Bereiche des KI-Vorschlags"
+          className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3"
+        >
+          {areas.map((area) => (
+            <a key={area.id} href={`#${area.id}`} className="ki-pruefpunkt">
+              <span className="min-w-0 truncate font-medium">{area.label}</span>
+              <span className={area.issues ? "text-danger-700" : "text-success-700"}>
+                {area.issues ? `${area.issues} offen` : "bereit"}
+              </span>
+            </a>
+          ))}
+        </nav>
+      )}
       <Collapsible
         defaultIsOpen={false}
         className="border-line -mx-2 border-t pt-1"
-        trigger={<span className="text-ink-500 text-sm">Protokoll — {entries.length} Schritte</span>}
+        trigger={
+          <span className="text-ink-500 text-sm">
+            So ist der Vorschlag entstanden — {entries.length} Schritte
+          </span>
+        }
       >
         <div className="grid gap-8 pt-4 pb-4 sm:grid-cols-2">
           {[
@@ -301,6 +343,6 @@ export function Werkstattleiste() {
           )}
         </div>
       </Collapsible>
-    </div>
+    </section>
   );
 }

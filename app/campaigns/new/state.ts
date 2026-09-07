@@ -590,6 +590,14 @@ export function detailBlockers(state: WizardState): string[] {
   ];
 }
 
+export function reviewStatus(issues: readonly number[]) {
+  return {
+    ready: issues.filter((count) => count === 0).length,
+    total: issues.length,
+    open: issues.reduce((sum, count) => sum + count, 0),
+  };
+}
+
 /**
  * Entwürfe liegen in localStorage, der Zeiger auf den gerade bearbeiteten in
  * sessionStorage. Diese Trennung ist der ganze Trick:
