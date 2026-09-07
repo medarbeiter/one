@@ -662,7 +662,12 @@ export const shouldSave = (changes: number, hasDraft: boolean): boolean =>
 
 /** Woran ein Entwurf in der Liste wiederzuerkennen ist. */
 export const draftLabel = (draft: Draft): string =>
-  draft.state.campaignName.trim() || draft.state.business.trim() || "Ohne Kunde";
+  draft.state.campaignName.trim() ||
+  draft.state.business.trim() ||
+  // Vor der Aufgabenwahl getippte Hinweise sind schon ein Entwurf – er
+  // heißt nach ihrer ersten Zeile, nicht „Ohne Kunde“.
+  (draft.state.aiNotes ?? "").trim().split("\n")[0].trim() ||
+  "Ohne Kunde";
 
 /** Wie viel Arbeit in einem Entwurf steckt – die zweite Zeile in der Liste. */
 export const draftSummary = (draft: Draft): string => {

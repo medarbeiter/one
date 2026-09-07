@@ -479,3 +479,10 @@ test("textInstructions: Hinweise gehen auch ohne Aufgabe in die Texte, Textanwei
   );
   expect(textInstructions({ ...initialState("act_1"), copyInstructions: " ", aiNotes: "" })).toBe("");
 });
+
+test("draftLabel: ein Entwurf, der nur aus Hinweisen besteht, heißt nach seiner ersten Hinweiszeile", () => {
+  const draft = (state: WizardState): Draft => ({ id: "d", savedAt: 0, state });
+  expect(draftLabel(draft({ ...initialState(), aiNotes: "Nur PFK, keine PDL\nBudget 40 €" }))).toBe("Nur PFK, keine PDL");
+  expect(draftLabel(draft({ ...initialState("", "Herzhalt"), aiNotes: "Nur PFK" }))).toBe("Herzhalt");
+  expect(draftLabel(draft(initialState()))).toBe("Ohne Kunde");
+});

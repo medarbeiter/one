@@ -365,15 +365,6 @@ HINWEISE (user):
 ${e.aiNotes.trim() || "keine"}`;
 }
 
-/** „Aufgabe + Onboarding + Hinweis“ – welche Quellen in den Vorschlag eingingen. */
-const SOURCE_WORD: Record<Source, string> = {
-  clickup: "Aufgabe",
-  onboarding: "Onboarding",
-  user: "Hinweis",
-  previous: "letzte Kampagne",
-  session: "Anmeldung",
-};
-
 async function readOnboarding(
   brief: Brief,
   deps: BriefDeps,
@@ -588,16 +579,30 @@ export async function assembleBrief(
     overview,
     aiNotes,
   };
+  // Nur die Aufgabe als Beleg – kein Onboarding, keine Kundenübersicht, kein
+  // Hinweis: da gibt es nichts zu verbinden, und ein Aufruf könnte den Stand
+  // der Aufgabe nur verfälschen. Also keiner.
+  const beyondTask =
+    Boolean(aiNotes.trim()) ||
+    evidence.onboarding.benefits.length > 0 ||
+    evidence.onboarding.jobs.length > 0 ||
+    Object.values(overview).some(Boolean);
+  if (!beyondTask) {
+    emit({ type: "step", step: "context", status: "skipped", detail: "nur die Aufgabe – nichts zu verbinden" });
+    return out;
+  }
   emit({ type: "step", step: "context", status: "running" });
   try {
     const ctx = parseCampaignContext(await deps.mistral(contextPrompt(evidence), { temperature: 0 }));
     applyResolved(out, ctx, brief);
     const used = [...new Set(Object.values(ctx.sources).flat())];
+    const fields = Object.keys(ctx.sources).length;
     emit({
       type: "step",
       step: "context",
       status: "done",
-      detail: used.length ? `aus ${used.map((q) => SOURCE_WORD[q]).join(" + ")}` : "nichts zu verbinden",
+      // Die Quellen trägt das Etikett (sources) – die Zeile sagt, wie viel entschieden wurde.
+      detail: fields ? `${fields} ${fields === 1 ? "Feld" : "Felder"} aufgelöst` : "nichts zu verbinden",
       sources: used,
     });
   } catch (e) {
@@ -619,8 +624,10 @@ function applyResolved(out: AssembledBrief, ctx: ResolvedCampaignContext, brief:
   const cleared = (field: ContextField) => Boolean(s[field]?.includes("user"));
   if (s.roles) {
     if (ctx.roles.length || ctx.roleFreeText) {
-      out.roles = ctx.roles.length ? { value: ctx.roles, sources: s.roles } : undefined;
-      out.roleFreeText = ctx.roleFreeText ? { value: ctx.roleFreeText, sources: s.roles } : undefined;
+      if (ctx.roles.length) out.roles = { value: ctx.roles, sources: s.roles };
+      else delete out.roles;
+      if (ctx.roleFreeText) out.roleFreeText = { value: ctx.roleFreeText, sources: s.roles };
+      else delete out.roleFreeText;
     } else if (cleared("roles")) {
       delete out.roles;
       delete out.roleFreeText;

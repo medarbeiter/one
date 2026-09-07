@@ -1,5 +1,15 @@
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { POST } from "./route";
+
+// Ohne Token scheitert der Zusammenbau sofort und lokal – die Route darf im
+// Test nie ClickUp erreichen, auch nicht mit einer .env.local daneben.
+const token = process.env.CLICKUP_API_TOKEN;
+beforeAll(() => {
+  delete process.env.CLICKUP_API_TOKEN;
+});
+afterAll(() => {
+  if (token !== undefined) process.env.CLICKUP_API_TOKEN = token;
+});
 
 const post = (body: BodyInit) => POST(new Request("http://local/api/brief", { method: "POST", body }));
 
@@ -16,6 +26,6 @@ test("die Brief-Route streamt bei gültigem Body NDJSON und endet mit einem Erge
   expect(response.status).toBe(200);
   expect(response.headers.get("content-type")).toContain("application/x-ndjson");
   // Ohne ClickUp-Token scheitert der Zusammenbau – aber als Ergebnis-Zeile, nicht als HTTP-Fehler.
-  const lines = (await response.text()).trim().split("\n").map((l) => JSON.parse(l) as { type: string });
-  expect(lines.at(-1)?.type).toBe("result");
+  const lines = (await response.text()).trim().split("\n").map((l) => JSON.parse(l) as { type: string; error?: string });
+  expect(lines.at(-1)).toEqual({ type: "result", error: expect.stringContaining("CLICKUP_API_TOKEN") });
 });

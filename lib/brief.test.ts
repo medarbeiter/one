@@ -269,10 +269,9 @@ test("assembleBrief: jede Quelle darf ausfallen – Feld leer, Warnung dran, kei
   );
   expect(out.benefits).toBeUndefined();
   expect(out.locations).toBeUndefined();
-  expect(out.warnings).toHaveLength(3);
+  expect(out.warnings).toHaveLength(2);
   expect(out.warnings.join(" ")).toMatch(/Drive-Ordner/);
   expect(out.warnings.join(" ")).toMatch(/Standort/);
-  expect(out.warnings.join(" ")).toMatch(/Kampagnenkontext/);
 });
 
 test("assembleBrief: ein Drive-Link aus ClickUp schlägt die Ordnersuche", async () => {
@@ -497,6 +496,44 @@ test("Kampagnenkontext: ein Hinweis darf einen Wert der Aufgabe streichen – nu
   // Ohne „user“ ist ein null kein Streichen – das Modell hat nur nichts gesagt.
   expect(out.formHint).toEqual({ value: "Renningen", sources: ["clickup"] });
   expect(out.dailyBudgetEuros).toEqual({ value: 17.05, sources: ["clickup"] });
+});
+
+test("Kampagnenkontext: nur die Aufgabe als Beleg – kein Aufruf, Zeile übersprungen", async () => {
+  const events: string[] = [];
+  let contextCalls = 0;
+  const out = await assembleBrief(
+    "t1",
+    "   ",
+    deps({
+      findFolders: async () => [],
+      mistral: async (c, opts) => {
+        if (typeof c === "string" && c.includes("Kampagnenkontext")) contextCalls++;
+        return routed({ location: '{"standorte":["Renningen"],"formular":null}' })(c, opts);
+      },
+    }),
+    (e) => events.push(`${e.step}:${e.status}`),
+  );
+  expect(contextCalls).toBe(0);
+  expect(events).toContain("context:skipped");
+  expect(out.roles).toEqual({ value: ["FK"], sources: ["clickup"] });
+  expect(out.locations).toEqual({ value: ["Renningen"], sources: ["clickup"] });
+  expect(out.warnings.join(" ")).not.toMatch(/Kampagnenkontext/);
+});
+
+test("Kampagnenkontext: ein Hinweis allein reicht, damit die Auflösung läuft", async () => {
+  let contextCalls = 0;
+  await assembleBrief(
+    "t1",
+    "Nur PA",
+    deps({
+      findFolders: async () => [],
+      mistral: async (c, opts) => {
+        if (typeof c === "string" && c.includes("Kampagnenkontext")) contextCalls++;
+        return routed({})(c, opts);
+      },
+    }),
+  );
+  expect(contextCalls).toBe(1);
 });
 
 test("parseCampaignContext verwirft unbekannte Quellen, leere Rollen, unpositive Beträge und Radien", () => {
