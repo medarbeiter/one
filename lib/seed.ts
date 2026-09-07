@@ -24,6 +24,8 @@ export type SeedAdSet = {
   addressString: string;
   radiusKm: number;
   place?: GeoPlace;
+  /** Nur bei Gruppenbudget statt Kampagnenbudget – in dieser App die Ausnahme. */
+  dailyBudgetCents?: number;
   formId: string;
   bodies: string[];
   titles: string[];
@@ -198,6 +200,7 @@ export function seedFromCampaign(raw: unknown): CampaignSeed {
       addressString,
       radiusKm,
       place,
+      ...(set.daily_budget !== undefined ? { dailyBudgetCents: Number(set.daily_budget) } : {}),
       formId,
       bodies,
       titles,

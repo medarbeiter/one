@@ -1080,6 +1080,29 @@ test("campaign POST params contain name and daily_budget but no status", async (
   expect(campaignPost?.params?.daily_budget).toBe(2000);
 });
 
+test("update mode only sends the fields that differ from the seed", async () => {
+  const { g, calls } = fakeGraph();
+  const same = {
+    ...updateInput,
+    campaignName: "Old Campaign",
+    dailyBudgetCents: 3000,
+    adSets: [{ ...updateInput.adSets[0], name: "Old Ad Set 1", addressString: "", place: { type: "city" as const, key: "1", name: "Dresden" } }],
+  };
+  const seed = {
+    ...seedFixture,
+    dailyBudgetEuros: 30,
+    adSets: [{ ...seedFixture.adSets[0], place: { type: "city" as const, key: "1", name: "Dresden" } }],
+  };
+  await launch(same, { graph: g, readSeed: async () => seed });
+  // Kampagne und Anzeigengruppe unverändert: kein POST auf c1 und as1.
+  expect(calls.filter((c) => (c.path === "c1" || c.path === "as1") && c.opts?.method === "POST")).toHaveLength(0);
+
+  const { g: g2, calls: calls2 } = fakeGraph();
+  await launch({ ...same, campaignName: "Renamed" }, { graph: g2, readSeed: async () => seed });
+  const post = calls2.find((c) => c.path === "c1" && c.opts?.method === "POST");
+  expect(post?.params).toEqual({ name: "Renamed" });
+});
+
 test("launchSteps in update mode = 1 + adSets + ads", () => {
   // 1 campaign + 1 ad set + 1 ad = 3
   expect(launchSteps(updateInput)).toBe(3);

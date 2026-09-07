@@ -346,6 +346,33 @@ export type LaunchDeps = {
   onProgress?: (p: LaunchProgress) => void;
 };
 
+const euroCents = (euros?: number) => (euros === undefined ? undefined : Math.round(euros * 100));
+
+/**
+ * Aus Paaren [neu, alt] die Felder, die sich unterscheiden – oder undefined,
+ * wenn keines. Ein neuer Wert ohne alten zählt als Änderung; ein fehlender
+ * neuer Wert nicht, denn per POST lässt sich bei Meta nichts leeren.
+ */
+function changedFields(pairs: Record<string, [unknown, unknown]>): Record<string, unknown> | undefined {
+  const out: Record<string, unknown> = {};
+  for (const [key, [next, prev]] of Object.entries(pairs))
+    if (next !== undefined && next !== prev) out[key] = next;
+  return Object.keys(out).length ? out : undefined;
+}
+
+/**
+ * Das Targeting, wie es die Kampagne heute hat, zum Vergleichen. Ein Stand, den
+ * der Seed nicht abbilden konnte (etwa ganz Deutschland ohne Ort), baut sich
+ * nicht – dann gilt das Targeting als geändert und wird geschrieben.
+ */
+function previousTargeting(was: { addressString: string; radiusKm: number; place?: GeoPlace }): string | undefined {
+  try {
+    return JSON.stringify(buildTargeting(was));
+  } catch {
+    return undefined;
+  }
+}
+
 /** Jeder Aufruf, den launch() gegen Meta macht – die Nenner der Fortschrittsanzeige. */
 export function launchSteps(input: LaunchInput): number {
   if (input.update) {
@@ -617,15 +644,20 @@ export async function launch(
   // Kampagne pausiert, alles darunter aktiv: so startet Metas Prüfung sofort,
   // ohne dass Budget fließt. Genau die Reihenfolge des manuellen Ablaufs.
   if (input.update && input.existingCampaignId) {
-    step(`Kampagne „${input.campaignName}“ wird geändert`);
-    await graph(input.existingCampaignId, {
-      method: "POST",
-      params: {
-        name: input.campaignName,
-        daily_budget: input.dailyBudgetCents,
-        ...(input.spendCapCents ? { spend_cap: input.spendCapCents } : {}),
-      },
+    // Nur, was sich gegenüber dem frisch gelesenen Stand unterscheidet – ein
+    // Feld, das gleich bleibt, wird nicht angefasst. Sonst schriebe jedes
+    // Übernehmen Name und Budget neu und Meta zählte das als Änderung.
+    const params = changedFields({
+      name: [input.campaignName, seed?.name],
+      daily_budget: [input.dailyBudgetCents, euroCents(seed?.dailyBudgetEuros)],
+      // Ein Limit lässt sich per POST setzen, nicht entfernen – ohne Wert
+      // bleibt das bestehende stehen.
+      spend_cap: [input.spendCapCents || undefined, euroCents(seed?.spendCapEuros)],
     });
+    if (params) {
+      step(`Kampagne „${input.campaignName}“ wird geändert`);
+      await graph(input.existingCampaignId, { method: "POST", params });
+    }
     receipt.campaignId = input.existingCampaignId;
     stepDone();
   } else if (input.existingCampaignId) {
@@ -667,19 +699,22 @@ export async function launch(
       entry.id = set.existingAdSetId;
       if (input.update) {
         try {
-          step(`Anzeigengruppe „${set.name}“ wird geändert`);
-          await graph(set.existingAdSetId, {
-            method: "POST",
-            params: {
-              name: set.name,
-              targeting: buildTargeting({
-                addressString: set.addressString,
-                radiusKm: set.radiusKm,
-                place: set.place,
-              }),
-              ...(set.dailyBudgetCents ? { daily_budget: set.dailyBudgetCents } : {}),
-            },
+          // Dieselbe Regel wie bei der Kampagne: nur geänderte Felder. Das
+          // Targeting wird als Ganzes verglichen, denn Meta nimmt es nur als Ganzes.
+          const was = seed?.adSets.find((s) => s.metaId === set.existingAdSetId);
+          const targeting = buildTargeting({ addressString: set.addressString, radiusKm: set.radiusKm, place: set.place });
+          const params = changedFields({
+            name: [set.name, was?.name],
+            targeting: [JSON.stringify(targeting), was && previousTargeting(was)],
+            daily_budget: [set.dailyBudgetCents || undefined, was?.dailyBudgetCents],
           });
+          if (params) {
+            step(`Anzeigengruppe „${set.name}“ wird geändert`);
+            await graph(set.existingAdSetId, {
+              method: "POST",
+              params: { ...params, ...("targeting" in params ? { targeting } : {}) },
+            });
+          }
           stepDone();
         } catch (e) {
           entry.error = causeOf(e);
