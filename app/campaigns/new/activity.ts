@@ -28,8 +28,8 @@ export type Activity = {
   status: ActivityStatus;
   /** Was dabei herauskam, in einem Satz – die Herkunft, bevor sie am Feld steht. */
   detail?: string;
-  /** Aus welcher Quelle der Wert stammt – dasselbe Etikett wie am Feld. */
-  source?: Source;
+  /** Aus welcher Quelle der Wert stammt – dasselbe Etikett wie am Feld; der Kontext hat mehrere. */
+  source?: Source | Source[];
   at: number;
 };
 

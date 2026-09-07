@@ -4,6 +4,7 @@ import {
   applyBrief,
   syncLinkedAds,
   cityOf,
+  textInstructions,
   applyCrop,
   customerBlockers,
   DEFAULT_DAILY_BUDGET,
@@ -12,6 +13,7 @@ import {
   draftLabel,
   edited,
   emptyAdSet,
+  hydrate,
   initialState,
   promoteLoose,
   reviewStatus,
@@ -319,23 +321,25 @@ test("in einem Paar ersetzt der Zuschnitt nur seine Hälfte", () => {
 
 const brief: AssembledBrief = {
   taskId: "t1",
-  clientName: { value: "MeVita Pflegedienst GmbH", source: "clickup" },
-  roles: { value: ["PFK"], source: "clickup" },
-  benefits: { value: "33 Urlaubstage\nJobrad", source: "onboarding" },
-  locations: { value: ["Mühlgasse 24, 71272 Renningen"], source: "clickup" },
-  formHint: { value: "Renningen", source: "clickup" },
-  dailyBudgetEuros: { value: 35, source: "clickup" },
-  spendCapEuros: { value: 2435, source: "clickup" },
-  driveFolderId: { value: "k", source: "clickup" },
+  clientName: { value: "MeVita Pflegedienst GmbH", sources: ["clickup"] },
+  roles: { value: ["PFK"], sources: ["clickup"] },
+  benefits: { value: "33 Urlaubstage\nJobrad", sources: ["onboarding"] },
+  locations: { value: ["Mühlgasse 24, 71272 Renningen"], sources: ["clickup"] },
+  formHint: { value: "Renningen", sources: ["clickup"] },
+  dailyBudgetEuros: { value: 35, sources: ["clickup"] },
+  spendCapEuros: { value: 2435, sources: ["clickup"] },
+  driveFolderId: { value: "k", sources: ["clickup"] },
   notes: "neu anlegen",
+  aiNotes: "",
+  copyInstructions: "",
   warnings: [],
 };
 
 test("applyBrief setzt einen genannten Umkreis auf alle Gruppen, die noch auf 17 km stehen", () => {
   const s = applyBrief(initialState("act_1", "", "KF"), {
     ...brief,
-    locations: { value: ["Renningen", "Stuttgart"], source: "clickup" },
-    radiusKm: { value: 30, source: "clickup" },
+    locations: { value: ["Renningen", "Stuttgart"], sources: ["clickup"] },
+    radiusKm: { value: 30, sources: ["clickup"] },
   });
   expect(s.adSets.map((a) => a.radiusKm)).toEqual([30, 30]);
   // Ohne Nennung bleibt der Hausstandard – und damit die Reichweiten-Leiter an.
@@ -355,20 +359,20 @@ test("applyBrief füllt ein leeres Formular und merkt sich je Feld die Herkunft"
   expect(s.formHint).toBe("Renningen");
   expect(s.driveFolderId).toBe("k");
   expect(s.sources).toEqual({
-    initials: "session",
-    clientName: "clickup",
-    roles: "clickup",
-    benefits: "onboarding",
-    location: "clickup",
-    dailyBudget: "clickup",
-    spendCap: "clickup",
+    initials: ["session"],
+    clientName: ["clickup"],
+    roles: ["clickup"],
+    benefits: ["onboarding"],
+    location: ["clickup"],
+    dailyBudget: ["clickup"],
+    spendCap: ["clickup"],
   });
 });
 
 test("applyBrief: mehrere Standorte → je eine Anzeigengruppe, die weiteren spiegeln die erste", () => {
   const s = applyBrief(initialState("act_1", "", "KF"), {
     ...brief,
-    locations: { value: ["Mühlgasse 24, 71272 Renningen", "Stuttgart-Vaihingen"], source: "clickup" },
+    locations: { value: ["Mühlgasse 24, 71272 Renningen", "Stuttgart-Vaihingen"], sources: ["clickup"] },
   });
   expect(s.adSets.map((a) => [a.name, a.addressString, a.mirrorOf === s.adSets[0].id])).toEqual([
     ["Ads", "Mühlgasse 24, 71272 Renningen", false],
@@ -406,7 +410,7 @@ test("applyBrief überschreibt nichts, was schon angefasst ist", () => {
   expect(s.dailyBudgetEuros).toBe(20);
   expect(s.adSets[0].addressString).toBe("Hier");
   expect(s.spendCapEuros).toBe(2435);
-  expect(s.sources).toEqual({ initials: "session", spendCap: "clickup" });
+  expect(s.sources).toEqual({ initials: ["session"], spendCap: ["clickup"] });
 });
 
 test("edited nimmt dem Feld sein Etikett", () => {
@@ -414,10 +418,64 @@ test("edited nimmt dem Feld sein Etikett", () => {
   const t = edited(s, "roles", { roles: ["FK"] });
   expect(t.roles).toEqual(["FK"]);
   expect(t.sources.roles).toBeUndefined();
-  expect(t.sources.benefits).toBe("onboarding");
+  expect(t.sources.benefits).toEqual(["onboarding"]);
 });
 
 test("das Tagesbudget beginnt beim Hausstandard", () => {
   expect(initialState().dailyBudgetEuros).toBe(DEFAULT_DAILY_BUDGET);
   expect(initialState().sources).toEqual({});
+});
+
+// --- Kampagnenkontext: Hinweise, mehrfache Herkunft, alte Entwürfe
+
+const assembled = (patch: Partial<AssembledBrief> = {}): AssembledBrief => ({
+  taskId: "t1",
+  aiNotes: "Nur PFK",
+  copyInstructions: "Ton sachlich.",
+  roles: { value: ["PFK", "PA"], sources: ["clickup", "onboarding"] },
+  dailyBudgetEuros: { value: 40, sources: ["user"] },
+  benefits: { value: "Jobrad", sources: ["onboarding"] },
+  locations: { value: ["Renningen"], sources: ["clickup"] },
+  warnings: [],
+  ...patch,
+});
+
+test("applyBrief übernimmt Hinweise, Textanweisungen und die Quellen als Liste", () => {
+  const state = applyBrief(initialState("act_1"), assembled());
+  expect(state.aiNotes).toBe("Nur PFK");
+  expect(state.copyInstructions).toBe("Ton sachlich.");
+  expect(state.roles).toEqual(["PFK", "PA"]);
+  expect(state.sources.roles).toEqual(["clickup", "onboarding"]);
+  expect(state.sources.dailyBudget).toEqual(["user"]);
+  expect(state.sources.benefits).toEqual(["onboarding"]);
+  expect(state.sources.location).toEqual(["clickup"]);
+});
+
+test("initialState kennt leere Hinweise und Textanweisungen", () => {
+  const state = initialState("act_1", "", "JP");
+  expect(state.aiNotes).toBe("");
+  expect(state.copyInstructions).toBe("");
+  expect(state.sources.initials).toEqual(["session"]);
+});
+
+test("hydrate ergänzt alte Entwürfe: fehlende Felder leer, einzelne Quellen als Liste", () => {
+  const old = {
+    ...initialState("act_1", "Herzhalt"),
+    sources: { roles: "clickup", benefits: ["onboarding"] },
+  } as unknown as WizardState;
+  delete (old as Partial<WizardState>).aiNotes;
+  delete (old as Partial<WizardState>).copyInstructions;
+  const state = hydrate(old, "JP");
+  expect(state.aiNotes).toBe("");
+  expect(state.copyInstructions).toBe("");
+  expect(state.sources).toEqual({ roles: ["clickup"], benefits: ["onboarding"] });
+  expect(state.initials).toBe("JP");
+});
+
+test("textInstructions: Hinweise gehen auch ohne Aufgabe in die Texte, Textanweisungen davor", () => {
+  expect(textInstructions({ ...initialState("act_1"), aiNotes: "Nur PFK" })).toBe("Nur PFK");
+  expect(textInstructions({ ...initialState("act_1"), copyInstructions: "Ton sachlich.", aiNotes: "Nur PFK" })).toBe(
+    "Ton sachlich.\nNur PFK",
+  );
+  expect(textInstructions({ ...initialState("act_1"), copyInstructions: " ", aiNotes: "" })).toBe("");
 });

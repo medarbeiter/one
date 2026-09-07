@@ -21,12 +21,14 @@ import {
   Skeleton,
   Switch,
   Text,
+  TextArea,
   TextInput,
   Typeahead,
   type SearchSource,
   type SearchableItem,
 } from "@astryxdesign/core";
 import { UserPlusIcon } from "@phosphor-icons/react";
+import { MAX_AI_NOTES } from "@/lib/ai-notes";
 import type { Source } from "@/lib/brief";
 import { taskIdFromInput, type Brief } from "@/lib/clickup";
 import { fuzzyCustomerMatch, leadgenTosUrl, type InstagramAccount } from "@/lib/customers";
@@ -40,6 +42,8 @@ const money = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR
 export function Auftrag({
   email,
   picking,
+  aiNotes,
+  onAiNotesChange,
   onPick,
   onWithout,
 }: {
@@ -47,6 +51,9 @@ export function Auftrag({
   email: string;
   /** Die Aufgabe, deren Vorschlag gerade gebaut wird. */
   picking?: string;
+  /** Freie Hinweise für die KI – gehen mit der Aufgabe in den Zusammenbau. */
+  aiNotes: string;
+  onAiNotesChange: (aiNotes: string) => void;
   onPick: (taskId: string) => void;
   onWithout: () => void;
 }) {
@@ -159,6 +166,12 @@ export function Auftrag({
             </div>
           </Section>
           <Divider />
+          <Section padding={6} paddingBlock={4}>
+            <div className="max-w-xl">
+              <HinweiseFeld value={aiNotes} onChange={onAiNotesChange} />
+            </div>
+          </Section>
+          <Divider />
         </>
       )}
       {!briefs ? (
@@ -232,6 +245,35 @@ export function Auftrag({
         />
       </Section>
     </Card>
+  );
+}
+
+/**
+ * Die Hinweise für die KI – hier vor der Aufgabenwahl, im Vorschlag noch einmal
+ * (vorschlag.tsx). Sie steuern, was der Kampagnenkontext aus Aufgabe und
+ * Onboarding macht, und den Ton der Texte. Optional: leer heißt „wie immer“.
+ */
+export function HinweiseFeld({
+  value,
+  onChange,
+  description = "Optional. Bei Widerspruch zählt dein Hinweis – Aufgabe und Onboarding erklären den Rest.",
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  description?: string;
+}) {
+  return (
+    <TextArea
+      label="Hinweise für die KI"
+      isOptional
+      value={value}
+      onChange={onChange}
+      rows={3}
+      maxLength={MAX_AI_NOTES}
+      width="100%"
+      placeholder={"z. B.\nNur PFK, keine PDL\nBudget 40 € pro Tag\nTon sachlich, nicht verspielt"}
+      description={description}
+    />
   );
 }
 
@@ -329,7 +371,7 @@ export function KundeWahl({
   clientSource: SearchSource<ClientItem>;
   clientItem: ClientItem | null;
   /** Woher der Kundenname kommt, solange ihn niemand geändert hat. */
-  clientNameSource?: Source;
+  clientNameSource?: Source[];
   onChange: (item: ClientItem | null) => void;
   customerFieldRef: RefObject<HTMLDivElement | null>;
   reloading: boolean;

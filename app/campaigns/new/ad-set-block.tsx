@@ -417,6 +417,7 @@ export function AdSetBlock({
   benefits,
   benefitsSource,
   onBenefitsChange,
+  instructions,
   autoGenerate,
   primary,
   stage,
@@ -449,8 +450,10 @@ export function AdSetBlock({
   borrowersOfAd: (adId: string) => string[];
   /** Die Benefits – im Entwurf, nicht mehr im Dialog. Einmal für alle drei Generatoren. */
   benefits: string;
-  benefitsSource?: Source;
+  benefitsSource?: Source[];
   onBenefitsChange: (benefits: string) => void;
+  /** Der Kampagnenkontext für die Texte: Textanweisungen plus aktuelle Hinweise (wizard.tsx). */
+  instructions?: string;
   /** Beim ersten Anzeigen mit leeren Texten sofort generieren – der Vorschlag ist ein Vorschlag. */
   autoGenerate: boolean;
   /** Die erste Anzeigengruppe: sie allein meldet die Formularliste ins Protokoll. */
@@ -466,7 +469,7 @@ export function AdSetBlock({
   /** Aus ClickUp: das Regal startet dort statt bei der Namenssuche. */
   driveFolderId?: string;
   /** Herkunft des vorbelegten Standorts – Etikett unter dem Standortfeld (nur erste Anzeigengruppe). */
-  locationSource?: Source;
+  locationSource?: Source[];
   /** Als Funktion, wenn der Patch auf dem aktuellen Stand aufbauen muss – siehe addAssets. */
   onChange: (patch: Partial<WizardAdSet> | ((set: WizardAdSet) => Partial<WizardAdSet>)) => void;
   onRemove: () => void;
@@ -504,6 +507,17 @@ export function AdSetBlock({
       .filter(Boolean)
       .join(" · ");
 
+  // Dieselben Fakten und derselbe Kontext für alle drei Generatoren – jede
+  // Anfrage ist vollständig, keine teilt sich eine Session mit einer anderen.
+  const textInput = () => ({
+    business,
+    roles,
+    roleFreeText,
+    place: value.place?.name ?? value.addressString,
+    benefits,
+    instructions,
+  });
+
   // Bei mehreren Standorten trägt die Protokollzeile den Namen der Gruppe –
   // sonst stünde dreimal „Primärtexte“ untereinander.
   const named = (what: string) => (otherAdSets.length ? `${what} · ${cityOf(value.addressString) || value.name}` : what);
@@ -516,13 +530,7 @@ export function AdSetBlock({
     onChange({ titles: Array(TITLE_COUNT).fill("") });
     const label = named("Überschriften");
     report({ id: aid("titel"), label, status: "running", detail: `Mistral schreibt ${TITLE_COUNT} Überschriften aus ${textBasis()}…` });
-    const res = await generateTitlesAction({
-      business,
-      roles,
-      roleFreeText,
-      place: value.place?.name ?? value.addressString,
-      benefits,
-    });
+    const res = await generateTitlesAction(textInput());
     if (titlesRun.current !== myRun) return;
     if (res.titles.length)
       onChange((set) => ({
@@ -545,7 +553,7 @@ export function AdSetBlock({
     // Alle fünf Slots leeren – die Antworten ersetzen ohnehin alles, und ein
     // alter Text unter einem Skelett sähe aus wie ein Ergebnis.
     onChange({ bodies: Array(BODY_TEMPLATE_COUNT).fill("") });
-    const input = { business, roles, roleFreeText, place: value.place?.name ?? value.addressString, benefits };
+    const input = textInput();
     const label = named("Primärtexte");
     let written = 0;
     let failed = 0;
@@ -585,13 +593,7 @@ export function AdSetBlock({
     setPendingDescription(true);
     const label = named("Beschreibung");
     report({ id: aid("beschreibung"), label, status: "running", detail: "Mistral schreibt die Zeile unter der Überschrift…" });
-    const res = await generateDescriptionAction({
-      business,
-      roles,
-      roleFreeText,
-      place: value.place?.name ?? value.addressString,
-      benefits,
-    });
+    const res = await generateDescriptionAction(textInput());
     if (descriptionRun.current !== myRun) return;
     if (res.description) onChange({ description: res.description });
     if (res.error) setGenErrors((e) => [...e, `Beschreibung: ${res.error}`]);

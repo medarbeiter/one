@@ -26,7 +26,8 @@ export type SourceField =
   | "dailyBudget"
   | "spendCap"
   | "initials";
-export type Sources = Partial<Record<SourceField, Source>>;
+/** Ein Wert kann aus mehreren Quellen stammen („ClickUp + Onboarding“). */
+export type Sources = Partial<Record<SourceField, Source[]>>;
 
 /** Hausstandard – und der Vergleichswert, an dem applyBrief „unangefasst“ erkennt. */
 export const DEFAULT_DAILY_BUDGET = 17;
@@ -57,6 +58,14 @@ export type WizardState = {
   benefits: string;
   /** Woher ein vorbelegtes Feld stammt. Verschwindet, sobald jemand es ändert (edited). */
   sources: Sources;
+  /**
+   * Freie Hinweise der bedienenden Person für die KI („Nur PFK, keine PDL“).
+   * Nicht `notes` – das ist die wörtliche ClickUp-Beschreibung. Bleiben im
+   * Vorschlag editierbar und gehen in jede Textanfrage.
+   */
+  aiNotes: string;
+  /** Stil-, Ton- und Ausschlusswünsche, wie der Kampagnenkontext sie aus den Hinweisen las. */
+  copyInstructions: string;
   /** Die ClickUp-Aufgabe, aus der dieser Entwurf kommt – nach dem Anlegen wechselt sie den Status. */
   taskId?: string;
   /** Die Beschreibung der Aufgabe, wörtlich – für Menschen, nicht für Felder. */
@@ -162,7 +171,9 @@ export const initialState = (adAccount = "", business = "", initials = ""): Wiza
   nameEdited: false,
   dailyBudgetEuros: DEFAULT_DAILY_BUDGET,
   benefits: "",
-  sources: initials ? { initials: "session" } : {},
+  sources: initials ? { initials: ["session"] } : {},
+  aiNotes: "",
+  copyInstructions: "",
   adSets: [emptyAdSet(0)],
 });
 
@@ -178,29 +189,31 @@ export function applyBrief(state: WizardState, brief: AssembledBrief): WizardSta
     ...state,
     taskId: brief.taskId,
     notes: brief.notes,
+    aiNotes: brief.aiNotes,
+    copyInstructions: brief.copyInstructions,
     formHint: brief.formHint?.value,
     driveFolderId: brief.driveFolderId?.value,
   };
   if (brief.clientName && !state.business.trim()) {
     next.business = brief.clientName.value;
-    sources.clientName = brief.clientName.source;
+    sources.clientName = brief.clientName.sources;
   }
   if (brief.roles && !state.roles.length) {
     next.roles = brief.roles.value;
-    sources.roles = brief.roles.source;
+    sources.roles = brief.roles.sources;
   }
   if (brief.roleFreeText && !state.roleFreeText.trim()) next.roleFreeText = brief.roleFreeText.value;
   if (brief.benefits && !state.benefits.trim()) {
     next.benefits = brief.benefits.value;
-    sources.benefits = brief.benefits.source;
+    sources.benefits = brief.benefits.sources;
   }
   if (brief.dailyBudgetEuros && state.dailyBudgetEuros === DEFAULT_DAILY_BUDGET) {
     next.dailyBudgetEuros = brief.dailyBudgetEuros.value;
-    sources.dailyBudget = brief.dailyBudgetEuros.source;
+    sources.dailyBudget = brief.dailyBudgetEuros.sources;
   }
   if (brief.spendCapEuros && state.spendCapEuros === undefined) {
     next.spendCapEuros = brief.spendCapEuros.value;
-    sources.spendCap = brief.spendCapEuros.source;
+    sources.spendCap = brief.spendCapEuros.sources;
   }
   // Der erste Standort in die erste Gruppe, jeder weitere in eine eigene, die
   // die Anzeigen der ersten spiegelt (mirrorOf). Nur, solange noch niemand
@@ -216,7 +229,7 @@ export function applyBrief(state: WizardState, brief: AssembledBrief): WizardSta
         mirrorOf: first.id,
       })),
     ];
-    sources.location = brief.locations!.source;
+    sources.location = brief.locations!.sources;
   }
   // Ein in der Aufgabe genannter Umkreis gilt für alle Gruppen, die noch auf
   // dem Hausstandard stehen – und hält damit die Reichweiten-Leiter an
@@ -225,6 +238,15 @@ export function applyBrief(state: WizardState, brief: AssembledBrief): WizardSta
     next.adSets = next.adSets.map((a) => (a.radiusKm === DEFAULT_RADIUS_KM ? { ...a, radiusKm: brief.radiusKm!.value } : a));
   return { ...next, sources };
 }
+
+/**
+ * Was jede Textanfrage an Kontext bekommt: was der Kampagnenkontext aus den
+ * Hinweisen las, plus die Hinweise selbst in ihrem aktuellen Stand. So wirkt
+ * eine Änderung sofort, ohne ClickUp und Drive neu zu lesen – und auch eine
+ * Kampagne ohne Aufgabe nimmt ihre Hinweise mit.
+ */
+export const textInstructions = (state: Pick<WizardState, "aiNotes" | "copyInstructions">): string =>
+  [state.copyInstructions, state.aiNotes].map((t) => t.trim()).filter(Boolean).join("\n");
 
 /** „Mühlgasse 24, 71272 Renningen“ → „Renningen“; ohne PLZ der Text selbst. */
 export function cityOf(addressString: string): string {
@@ -679,12 +701,20 @@ const writeDrafts = (drafts: Draft[]) => {
   }
 };
 
+/** Vor dem Kampagnenkontext trug jedes Feld genau eine Quelle – jetzt eine Liste. */
+const sourcesOf = (sources: Sources | undefined): Sources =>
+  Object.fromEntries(
+    Object.entries(sources ?? {}).map(([field, v]) => [field, Array.isArray(v) ? v : [v as unknown as Source]]),
+  );
+
 /** Ein gespeicherter Stand kann aus einer älteren Fassung stammen – siehe KEY. */
-const hydrate = (state: WizardState, initials: string): WizardState => ({
+export const hydrate = (state: WizardState, initials: string): WizardState => ({
   ...state,
   initials: state.initials || initials,
   benefits: state.benefits ?? "",
-  sources: state.sources ?? {},
+  sources: sourcesOf(state.sources),
+  aiNotes: state.aiNotes ?? "",
+  copyInstructions: state.copyInstructions ?? "",
   adSets: state.adSets.map((s) => ({
     ...s,
     id: s.id ?? crypto.randomUUID(),

@@ -26,6 +26,7 @@ import {
 import { getLocalTimeZone, parseDate, today } from "@internationalized/date";
 import { ROLES } from "@/lib/naming";
 import { Angaben, Infotafel } from "./angaben";
+import { HinweiseFeld } from "./auftrag";
 import { Herkunft } from "./herkunft";
 import { edited, type SourceField, type WizardState } from "./state";
 
@@ -144,6 +145,16 @@ export function VorschlagKopf({
           />
           <Herkunft source={state.sources.dailyBudget} />
         </div>
+      </div>
+
+      {/* Bleibt editierbar: eine Änderung wirkt beim nächsten „Mit KI
+          überarbeiten“, ohne ClickUp und Drive neu zu lesen. */}
+      <div className="max-w-3xl">
+        <HinweiseFeld
+          value={state.aiNotes}
+          onChange={(aiNotes) => setState((s) => ({ ...s, aiNotes }))}
+          description="Wirkt beim nächsten „Mit KI überarbeiten“ auf Primärtexte, Überschriften und Beschreibung."
+        />
       </div>
 
       {state.notes && (

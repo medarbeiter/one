@@ -34,6 +34,7 @@ import {
   emptyAdSet,
   initialState,
   syncLinkedAds,
+  textInstructions,
   toAdInput,
   useWizardState,
   withArrivedAssets,
@@ -334,7 +335,12 @@ function WizardSteps({
     let brief: AssembledBrief | undefined;
     let error: string | undefined;
     try {
-      const res = await fetch(`/api/brief?task=${encodeURIComponent(taskId)}`);
+      // POST mit JSON: die Hinweise gehören nicht in URL, Verlauf oder Log.
+      const res = await fetch("/api/brief", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ taskId, aiNotes: state.aiNotes }),
+      });
       if (!res.ok || !res.body) throw new Error(`Der Server antwortete mit ${res.status}.`);
       for await (const event of readNdjson<BriefStreamEvent>(res.body)) {
         if (event.type === "step") reportBriefEvent(event);
@@ -589,7 +595,7 @@ function WizardSteps({
         applied = true;
         return {
           ...s,
-          sources: { ...s.sources, location: "previous" },
+          sources: { ...s.sources, location: ["previous"] },
           adSets: s.adSets.map((set, i) => (i === 0 ? { ...set, ...patch } : set)),
         };
       });
@@ -952,6 +958,7 @@ function WizardSteps({
                           onBenefitsChange={(benefits) =>
                             setState((s) => edited(s, "benefits", { benefits }))
                           }
+                          instructions={textInstructions(state)}
                           // Texte entstehen beim Betreten – aber nur im ersten
                           // Standort: die weiteren leihen sich Anzeigen und
                           // Texte (syncLinkedAds).
@@ -1199,6 +1206,10 @@ function WizardSteps({
           <Auftrag
             email={email}
             picking={picking}
+            // Im Entwurf, nicht daneben: so bleiben die Hinweise auch, wer
+            // ohne Aufgabe beginnt, und ein Neuanfang (reset) leert sie mit.
+            aiNotes={state.aiNotes}
+            onAiNotesChange={(aiNotes) => setState((s) => ({ ...s, aiNotes }))}
             onPick={pick}
             onWithout={() => setManual(true)}
           />

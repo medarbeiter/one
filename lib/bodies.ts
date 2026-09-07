@@ -24,7 +24,24 @@ export type BodiesInput = {
   place?: string;
   /** Benefits des Arbeitgebers, von Hand eingetragen – stehen in keiner API. */
   benefits: string;
+  /**
+   * Der Kampagnenkontext: Stil-, Ton- und Ausschlusswünsche aus den Hinweisen
+   * (copyInstructions) plus die Hinweise selbst. Gehen in jeden der drei
+   * Prompts als derselbe Block – die Sicherheitsregeln der Prompts heben sie
+   * nicht auf.
+   */
+  instructions?: string;
 };
+
+/** Ein Block für alle drei Prompts; leer, wenn es nichts zu sagen gibt. */
+function instructionsBlock(instructions?: string): string {
+  const text = instructions?.trim();
+  if (!text) return "";
+  return `ZUSÄTZLICHE KAMPAGNENHINWEISE (steuern Stil, Ansprache, Schwerpunkte und Ausschlüsse – die Regeln oben gelten weiter: keine erfundenen Benefits, Längen und Ausgabeformat bleiben):
+${text}
+
+`;
+}
 
 /** Rollenkürzel zu den Wörtern, die in einer Anzeige stehen können. `prompt`
  * vor `label`: die KI-Fassung darf mehr sagen als das UI (siehe ROLES). */
@@ -153,7 +170,8 @@ Denn manchmal beginnt der beste Job einfach mit einem Klick. 👇`,
 /** Ein Slot je Vorlage – der Dialog zeigt so viele Skelette. */
 export const BODY_TEMPLATE_COUNT = TEMPLATES.length;
 
-function prompt({ business, roles, roleFreeText, place, benefits }: BodiesInput, template: number): string {
+function prompt(input: BodiesInput, template: number): string {
+  const { business, roles, roleFreeText, place, benefits } = input;
   const rollen = roleLabels(roles, roleFreeText);
   const fakten = [
     `Arbeitgeber: ${business.trim() || "unbekannt – schreibe neutral von „uns“ und „unserem Team“"}`,
@@ -177,7 +195,7 @@ ${fakten}
 
 ${TEMPLATES[template]}
 
-Antworte ausschließlich mit dem fertigen Primärtext – ohne Anführungszeichen drumherum, ohne Überschrift, ohne Erklärung.`;
+${instructionsBlock(input.instructions)}Antworte ausschließlich mit dem fertigen Primärtext – ohne Anführungszeichen drumherum, ohne Überschrift, ohne Erklärung.`;
 }
 
 /**
@@ -352,7 +370,7 @@ Weitere Regeln:
 KAMPAGNENFAKTEN:
 ${fakten}
 
-Antworte ausschließlich mit JSON: {"titel": ["…", "…"]}`;
+${instructionsBlock(input.instructions)}Antworte ausschließlich mit JSON: {"titel": ["…", "…"]}`;
 }
 
 /** Die fünf Überschriften – kurz, gemischt, höchstens 40 Zeichen. */
@@ -373,7 +391,7 @@ Formatiere die folgenden Benefits als Liste: eine kurze Kopfzeile wie „Freue D
 BENEFITS:
 ${input.benefits.trim() || "keine angegeben – schreibe zwei kurze Zeilen über das Team und die Bewerbung in 60 Sekunden"}
 
-Antworte ausschließlich mit der fertigen Beschreibung – ohne Anführungszeichen drumherum, ohne Erklärung.`;
+${instructionsBlock(input.instructions)}Antworte ausschließlich mit der fertigen Beschreibung – ohne Anführungszeichen drumherum, ohne Erklärung.`;
 }
 
 /** Die Beschreibung – Benefits sauber als ✅-Liste formatiert. */

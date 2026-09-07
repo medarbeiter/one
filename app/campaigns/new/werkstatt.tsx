@@ -31,11 +31,11 @@ import { Herkunft } from "./herkunft";
 import { reviewStatus } from "./state";
 
 /** Die Quellen des Zusammenbaus, in der Reihenfolge, in der lib/brief.ts sie anfasst. */
-export const BRIEF_STEPS: readonly BriefStep[] = ["task", "description", "drive", "onboarding", "overview"];
+export const BRIEF_STEPS: readonly BriefStep[] = ["task", "description", "drive", "onboarding", "overview", "context"];
 
 // Die Zeile heißt nach ihrer Quelle, kurz. Was dort getan wird, steht als
 // Satz darunter, solange es läuft – und weicht dem Gefundenen, sobald es da ist.
-const BRIEF_LABEL: Record<BriefStep, { label: string; doing: string; source: Source }> = {
+const BRIEF_LABEL: Record<BriefStep, { label: string; doing: string; source?: Source }> = {
   task: { label: "ClickUp-Aufgabe", doing: "liest Kunde, Budget, Rollen und Drive-Link…", source: "clickup" },
   description: {
     label: "Beschreibung der Aufgabe",
@@ -49,6 +49,8 @@ const BRIEF_LABEL: Record<BriefStep, { label: string; doing: string; source: Sou
     source: "onboarding",
   },
   overview: { label: "Kundenübersicht in ClickUp", doing: "sucht die Adresse im Doc…", source: "clickup" },
+  // Die Quellen dieser Zeile stehen erst nach der Antwort fest (event.sources).
+  context: { label: "Kampagnenkontext", doing: "verbindet Aufgabe, Onboarding und Hinweise…" },
 };
 
 /** Der Plan, bevor die erste Antwort da ist: alle Zeilen stehen, noch grau. */
@@ -64,7 +66,7 @@ export function reportBriefEvent(event: BriefEvent): void {
     status: event.status,
     detail: event.status === "running" ? doing : event.detail,
     // Ein Etikett nur an dem, was einen Wert gebracht hat – „übersprungen“ hat keine Herkunft.
-    source: event.status === "done" ? source : undefined,
+    source: event.status === "done" ? (event.sources ?? source) : undefined,
   });
 }
 

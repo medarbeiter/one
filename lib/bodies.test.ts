@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mistral, parseBody, parseTitles, roleLabels } from "./bodies";
+import { generateBody, generateDescription, generateTitles, mistral, parseBody, parseTitles, roleLabels } from "./bodies";
 
 test("parseTitles liest die Liste, wirft zu Lange weg und kappt bei fünf", () => {
   expect(parseTitles('{"titel": ["Kurz", "  Pflege-Jobs (m/w/d)  "]}')).toEqual([
@@ -55,6 +55,31 @@ test("mistral(): höchstens sechs gleichzeitig, mindestens 100 ms zwischen zwei 
     expect(maxInflight).toBeLessThanOrEqual(6);
     starts.sort((a, b) => a - b);
     for (let i = 1; i < starts.length; i++) expect(starts[i] - starts[i - 1]).toBeGreaterThanOrEqual(90);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("Hinweise erreichen Primärtext, Überschriften und Beschreibung – als derselbe Block", async () => {
+  process.env.MISTRAL_API_KEY = "test";
+  const sent: string[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+    sent.push(String(init?.body));
+    // Als Text wie als Titelliste lesbar – parseBody und parseTitles nehmen beides.
+    return new Response(JSON.stringify({ choices: [{ message: { content: '{"titel": ["Ok"]}' } }] }), { status: 200 });
+  }) as unknown as typeof fetch;
+  try {
+    const input = { business: "MeVita", roles: ["PFK"], benefits: "Jobrad", instructions: "Keine Emojis. Ton sachlich." };
+    await generateBody(input, 0);
+    await generateTitles(input);
+    await generateDescription(input);
+    expect(sent).toHaveLength(3);
+    expect(sent.every((r) => r.includes("ZUSÄTZLICHE KAMPAGNENHINWEISE") && r.includes("Keine Emojis"))).toBe(true);
+    // Ohne Hinweise kein Block – der Prompt bleibt, wie er war.
+    sent.length = 0;
+    await generateDescription({ business: "MeVita", roles: ["PFK"], benefits: "Jobrad" });
+    expect(sent[0]).not.toContain("ZUSÄTZLICHE KAMPAGNENHINWEISE");
   } finally {
     globalThis.fetch = realFetch;
   }
