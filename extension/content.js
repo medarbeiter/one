@@ -416,20 +416,30 @@ async function endings(spec) {
     ["E1", spec.endings.lead],
     ["E2", spec.endings.nonLead],
   ]) {
-    const row = await waitFor(() => collapsedRow(rowRe), rowRe);
-    await click(row);
-    // Aufgeklappt: Textfelder Name, Überschrift, Link, Call-to-Action; Textarea = Beschreibung.
-    const card = await waitFor(() => {
+    // Aufgeklappt hat der Abschnitt genau eine Textarea (Beschreibung) und vier
+    // Textfelder: Name, Überschrift, Link, Call-to-Action. Zugeklappte Zeilen
+    // haben keine Felder – also reicht der Blick auf den ganzen Dialog.
+    const fields = () => {
       const ta = [...dialog().querySelectorAll("textarea")].filter(visible)[0];
-      return ta && up(ta, (n) => n.querySelectorAll('input[type="text"]').length >= 4);
-    }, "Zielseite");
-    const inputs = [...card.querySelectorAll('input[type="text"]')].filter(visible);
-    const website = card.querySelector(`input[type="radio"][value="${T.end.websiteRadio}"]`);
+      const inputs = [...dialog().querySelectorAll('input[type="text"]')].filter(visible);
+      return ta && inputs.length >= 4 ? { ta, inputs } : null;
+    };
+    for (let attempt = 0; !fields(); attempt++) {
+      if (attempt >= 3) throw new Error(`Zielseite „${rowRe}“ klappt nicht auf`);
+      await realClick(await waitFor(() => collapsedRow(rowRe), rowRe));
+      await waitFor(fields, "Zielseite", 3000).catch(() => null);
+    }
+    const { ta, inputs } = fields();
+    const website = [...dialog().querySelectorAll(`input[type="radio"][value="${T.end.websiteRadio}"]`)].find(visible);
     if (website && !website.checked) await click(website);
     setValue(inputs[1], e.title);
-    setValue(card.querySelector("textarea"), e.description);
+    setValue(ta, e.description);
     setValue(inputs[2], e.url);
     setValue(inputs[3], e.buttonLabel);
+    await sleep(SETTLE_MS);
+    // Zuklappen, damit die zweite Zielseite allein ihre Felder zeigt.
+    const head = collapsedRow(rowRe) ?? [...dialog().querySelectorAll("*")].find((el) => visible(el) && el.children.length === 0 && new RegExp(`^${rowRe}\\s`, "i").test(norm(el.textContent)));
+    if (head) await realClick(head);
     await sleep(SETTLE_MS);
   }
 }
