@@ -58,7 +58,7 @@ export function costPerResult(insights?: Insights): number | undefined {
 const FIELDS = (period: Period) =>
   `name,status,objective,daily_budget,start_time,insights.date_preset(${period}){spend,impressions,cpm,actions}`;
 
-export async function listCampaigns(customers: Customer[], period: Period) {
+export async function listCampaigns(customers: Customer[], period: Period, q?: string) {
   // Ein Sub-Request pro Werbekonto – nicht pro Kunde: ein Konto kann mehreren
   // Kunden gehören (MedArbeiter zahlt über dasselbe Konto auch für "Jobs -
   // MedArbeiter"). Je Kunde gefragt, käme dieselbe Kampagne doppelt zurück.
@@ -67,9 +67,15 @@ export async function listCampaigns(customers: Customer[], period: Period) {
     for (const a of c.adAccounts) owners.set(a.id, [...(owners.get(a.id) ?? []), c]);
 
   const accounts = [...owners.keys()];
+  // Ohne Suchwort nur die ersten 100 je Konto – ein Konto mit mehr Kampagnen
+  // (etwa der gemeinsame Zahler) verliert dann ältere. Mit Suchwort filtert
+  // Graph selbst über den ganzen Bestand, nicht nur über die erste Seite.
+  const filtering = q
+    ? `&filtering=${encodeURIComponent(JSON.stringify([{ field: "name", operator: "CONTAIN", value: q }]))}`
+    : "";
   const settled = await batch<{ data: Campaign[] }>(
     accounts.map((acct) => ({
-      relative_url: `${acct}/campaigns?fields=${encodeURIComponent(FIELDS(period))}&limit=100`,
+      relative_url: `${acct}/campaigns?fields=${encodeURIComponent(FIELDS(period))}&limit=100${filtering}`,
     })),
     { revalidate: 60, tags: ["campaigns"] },
   );

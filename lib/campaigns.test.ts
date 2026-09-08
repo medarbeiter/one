@@ -105,6 +105,27 @@ test("Getrennte Konten bleiben getrennt zugeordnet", async () => {
   ]);
 });
 
+// Ohne Suchwort holt limit=100 nur die erste Seite je Konto – ein Konto mit
+// mehr Kampagnen (der gemeinsame Zahler) verliert dann ältere. Mit Suchwort
+// muss Graph selbst über den ganzen Bestand filtern, nicht die erste Seite.
+test("Suchwort landet als filtering-Parameter im Sub-Request", async () => {
+  const calls = stub((url) => {
+    const reqs = JSON.parse(url.searchParams.get("batch")!) as { relative_url: string }[];
+    return reqs.map(() => ({ code: 200, body: JSON.stringify({ data: [] }) }));
+  });
+
+  const acct = { id: "act_x", name: "X", account_status: 1, currency: "EUR", access: "own" as const };
+  await listCampaigns(
+    [{ source: "x", id: "x", name: "Kunde X", adAccounts: [acct], access: "own", issues: [] }],
+    "last_7d",
+    "Obermain",
+  );
+
+  const [{ relative_url }] = JSON.parse(calls[0].searchParams.get("batch")!) as { relative_url: string }[];
+  const filtering = JSON.parse(new URLSearchParams(relative_url.split("?")[1]).get("filtering")!);
+  expect(filtering).toEqual([{ field: "name", operator: "CONTAIN", value: "Obermain" }]);
+});
+
 test("EMPLOYMENT: kein Alters-Targeting, Land wird mitgeschickt", async () => {
   const calls = stub((url) =>
     url.pathname.endsWith("/adimages")

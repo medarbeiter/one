@@ -24,14 +24,13 @@ export default async function CampaignsPage({ searchParams }: PageProps<"/campai
 
   const { customers } = await listCustomers();
   const scope = findCustomer(customers, str("customer"));
-  const { campaigns, errors } = await listCampaigns(scope ? [scope] : customers, period);
+  const q = str("q");
+  const { campaigns, errors } = await listCampaigns(scope ? [scope] : customers, period, q);
 
-  const q = str("q")?.toLowerCase();
   const rows = campaigns.filter(
     (c) =>
       (!str("status") || c.status === str("status")) &&
-      (!str("objective") || c.objective === str("objective")) &&
-      (!q || c.name.toLowerCase().includes(q)),
+      (!str("objective") || c.objective === str("objective")),
   );
 
   const objectives = [...new Set(campaigns.map((c) => c.objective))].map(
