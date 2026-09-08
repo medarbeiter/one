@@ -73,6 +73,8 @@ const T = {
 
 const WAIT_MS = 15000;
 const SETTLE_MS = 350;
+/** Menüs und Untermenüs fahren animiert auf – ein Klick davor trifft ins Leere. */
+const MENU_MS = 600;
 
 // ---------- Overlay ----------
 const box = document.createElement("div");
@@ -154,6 +156,7 @@ const openMenuItems = () => [...document.querySelectorAll('[role="menuitem"],[ro
 
 async function pickMenuItem(text) {
   const item = await waitFor(() => openMenuItems().find((o) => norm(o.innerText).startsWith(norm(text))), text);
+  await sleep(MENU_MS);
   return click(item);
 }
 
@@ -236,16 +239,19 @@ async function questions(spec) {
   for (const q of spec.questions) {
     await addQuestion(T.questions.multipleChoice);
     const label = await waitFor(() => byPlaceholder(T.ph.mcLabel).find((i) => !i.value), T.ph.mcLabel);
+    await sleep(150);
     setValue(label, q.label);
     const card = up(label, (n) => n !== label && n.querySelector('[role="combobox"]') && optionInputs(n).length);
     for (let i = 0; i < q.options.length; i++) {
       if (optionInputs(card).length <= i) await click(lastPlus(card));
+      await sleep(120);
       setValue(optionInputs(card)[i], q.options[i]);
     }
   }
   for (const text of spec.freeText) {
     await addQuestion(T.questions.shortAnswer);
     const label = await waitFor(() => byPlaceholder(T.ph.shortLabel).find((i) => !i.value), T.ph.shortLabel);
+    await sleep(150);
     setValue(label, text);
   }
 
@@ -256,6 +262,7 @@ async function questions(spec) {
     const q = all[qi];
     const next = all[qi + 1];
     await expandQuestion(qi + 1);
+    await sleep(SETTLE_MS);
     const card = cardOf(await waitFor(() => byPlaceholder(q.mc ? T.ph.mcLabel : T.ph.shortLabel).find((i) => norm(i.value) === norm(q.label)), q.label));
     const combos = q.mc ? optionCombos(card) : [card.querySelector('[role="combobox"]')];
     for (let i = 0; i < combos.length; i++) {
@@ -292,7 +299,7 @@ async function setLogic(combo, outcome, nextLabel, nextNumber) {
   if (outcome === "submit") {
     await pickMenuItem(T.questions.submit);
     // Untermenü mit den Zielseiten – die Lead-Seite ist E1.
-    await sleep(SETTLE_MS);
+    await sleep(MENU_MS);
     const e1 = openMenuItems().find((o) => T.end.leadRow.test(norm(o.innerText).toUpperCase())) ?? openMenuItems()[0];
     if (e1) await click(e1);
     return;
@@ -307,6 +314,7 @@ async function setLogic(combo, outcome, nextLabel, nextNumber) {
       return t.includes(norm(nextLabel)) || t.startsWith(`f${nextNumber} `) || t.startsWith(`f${nextNumber}`);
     });
   if (!entry) throw new Error(`Frage ${nextNumber} („${nextLabel}“) steht nicht in „${T.questions.goToQuestionPopover}“`);
+  await sleep(MENU_MS);
   await click(entry);
 }
 
@@ -340,6 +348,7 @@ async function contact(spec) {
       await click(cat);
       item = await waitFor(() => anyText(names).find((el) => !before.has(el)), names);
     }
+    await sleep(MENU_MS);
     await click(item);
     document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await sleep(SETTLE_MS);
