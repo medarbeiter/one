@@ -419,10 +419,17 @@ async function endings(spec) {
     // Aufgeklappt hat der Abschnitt genau eine Textarea (Beschreibung) und vier
     // Textfelder: Name, Überschrift, Link, Call-to-Action. Zugeklappte Zeilen
     // haben keine Felder – also reicht der Blick auf den ganzen Dialog.
+    // Bleibt E1 offen, während E2 aufklappt, zählt die letzte Textarea – E2
+    // liegt im Dokument hinter E1. Die Textfelder: zwei davor (Name,
+    // Überschrift), zwei danach (Link, Call-to-Action).
+    const after = (a, b) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     const fields = () => {
-      const ta = [...dialog().querySelectorAll("textarea")].filter(visible)[0];
-      const inputs = [...dialog().querySelectorAll('input[type="text"]')].filter(visible);
-      return ta && inputs.length >= 4 ? { ta, inputs } : null;
+      const ta = [...dialog().querySelectorAll("textarea")].filter(visible).at(-1);
+      if (!ta) return null;
+      const all = [...dialog().querySelectorAll('input[type="text"]')].filter(visible);
+      const idx = all.findIndex((i) => after(ta, i));
+      if (idx < 2 || all.length < idx + 2) return null;
+      return { ta, inputs: all.slice(idx - 2, idx + 2) };
     };
     for (let attempt = 0; !fields(); attempt++) {
       if (attempt >= 3) throw new Error(`Zielseite „${rowRe}“ klappt nicht auf`);
@@ -430,7 +437,7 @@ async function endings(spec) {
       await waitFor(fields, "Zielseite", 3000).catch(() => null);
     }
     const { ta, inputs } = fields();
-    const website = [...dialog().querySelectorAll(`input[type="radio"][value="${T.end.websiteRadio}"]`)].find(visible);
+    const website = [...dialog().querySelectorAll(`input[type="radio"][value="${T.end.websiteRadio}"]`)].filter(visible).find((r) => after(ta, r));
     if (website && !website.checked) await click(website);
     setValue(inputs[1], e.title);
     setValue(ta, e.description);
