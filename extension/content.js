@@ -64,8 +64,7 @@ const T = {
     confirmDelete: "Löschen",
   },
   end: {
-    leadRow: /^E1\s/,
-    nonLeadRow: /^E2\s/,
+    leadRow: /^E1\s/, // im Untermenü von „Formular senden“
     websiteRadio: "VIEW_WEBSITE",
     // Reihenfolge der Textfelder in einer aufgeklappten Zielseite:
     // Name der Zielseite, Überschrift, Link, Call-to-Action; dazu eine Textarea.
@@ -266,10 +265,24 @@ async function questions(spec) {
   }
 }
 
-/** Zugeklappte Frage „F3 …“ aufklappen – die offene hat kein solches Kopfzeilen-Element. */
+/**
+ * Die zugeklappte Zeile „F3 …“ bzw. „E2 …“: das innerste sichtbare Element,
+ * dessen Text mit dem Präfix beginnt und keine andere Nummer enthält – ein
+ * äußerer Wrapper fängt zwar mit „F1“ an, ein Klick darauf öffnet aber nichts.
+ */
+function collapsedRow(prefix) {
+  const re = new RegExp(`^${prefix}\\s`, "i");
+  const other = new RegExp(`\\b${prefix[0]}\\d+\\s`, "gi");
+  const hits = [...dialog().querySelectorAll("*")].filter((el) => {
+    if (!visible(el) || el.querySelector("input,textarea")) return false;
+    const t = norm(el.innerText);
+    return re.test(t) && (t.match(other) ?? []).every((m) => m.trim().toLowerCase() === prefix.toLowerCase());
+  });
+  return hits.at(-1);
+}
+
 async function expandQuestion(n) {
-  // Mehrere verschachtelte Treffer tragen denselben Text – der Klick steigt ohnehin zur Zeile auf.
-  const row = byText(`F${n} `, { sel: "*", exact: false }).find((el) => T.questions.collapsedRow.test(norm(el.innerText).toUpperCase()) && el.children.length <= 3);
+  const row = collapsedRow(`F${n}`);
   if (row) await click(row);
 }
 
@@ -345,10 +358,10 @@ async function privacy(spec) {
 async function endings(spec) {
   await goTo(T.nav.end);
   for (const [rowRe, e] of [
-    [T.end.leadRow, spec.endings.lead],
-    [T.end.nonLeadRow, spec.endings.nonLead],
+    ["E1", spec.endings.lead],
+    ["E2", spec.endings.nonLead],
   ]) {
-    const row = await waitFor(() => byText("E", { sel: "*", exact: false }).find((el) => rowRe.test(norm(el.innerText).toUpperCase()) && el.children.length <= 4 && !el.querySelector("input")), rowRe.source);
+    const row = await waitFor(() => collapsedRow(rowRe), rowRe);
     await click(row);
     // Aufgeklappt: Textfelder Name, Überschrift, Link, Call-to-Action; Textarea = Beschreibung.
     const card = await waitFor(() => {
