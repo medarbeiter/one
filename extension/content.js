@@ -69,7 +69,6 @@ const T = {
     websiteRadio: "VIEW_WEBSITE",
     // Beschriftungen über den Textfeldern einer aufgeklappten Zielseite; die
     // Reihenfolge von Link und Call-to-Action ist je Zielseite verschieden.
-    headline: "Überschrift",
     link: "Link",
     cta: "Call-to-Action",
   },
@@ -546,13 +545,18 @@ async function endings(spec) {
       await click(website);
       await sleep(SETTLE_MS); // die Karte zeichnet neu, das Link-Feld kommt erst jetzt
     }
-    // Felder über ihre Beschriftung: der kleinste Vorfahr, dessen Text mit ihr beginnt.
+    // Link und Call-to-Action über ihre Beschriftung: das erste Eingabefeld
+    // nach dem Text, hinter der Beschreibung (so bleibt eine noch offene E1
+    // außen vor, wenn E2 dran ist). Das Link-Feld ist kein type="text".
     const { ta, inputs } = fields();
-    const field = (label) => inputs.find((i) => up(i, (n) => n !== i && norm(n.innerText).startsWith(norm(label)), 6));
+    const field = (label) => {
+      const leaf = [...dialog().querySelectorAll("*")].find((el) => visible(el) && el.children.length === 0 && norm(el.textContent) === norm(label) && after(ta, el));
+      return leaf && [...dialog().querySelectorAll("input,textarea")].filter(visible).find((i) => after(leaf, i));
+    };
     const link = field(T.end.link);
     const cta = field(T.end.cta);
     if (!link || !cta) throw new Error(`Felder „${T.end.link}“ / „${T.end.cta}“ in ${rowRe} nicht gefunden`);
-    setValue(field(T.end.headline) ?? inputs[1], e.title);
+    setValue(inputs[1], e.title);
     setValue(ta, e.description);
     setValue(link, e.url);
     setValue(cta, e.buttonLabel);
