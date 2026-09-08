@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MedArbeiter One – Formular bauen",
-  "version": "0.2.10",
+  "version": "0.3.0",
   "description": "Tippt eine Lead-Formular-Vorlage aus /campaigns/new im Meta-Baukasten ab.",
   "permissions": ["storage", "tabs"],
   "host_permissions": ["https://business.facebook.com/*"],

@@ -78,15 +78,85 @@ const SETTLE_MS = 350;
 const MENU_MS = 600;
 
 // ---------- Overlay ----------
-const box = document.createElement("div");
-box.style.cssText =
-  "position:fixed;right:16px;bottom:16px;z-index:2147483647;max-width:380px;background:#111;color:#fff;" +
-  "font:12px/1.4 system-ui;padding:10px 12px;border-radius:8px;white-space:pre-wrap;box-shadow:0 4px 20px #0006";
+// Sichtbar machen, was die Erweiterung tut: ein goldener Zeiger gleitet zum
+// Ziel, jeder Klick zieht einen Ring, jedes Feld leuchtet auf, wenn Text
+// hineingeht, und die Karte unten rechts nennt Schritt und Fortschritt.
+// Alles nur Kosmetik – ohne Wirkung auf den Baukasten und ohne Wartezeit
+// außer dem Gleiten (GLIDE_MS), damit das Auge mitkommt.
+const GLIDE_MS = 260;
+const STEPS = 8;
+const style = document.createElement("style");
+style.textContent = `
+@keyframes mo-ripple { from { transform: translate(-50%,-50%) scale(.3); opacity: .9 } to { transform: translate(-50%,-50%) scale(2.4); opacity: 0 } }
+@keyframes mo-glow { 0% { box-shadow: 0 0 0 0 #e1b025cc; opacity: 1 } 70% { box-shadow: 0 0 0 8px #e1b02500; opacity: 1 } 100% { opacity: 0 } }
+@keyframes mo-tag { 0% { opacity: 0; transform: translateY(6px) } 15% { opacity: 1; transform: none } 80% { opacity: 1 } 100% { opacity: 0 } }
+@keyframes mo-in { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }
+.mo-cursor { position: fixed; left: 0; top: 0; width: 16px; height: 16px; border-radius: 50%; background: #e1b025; border: 2px solid #231a02;
+  box-shadow: 0 2px 10px #e1b02599; z-index: 2147483647; pointer-events: none; opacity: 0;
+  transition: transform ${GLIDE_MS}ms cubic-bezier(.2,.8,.2,1), opacity 200ms; will-change: transform }
+.mo-ring { position: fixed; width: 28px; height: 28px; border-radius: 50%; border: 3px solid #e1b025; z-index: 2147483646; pointer-events: none;
+  animation: mo-ripple 600ms cubic-bezier(.2,.8,.2,1) forwards }
+.mo-glow { position: fixed; border-radius: 6px; border: 2px solid #e1b025; z-index: 2147483645; pointer-events: none; animation: mo-glow 900ms ease-out forwards }
+.mo-tag { position: fixed; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: #231a02; color: #f7edd2;
+  font: 12px/1.3 system-ui; padding: 3px 8px; border-radius: 6px; z-index: 2147483647; pointer-events: none; animation: mo-tag 1100ms ease-out forwards }
+.mo-panel { position: fixed; right: 16px; bottom: 16px; z-index: 2147483647; width: 360px; background: #faf8f3; color: #1c1917; border: 1px solid #d8d2c6;
+  font: 12px/1.45 system-ui; border-radius: 12px; box-shadow: 0 8px 28px #0004; overflow: hidden; animation: mo-in 300ms cubic-bezier(.2,.8,.2,1) }
+.mo-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: linear-gradient(#f7edd2, #faf8f3); font-weight: 600; font-size: 13px }
+.mo-head .mo-dot { width: 10px; height: 10px; border-radius: 50%; background: #e1b025; box-shadow: 0 0 0 0 #e1b02580; animation: mo-glow 1.4s ease-out infinite }
+.mo-bar { height: 3px; background: #ece2c9 } .mo-bar > i { display: block; height: 100%; background: #e1b025; width: 0; transition: width 400ms cubic-bezier(.2,.8,.2,1) }
+.mo-log { padding: 8px 12px; white-space: pre-wrap; color: #67625a; max-height: 150px; overflow: hidden }
+@media (prefers-reduced-motion: reduce) { .mo-cursor, .mo-bar > i { transition: none } .mo-ring, .mo-glow, .mo-tag, .mo-panel, .mo-dot { animation-duration: 1ms } }`;
+document.documentElement.appendChild(style);
+
+const panel = document.createElement("div");
+panel.className = "mo-panel";
+panel.innerHTML = '<div class="mo-head"><span class="mo-dot"></span><span class="mo-title">Formular bauen</span></div><div class="mo-bar"><i></i></div><div class="mo-log"></div>';
+const cursor = document.createElement("div");
+cursor.className = "mo-cursor";
 const lines = [];
 function say(text) {
   lines.push(text);
-  box.textContent = lines.slice(-9).join("\n");
-  if (!box.isConnected) document.body.appendChild(box);
+  if (!panel.isConnected) document.body.append(panel, cursor);
+  panel.querySelector(".mo-log").textContent = lines.slice(-6).join("\n");
+}
+function progress(done, title) {
+  if (!panel.isConnected) document.body.append(panel, cursor);
+  panel.querySelector(".mo-title").textContent = title;
+  panel.querySelector(".mo-bar > i").style.width = `${(100 * done) / STEPS}%`;
+  panel.querySelector(".mo-dot").style.animationPlayState = done >= STEPS ? "paused" : "running";
+}
+
+const center = (el) => {
+  const r = el.getBoundingClientRect();
+  return { x: r.x + r.width / 2, y: r.y + r.height / 2, r };
+};
+const flash = (cls, css, ms) => {
+  const d = document.createElement("div");
+  d.className = cls;
+  Object.assign(d.style, css);
+  document.body.appendChild(d);
+  setTimeout(() => d.remove(), ms);
+  return d;
+};
+/** Zeiger zum Ziel gleiten lassen – die einzige Wartezeit, die das Auge braucht. */
+async function moveTo(el) {
+  if (!cursor.isConnected) document.body.append(panel, cursor);
+  const { x, y } = center(el);
+  cursor.style.opacity = "1";
+  cursor.style.transform = `translate(${x - 8}px, ${y - 8}px)`;
+  await sleep(GLIDE_MS + 40);
+}
+function ripple(el) {
+  const { x, y } = center(el);
+  flash("mo-ring", { left: `${x}px`, top: `${y}px`, transform: "translate(-50%,-50%)" }, 650);
+}
+/** Feld leuchtet auf, darüber steht kurz, was hineingeschrieben wurde. */
+function glow(el, text) {
+  const { x, y, r } = center(el);
+  cursor.style.opacity = "1";
+  cursor.style.transform = `translate(${x - 8}px, ${y - 8}px)`;
+  flash("mo-glow", { left: `${r.x - 3}px`, top: `${r.y - 3}px`, width: `${r.width + 6}px`, height: `${r.height + 6}px` }, 950);
+  if (text) flash("mo-tag", { left: `${r.x}px`, top: `${Math.max(4, r.y - 28)}px` }, 1150).textContent = `✎ ${text}`;
 }
 
 // ---------- Finder ----------
@@ -128,6 +198,8 @@ async function waitFor(fn, what, ms = WAIT_MS) {
 
 async function click(el) {
   el.scrollIntoView({ block: "center" });
+  await moveTo(el);
+  ripple(el);
   el.click();
   await sleep(SETTLE_MS);
   return el;
@@ -136,6 +208,8 @@ async function click(el) {
 /** Menüeinträge reagieren teils auf mousedown, nicht auf click – die ganze Folge schicken. */
 async function realClick(el) {
   el.scrollIntoView({ block: "center" });
+  await moveTo(el);
+  ripple(el);
   const r = el.getBoundingClientRect();
   const init = { bubbles: true, cancelable: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 };
   for (const type of ["pointerover", "mouseover", "pointerdown", "mousedown", "pointerup", "mouseup"]) el.dispatchEvent(new MouseEvent(type, init));
@@ -155,6 +229,7 @@ const clickText = async (texts, opts) => click(await waitFor(() => byText(texts,
 
 /** React-Inputs merken nur Änderungen über den nativen Setter plus input-Event. */
 function setValue(input, value) {
+  glow(input, value);
   input.focus();
   const proto = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
   Object.getOwnPropertyDescriptor(proto, "value").set.call(input, value);
@@ -183,11 +258,15 @@ function up(el, test, max = 12) {
 }
 
 // ---------- Schritte ----------
+let done = 0;
 async function step(name, fn) {
   say(`▶ ${name}`);
+  progress(done, name);
   try {
     await fn();
+    progress(++done, name);
   } catch (e) {
+    panel.querySelector(".mo-title").textContent = `Hält an: ${name}`;
     say(`✖ ${name}: ${e.message}\nBeschriftung in extension/content.js (T) prüfen, dann Popup → „Erneut“.`);
     throw e;
   }
@@ -454,6 +533,7 @@ async function endings(spec) {
 
 async function build(spec) {
   lines.length = 0;
+  done = 0;
   say(`Vorlage „${spec.name}“ – ${spec.questions.length} Fragen`);
   await step("Baukasten öffnen", openBuilder);
   await step("Einstellungen: Deutsch, Offen", settings);
@@ -464,6 +544,8 @@ async function build(spec) {
   await step("Datenschutz", () => privacy(spec));
   await step("Zielseiten", () => endings(spec));
   sessionStorage.setItem("mo_form_done", "1");
+  progress(STEPS, "Fertig – bitte prüfen");
+  cursor.style.opacity = "0";
   say("✔ Fertig. Bitte prüfen, dann „Formular erstellen“ selbst klicken – zurück im Assistenten wird es erkannt.");
 }
 
