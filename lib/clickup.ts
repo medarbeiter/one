@@ -191,7 +191,7 @@ export function toBrief(raw: RawTask): Brief {
  * Nur diese zwei Werte verlassen die Funktion, der Rest der Seite bleibt
  * ungelesen im Aufrufer.
  */
-export function overviewFacts(markdown: string): { address?: string; rolesText?: string; radiusKm?: number } {
+export function overviewFacts(markdown: string): { address?: string; rolesText?: string; radiusKm?: number; website?: string } {
   // [ \t] statt \s: \s schließt \n ein und würde sonst über die Zeile hinaus
   // bis in den nächsten Wert hinein fressen, wenn der Wert leer ist.
   const pick = (label: string) => {
@@ -201,10 +201,16 @@ export function overviewFacts(markdown: string): { address?: string; rolesText?:
   };
   // „Umkreis: 30 km“ – eine Zahl, sonst nichts; der Rest der Zeile ist Prosa.
   const km = Number(pick("(?:Umkreis|Radius)")?.match(/\d+/)?.[0]);
+  // Die Website steht mal als Zeile, mal nur irgendwo als Link – für das
+  // Lead-Formular (Datenschutz, Zielseite). Nur die URL, nie der Rest des Docs.
+  const website =
+    pick("(?:Website|Webseite|Homepage)")?.match(/[\w.-]+\.[a-z]{2,}\S*/i)?.[0] ??
+    markdown.match(/https?:\/\/(?!(?:www\.)?(?:facebook|instagram|clickup|google|drive)\.)[^\s)>\]]+/i)?.[0];
   return {
     address: pick("Adresse"),
     rolesText: pick("Offene Stellen"),
     ...(km > 0 && { radiusKm: km }),
+    ...(website && { website }),
   };
 }
 

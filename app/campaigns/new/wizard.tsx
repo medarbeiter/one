@@ -1016,6 +1016,9 @@ function WizardSteps({
                           stage={ready ? "alles" : "inhalt"}
                           formHint={state.formHint}
                           driveFolderId={state.driveFolderId}
+                          initials={state.initials}
+                          taskId={state.taskId}
+                          notes={state.notes}
                           locationSource={i === 0 ? state.sources.location : undefined}
                           blockers={blockers}
                           otherAdSets={state.adSets

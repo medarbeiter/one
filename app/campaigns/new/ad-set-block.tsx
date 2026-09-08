@@ -18,7 +18,8 @@ import {
 } from "@astryxdesign/core";
 import { PlusIcon, SparkleIcon, XIcon } from "@phosphor-icons/react";
 import type { LeadForm } from "@/lib/forms";
-import { instantFormsUrl, matchFormHint, newlyAppeared } from "@/lib/forms";
+import { matchFormHint, newlyAppeared } from "@/lib/forms";
+import { FormBuilder } from "./form-builder";
 import type { Source } from "@/lib/brief";
 import { cleanStem, nextCreativeName } from "@/lib/media";
 import { cityOf } from "./state";
@@ -424,6 +425,9 @@ export function AdSetBlock({
   formHint,
   driveFolderId,
   locationSource,
+  initials,
+  taskId,
+  notes,
   onChange,
   onRemove,
   canRemove,
@@ -468,6 +472,10 @@ export function AdSetBlock({
   formHint?: string;
   /** Aus ClickUp: das Regal startet dort statt bei der Namenssuche. */
   driveFolderId?: string;
+  /** Für die Formular-Vorlage: Name, Website aus der Kundenübersicht, Fragen aus der Aufgabe. */
+  initials: string;
+  taskId?: string;
+  notes?: string;
   /** Herkunft des vorbelegten Standorts – Etikett unter dem Standortfeld (nur erste Anzeigengruppe). */
   locationSource?: Source[];
   /** Als Funktion, wenn der Patch auf dem aktuellen Stand aufbauen muss – siehe addAssets. */
@@ -1068,16 +1076,6 @@ export function AdSetBlock({
         satz={`Das Formular der Seite ${pageName || "des Kunden"}, das sich aus der Anzeige öffnet. Ein in Meta neu gebautes wird hier erkannt und gewählt.`}
         action={
           <div className="flex items-center gap-1">
-            {/* Ohne asset_id landet der Baukasten auf der Seite, die im Business
-                Manager zuletzt offen war – in der Praxis MedArbeiter statt des
-                Kunden. Lieber gar nicht anbieten als auf die falsche Seite. */}
-            <Button
-              variant="secondary"
-              size="sm"
-              isDisabled={!pageId}
-              label="In Meta bauen"
-              onClick={() => window.open(instantFormsUrl(pageId), "_blank")}
-            />
             <Button
               variant="ghost"
               size="sm"
@@ -1120,6 +1118,24 @@ export function AdSetBlock({
           }
           emptySearchResultsText="Kein Formular gefunden."
         />
+        {/* Ohne asset_id landet der Baukasten auf der Seite, die im Business
+            Manager zuletzt offen war – in der Praxis MedArbeiter statt des
+            Kunden. Deshalb erst mit gewählter Seite anbieten. */}
+        {pageId && !value.formId && (
+          <FormBuilder
+            input={{
+              pageId,
+              taskId,
+              roles,
+              roleFreeText,
+              initials,
+              city: cityOf(value.addressString),
+              benefits,
+              notes,
+              instructions,
+            }}
+          />
+        )}
         {detected && value.formId && (
           <Text type="supporting" as="p" aria-live="polite">
             {detected.how === "neu"

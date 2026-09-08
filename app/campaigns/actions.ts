@@ -10,7 +10,10 @@ import { locationProblem, type GeoPlace } from "@/lib/geo";
 import { estimateReach, fitReachRadius, searchPlaces, type FittedRadius, type Reach } from "@/lib/geo-search";
 import { lastCampaignDefaults, type Prefill } from "@/lib/prefill";
 import { generateBody, generateDescription, generateTitles, type BodiesInput } from "@/lib/bodies";
-import { closeBrief, listOpenBriefs, type Brief } from "@/lib/clickup";
+import { closeBrief, customerOverview, getBrief, listOpenBriefs, type Brief } from "@/lib/clickup";
+import { buildFormSpec, nextVersion, type FormSpec } from "@/lib/form-spec";
+import { suggestQuestions } from "@/lib/form-questions";
+import { findPrivacyUrl, normalizeWebsite } from "@/lib/privacy-url";
 
 export type LaunchResult = { ok?: string; error?: string };
 
@@ -95,6 +98,72 @@ export async function listFormsAction(pageId: string, refresh = false): Promise<
  * dort minutenlang nicht auf (und über 100 Formulare passen ohnehin nicht in
  * eine Antwort). Mit der ID aus dem Baukasten kommt das Formular direkt.
  */
+export type FormSuggestInput = {
+  pageId: string;
+  taskId?: string;
+  roles: string[];
+  roleFreeText?: string;
+  initials: string;
+  city: string;
+  benefits?: string;
+  notes?: string;
+  instructions?: string;
+  /** Von Hand eingetragen, wenn die Kundenübersicht keine kennt. */
+  website?: string;
+};
+
+export type FormSuggestResult = { spec?: FormSpec; warnings: string[]; error?: string };
+
+/**
+ * Die Vorlage für ein neues Lead-Formular: Fragen von Mistral, Website aus
+ * der Kundenübersicht, Datenschutz-Link von der Website, Version aus der
+ * Formularliste der Seite. Alles Weitere ist Regel (lib/form-spec.ts).
+ * Gebaut wird es nicht hier, sondern von der Erweiterung im Baukasten.
+ */
+export async function suggestFormAction(input: FormSuggestInput): Promise<FormSuggestResult> {
+  const warnings: string[] = [];
+  try {
+    const [questions, names, website] = await Promise.all([
+      suggestQuestions(input),
+      listLeadForms(input.pageId).then((fs) => fs.map((f) => f.name)).catch((e: Error) => {
+        warnings.push(`Formularliste nicht lesbar – Version v1 angenommen: ${e.message}`);
+        return [] as string[];
+      }),
+      input.website?.trim()
+        ? normalizeWebsite(input.website)
+        : websiteFromTask(input.taskId).catch((e: Error) => {
+            warnings.push(`Website nicht aus der Kundenübersicht lesbar: ${e.message}`);
+            return "";
+          }),
+    ]);
+    if (!website) warnings.push("Keine Website gefunden – bitte eintragen.");
+    const privacyUrl = website ? await findPrivacyUrl(website) : "";
+    if (website && privacyUrl === website) warnings.push("Kein Datenschutz-Link auf der Website gefunden – die Website selbst steht drin.");
+    return {
+      warnings,
+      spec: buildFormSpec({
+        roles: input.roles,
+        roleFreeText: input.roleFreeText,
+        version: nextVersion(names, input.roles, input.roleFreeText, input.initials),
+        initials: input.initials,
+        city: input.city,
+        questions,
+        privacyUrl,
+        website,
+      }),
+    };
+  } catch (e) {
+    return { warnings, error: (e as Error).message };
+  }
+}
+
+async function websiteFromTask(taskId?: string): Promise<string> {
+  if (!taskId) return "";
+  const { folderId } = await getBrief(taskId);
+  if (!folderId) return "";
+  return normalizeWebsite((await customerOverview(folderId)).website);
+}
+
 export async function pullFormAction(pageId: string, input: string): Promise<FormsResult> {
   const formId = parseFormId(input);
   if (!formId)
