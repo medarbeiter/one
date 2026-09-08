@@ -64,7 +64,8 @@ const T = {
     confirmDelete: "Löschen",
   },
   end: {
-    leadRow: /^E1\s/, // im Untermenü von „Formular senden“
+    leadRow: /^E1\s/, // im Popover von „Formular senden“
+    choosePopover: "Zielseite auswählen",
     websiteRadio: "VIEW_WEBSITE",
     // Reihenfolge der Textfelder in einer aufgeklappten Zielseite:
     // Name der Zielseite, Überschrift, Link, Call-to-Action; dazu eine Textarea.
@@ -312,8 +313,18 @@ async function setLogic(combo, outcome, nextLabel, nextNumber) {
   if (outcome === "close") return pickMenuItem(T.questions.close);
   if (outcome === "submit") {
     await pickMenuItem(T.questions.submit);
-    // Untermenü mit den Zielseiten – die Lead-Seite ist E1.
-    await pickAfterAnimation(() => openMenuItems().find((o) => T.end.leadRow.test(norm(o.innerText).toUpperCase())) ?? openMenuItems()[0], "E1").catch(() => {});
+    // Popover „Zielseite auswählen“ mit Radios: „E1 End page for leads“ und
+    // „Neue Zielseite erstellen“ (vorgewählt). Die Beschriftung von E1 anklicken.
+    const e1 = () => {
+      const pop = up(byText(T.end.choosePopover, { root: document.body, sel: "*" }).find((el) => el.children.length === 0), (n) => n.querySelector('input[type="radio"]'), 25);
+      if (!pop) return null;
+      const leaf = [...pop.querySelectorAll("*")].filter((el) => visible(el) && el.children.length === 0 && T.end.leadRow.test(norm(el.textContent).toUpperCase()));
+      return leaf[0] ?? null;
+    };
+    await pickAfterAnimation(e1, T.end.choosePopover);
+    // Bleibt das Popover offen, schließt Escape es; die Wahl ist dann gesetzt.
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await sleep(SETTLE_MS);
     return;
   }
   await pickMenuItem(T.questions.goToQuestion);
