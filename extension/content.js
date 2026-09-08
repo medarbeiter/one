@@ -239,15 +239,26 @@ const optionInputs = (card) => byPlaceholder(T.ph.option, card);
 const optionCombos = (card) => [...card.querySelectorAll('[role="combobox"]')].filter(visible);
 const lastPlus = (card) => [...card.querySelectorAll('[role="button"]')].filter((b) => visible(b) && b.querySelector("svg") && !norm(b.innerText)).at(-1);
 
+/** Menü öffnen und Eintrag wählen – öffnet sich nichts (Klick in eine Animation), noch einmal. */
 async function addQuestion(kind) {
-  await clickText(T.questions.add);
+  for (let attempt = 0; ; attempt++) {
+    await clickText(T.questions.add);
+    const found = await waitFor(() => openMenuItems().find((o) => norm(o.innerText).startsWith(norm(kind))), kind, 2500).catch(() => null);
+    if (found) break;
+    if (attempt >= 2) throw new Error(`„${kind}“ erscheint nicht nach „${T.questions.add}“`);
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await sleep(MENU_MS);
+  }
   await pickMenuItem(kind);
 }
 
 async function questions(spec) {
   await goTo(T.nav.questions);
   const toggle = await waitFor(() => [...dialog().querySelectorAll('[role="switch"]')].find((s) => norm(s.getAttribute("aria-label")) === norm(T.questions.logic)), T.questions.logic);
-  if (toggle.getAttribute("aria-checked") !== "true") await click(toggle);
+  if (toggle.getAttribute("aria-checked") !== "true") {
+    await click(toggle);
+    await sleep(MENU_MS); // der Hinweis darunter wechselt, die Seite zeichnet neu
+  }
 
   // 1) Alle Fragen anlegen – Beschriftung und Antworten. Die vorige Karte
   //    klappt dabei zu; die Logik kommt in Schritt 2, wenn alle Ziele existieren.
