@@ -188,7 +188,11 @@ const goTo = (section) => clickText(section);
 
 async function settings() {
   await clickText(T.settings.open);
-  const modal = await waitFor(() => up(byText(T.settings.modal, { sel: "*" })[0], (n) => n.querySelector('[role="combobox"]') && n.querySelector("input[type=radio]")), T.settings.modal);
+  // Das Modal liegt als Portal neben dem Baukasten-Dialog, nicht darin.
+  const modal = await waitFor(
+    () => up(byText(T.settings.modal, { root: document.body, sel: "*" }).find((el) => el.children.length === 0), (n) => n.querySelector('[role="combobox"]') && n.querySelector("input[type=radio]"), 25),
+    T.settings.modal,
+  );
   await click(modal.querySelector('[role="combobox"]'));
   await pickMenuItem(T.settings.german);
   await click(modal.querySelector(`input[type=radio][value="${T.settings.openValue}"]`));
