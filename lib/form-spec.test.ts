@@ -7,15 +7,13 @@ import { expect, test } from "bun:test";
 import {
   assembleQuestions,
   buildFormSpec,
-  encodeSpec,
   formName,
   formSpecBlockers,
   LICENSE_QUESTION,
   nextVersion,
-  parseQuestionLines,
   PFK_QUESTION,
+  questionBlockers,
   privacyLinkText,
-  questionLines,
   REACHABILITY,
   roleChoiceQuestion,
 } from "./form-spec";
@@ -94,25 +92,24 @@ test("Ausschlüsse müssen eine der Antworten sein", () => {
   expect(q.disqualify).toEqual(["Spät"]);
 });
 
-test("Zeilen und Fragen gehen verlustfrei hin und her", () => {
-  const text = "Hast du einen Führerschein? | Ja, Nein*\nSchicht? | Früh, Spät, Nacht*";
-  const qs = parseQuestionLines(text);
-  expect(qs[0]).toEqual(LICENSE_QUESTION);
-  expect(qs[1].disqualify).toEqual(["Nacht"]);
-  expect(questionLines(qs)).toBe(text);
-  expect(parseQuestionLines("nur Text ohne Optionen\n\n")).toEqual([]);
-});
-
 test("Blocker nennen Website, Fragen und Ort", () => {
   expect(formSpecBlockers(buildFormSpec({ ...base, website: "", questions: [], city: "" }))).toHaveLength(3);
   expect(formSpecBlockers(buildFormSpec(base))).toEqual([]);
 });
 
-test("der Hash ist base64url und trägt Umlaute", () => {
-  const enc = encodeSpec(buildFormSpec(base));
-  expect(enc).toMatch(/^[A-Za-z0-9_-]+$/);
-  const json = new TextDecoder().decode(Uint8Array.from(atob(enc.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0)));
-  expect(JSON.parse(json).intro.title).toContain("🫶🏻");
+test("Blocker je Frage: Text, zwei Antworten, keine Doppelten, nicht jeden aussortieren, Logik irgendwo", () => {
+  expect(questionBlockers([{ label: "", options: ["Ja"], disqualify: [] }])).toEqual([
+    "F1: Es fehlt der Fragetext.",
+    "F1: Mindestens zwei Antworten.",
+    "Keine Antwort führt zur Nicht-Lead-Seite – mindestens eine Frage braucht bedingte Logik.",
+  ]);
+  expect(questionBlockers([{ label: "Schicht?", options: ["Früh", "früh "], disqualify: ["Früh"] }])).toEqual([
+    "F1: Eine Antwort steht doppelt.",
+  ]);
+  expect(questionBlockers([{ label: "Schicht?", options: ["Früh", "Spät"], disqualify: ["Früh", "Spät"] }])).toEqual([
+    "F1: Jede Antwort führt zur Nicht-Lead-Seite – niemand käme durch.",
+  ]);
+  expect(questionBlockers([PFK_QUESTION, { label: "Schicht?", options: ["Früh", "Spät"], disqualify: [] }])).toEqual([]);
 });
 
 test("der Datenschutz-Linktext nennt den Kunden, solange er ins Limit passt", () => {

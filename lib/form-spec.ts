@@ -200,46 +200,35 @@ export function buildFormSpec(input: FormSpecInput): FormSpec {
   };
 }
 
-/** Was noch fehlt, bevor die Erweiterung losläuft – dieselbe Form wie adSetBlockers. */
+/**
+ * Was noch fehlt, bevor die Erweiterung losläuft – dieselbe Form wie
+ * adSetBlockers. Geprüft werden die Fragen, wie sie im Editor stehen (roh),
+ * nicht die bereinigten: eine Frage mit einer Antwort fällt bei clean() still
+ * weg, hier soll sie beim Namen genannt werden.
+ */
 export function formSpecBlockers(spec: FormSpec): string[] {
   return [
     ...(spec.website ? [] : ["Es fehlt die Website des Kunden."]),
-    ...(spec.questions.length ? [] : ["Es fehlt mindestens eine Frage zur Qualifikation."]),
+    ...(spec.questions.length ? questionBlockers(spec.questions) : ["Es fehlt mindestens eine Frage zur Qualifikation."]),
     ...(spec.intro.title === introTitle("") ? ["Es fehlt der Ort."] : []),
   ];
 }
 
 /**
- * Eine Zeile je Frage: `Hast du einen Führerschein? | Ja, Nein*` – das
- * Sternchen markiert Antworten, die zur Nicht-Lead-Seite führen. Kompakt genug
- * für ein Textfeld, statt eines Editors mit Zeilen und Knöpfen je Option.
+ * Die bedingte Logik ist der Zweck des Formulars: mindestens eine Antwort muss
+ * auf die Nicht-Lead-Seite führen, und keine Frage darf jeden aussortieren.
  */
-export function parseQuestionLines(text: string): FormQuestion[] {
-  return text
-    .split("\n")
-    .map((line) => {
-      const [label = "", rest = ""] = line.split("|");
-      const opts = rest.split(",").map((o) => o.trim()).filter(Boolean);
-      return {
-        label: label.trim(),
-        options: opts.map((o) => o.replace(/\*$/, "").trim()),
-        disqualify: opts.filter((o) => o.endsWith("*")).map((o) => o.replace(/\*$/, "").trim()),
-      };
-    })
-    .map(clean)
-    .filter((q): q is FormQuestion => !!q);
-}
-
-export function questionLines(questions: FormQuestion[]): string {
-  return questions
-    .map((q) => `${q.label} | ${q.options.map((o) => (q.disqualify.includes(o) ? `${o}*` : o)).join(", ")}`)
-    .join("\n");
-}
-
-/** Für den Hash in der Baukasten-URL – base64url, damit nichts escaped werden muss. */
-export function encodeSpec(spec: FormSpec): string {
-  const bytes = new TextEncoder().encode(JSON.stringify(spec));
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+export function questionBlockers(questions: FormQuestion[]): string[] {
+  const out: string[] = [];
+  questions.forEach((q, i) => {
+    const n = `F${i + 1}`;
+    const opts = q.options.map((o) => o.trim()).filter(Boolean);
+    if (!q.label.trim()) out.push(`${n}: Es fehlt der Fragetext.`);
+    if (opts.length < 2) out.push(`${n}: Mindestens zwei Antworten.`);
+    if (new Set(opts.map((o) => o.toLowerCase())).size !== opts.length) out.push(`${n}: Eine Antwort steht doppelt.`);
+    if (opts.length && opts.every((o) => q.disqualify.includes(o))) out.push(`${n}: Jede Antwort führt zur Nicht-Lead-Seite – niemand käme durch.`);
+  });
+  if (questions.length && !questions.some((q) => q.disqualify.some((d) => q.options.includes(d))))
+    out.push("Keine Antwort führt zur Nicht-Lead-Seite – mindestens eine Frage braucht bedingte Logik.");
+  return out;
 }
