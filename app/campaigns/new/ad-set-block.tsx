@@ -1127,6 +1127,7 @@ export function AdSetBlock({
               pageId,
               business,
               taskId,
+              driveFolderId,
               roles,
               roleFreeText,
               initials,

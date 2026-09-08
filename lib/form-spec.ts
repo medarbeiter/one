@@ -72,60 +72,38 @@ export function privacyLinkText(business: string): string {
 }
 
 /**
- * Die Fragen je Stellenklasse – abgelesen an fünf Referenzformularen der
- * Agentur (Lars Beeck FK, Pflege 2.0 FK/HK-QE/MA, ITS Home PFK/sPDL), nicht
- * erfunden. Was dort in jedem Formular steht: eine Qualifikationsfrage, der
- * Führerschein, zuletzt die Erreichbarkeit als Freitext.
+ * Was an Fragen fest ist – wenig, mit Absicht. Alles Weitere entsteht je Kunde
+ * aus Aufgabe und Onboarding-Tabelle (lib/form-questions.ts); die fünf
+ * Referenzformulare der Agentur zeigen nur Ton und Form.
  */
+
+/** Immer bei Pflegefachkräften: die 3-jährige Ausbildung, „Nein“ ist kein Lead. */
 export const PFK_QUESTION: FormQuestion = {
   label: "Hast du eine abgeschlossene 3-jährige Ausbildung in der Pflege?",
   options: ["Ja", "Nein"],
   disqualify: ["Nein"],
 };
 
-const FK_QUESTION: FormQuestion = {
-  label: "Hast du eine Ausbildung in der Pflege?",
-  options: ["Ja, als Fachkraft", "Ja, als Hilfskraft", "Nein, keine Ausbildung"],
-  disqualify: ["Nein, keine Ausbildung"],
-};
-
-const HK_QUESTIONS: FormQuestion[] = [
-  {
-    label: "Welche Qualifikation hast du in der Pflege?",
-    options: ["Gelernte Pflegehelfer/in", "LG1-Schein", "Erfahrung, aber keine Ausbildung", "Keine Erfahrung/Ausbildung"],
-    disqualify: [],
-  },
-  { label: "Wie viel Erfahrung hast du in der Pflege?", options: ["Mehr als 2 Jahre", "Weniger als 2 Jahre"], disqualify: [] },
-  { label: "Möchtest du die Pflege gern kennenlernen?", options: ["Ja", "Nein"], disqualify: ["Nein"] },
-];
-
-const MA_QUESTIONS: FormQuestion[] = [
-  {
-    label: "Hast du eine Ausbildung in der Pflege?",
-    options: ["Ja, als Pflegehelfer/in", "Ja, als Fachkraft", "Nein, keine Ausbildung"],
-    disqualify: [],
-  },
-  { label: "Möchtest du gerne im Umgang mit Menschen arbeiten?", options: ["Ja", "Nein"], disqualify: ["Nein"] },
-];
-
+/** Nur, wenn Aufgabe oder Onboarding den Führerschein verlangen. */
 export const LICENSE_QUESTION: FormQuestion = {
   label: "Hast du einen Führerschein?",
   options: ["Ja", "Nein"],
   disqualify: ["Nein"],
 };
 
-/**
- * Die Vorlage zu den Stellen: die breiteste Klasse gewinnt, damit eine
- * Kampagne „FK + HK“ nicht die Hilfskräfte aussortiert. Kein Treffer heißt:
- * die KI schlägt vor (lib/form-questions.ts).
- */
-export function templateQuestions(roles: string[]): FormQuestion[] | undefined {
-  const has = (...codes: string[]) => codes.some((c) => roles.includes(c));
-  if (has("MA")) return MA_QUESTIONS;
-  if (has("HK", "QE", "PA", "PH")) return HK_QUESTIONS;
-  if (has("FK")) return [FK_QUESTION];
-  if (has("PFK", "PDL", "Stv. PDL")) return [PFK_QUESTION];
-  return undefined;
+/** Pflege und Leitung sind verschiedene Berufe – sucht ein Kunde beides, fragt das Formular zuerst, wohin. */
+const MANAGEMENT = new Set(["PDL", "Stv. PDL"]);
+const CARE = new Set(["FK", "HK", "PFK", "PA", "PH", "QE", "BK"]);
+
+export function roleChoiceQuestion(roles: string[], roleFreeText?: string): FormQuestion | undefined {
+  const codes = roles.filter((r) => r.trim());
+  const labels = codes.map((code) => ROLES.find((r) => r.code === code)?.label ?? code);
+  const free = roleFreeText?.trim();
+  if (free) labels.push(free);
+  const management = codes.some((c) => MANAGEMENT.has(c));
+  const care = codes.some((c) => CARE.has(c));
+  if (!(management && care) || labels.length < 2) return undefined;
+  return { label: "Für welche Stelle interessierst du dich?", options: [...new Set(labels)], disqualify: [] };
 }
 
 /** `PFK/PA v1 JP` – Kürzel, wo eins existiert, sonst die Bezeichnung wörtlich. */
@@ -168,19 +146,28 @@ const clean = (q: FormQuestion): FormQuestion | undefined => {
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
 /**
- * Fragen zusammensetzen: die Vorlage zur Stellenklasse, sonst die Vorschläge;
- * dahinter immer der Führerschein – in allen fünf Referenzformularen steht er,
- * als Ausschluss nur, wenn der Kunde ihn verlangt.
+ * Fragen zusammensetzen: Stellenwahl (falls Pflege und Leitung gemischt),
+ * die PFK-Frage, dann die Vorschläge der KI, zuletzt der Führerschein – nur
+ * wenn verlangt. Doppelte Beschriftungen und KI-Fassungen der festen Fragen
+ * fallen weg.
  */
 export function assembleQuestions(input: {
   roles: string[];
+  roleFreeText?: string;
   suggested: FormQuestion[];
   licenseRequired: boolean;
 }): FormQuestion[] {
-  const base = templateQuestions(input.roles) ?? input.suggested.filter((q) => !/f[üu]hrerschein/i.test(q.label));
-  const license = input.licenseRequired ? LICENSE_QUESTION : { ...LICENSE_QUESTION, disqualify: [] };
+  const fixed: FormQuestion[] = [];
+  const choice = roleChoiceQuestion(input.roles, input.roleFreeText);
+  if (choice) fixed.push(choice);
+  if (input.roles.includes("PFK")) fixed.push(PFK_QUESTION);
+  const suggested = input.suggested.filter(
+    (q) =>
+      !/f[üu]hrerschein|fahrerlaubnis/i.test(q.label) &&
+      !(fixed.includes(PFK_QUESTION) && /3.?j[äa]hrig|dreij[äa]hrig|pflegefachkraft|examin/i.test(q.label) && q.options.length <= 2),
+  );
   const out: FormQuestion[] = [];
-  for (const raw of [...base, license]) {
+  for (const raw of [...fixed, ...suggested, ...(input.licenseRequired ? [LICENSE_QUESTION] : [])]) {
     const q = clean(raw);
     if (q && !out.some((x) => same(x.label, q.label))) out.push(q);
   }

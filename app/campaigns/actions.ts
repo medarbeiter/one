@@ -14,6 +14,7 @@ import { closeBrief, customerOverview, getBrief, listOpenBriefs, type Brief } fr
 import { buildFormSpec, nextVersion, type FormSpec } from "@/lib/form-spec";
 import { suggestQuestions } from "@/lib/form-questions";
 import { findPrivacyUrl, normalizeWebsite } from "@/lib/privacy-url";
+import { exportCsv, findSheet } from "@/lib/drive";
 
 export type LaunchResult = { ok?: string; error?: string };
 
@@ -110,6 +111,8 @@ export type FormSuggestInput = {
   benefits?: string;
   notes?: string;
   instructions?: string;
+  /** Der Drive-Ordner des Kunden – die Onboarding-Tabelle darin liefert die Voraussetzungen. */
+  driveFolderId?: string;
   /** Von Hand eingetragen, wenn die Kundenübersicht keine kennt. */
   website?: string;
 };
@@ -125,8 +128,16 @@ export type FormSuggestResult = { spec?: FormSpec; warnings: string[]; error?: s
 export async function suggestFormAction(input: FormSuggestInput): Promise<FormSuggestResult> {
   const warnings: string[] = [];
   try {
+    const onboardingCsv = input.driveFolderId
+      ? await findSheet(input.driveFolderId)
+          .then((sheet) => (sheet ? exportCsv(sheet.id) : ""))
+          .catch((e: Error) => {
+            warnings.push(`Onboarding-Tabelle nicht lesbar – Fragen ohne Voraussetzungen: ${e.message}`);
+            return "";
+          })
+      : "";
     const [questions, names, website] = await Promise.all([
-      suggestQuestions(input),
+      suggestQuestions({ ...input, onboardingCsv }),
       listLeadForms(input.pageId).then((fs) => fs.map((f) => f.name)).catch((e: Error) => {
         warnings.push(`Formularliste nicht lesbar – Version v1 angenommen: ${e.message}`);
         return [] as string[];

@@ -17,7 +17,7 @@ import {
   privacyLinkText,
   questionLines,
   REACHABILITY,
-  templateQuestions,
+  roleChoiceQuestion,
 } from "./form-spec";
 
 const base = {
@@ -59,18 +59,31 @@ test("ohne Datenschutz-URL zählt die Website", () => {
   expect(buildFormSpec({ ...base, privacyUrl: " " }).privacyUrl).toBe("https://vitalcura.de/");
 });
 
-test("die Vorlage folgt der breitesten Stellenklasse, der Führerschein kommt immer dazu", () => {
-  const suggested = [{ label: "Hast du einen Abschluss?", options: ["Ja", "Nein"], disqualify: ["Nein"] }];
-  const pfk = assembleQuestions({ roles: ["PFK"], suggested, licenseRequired: true });
-  expect(pfk.map((q) => q.label)).toEqual([PFK_QUESTION.label, LICENSE_QUESTION.label]);
-  expect(pfk[1].disqualify).toEqual(["Nein"]);
-  const fkHk = assembleQuestions({ roles: ["FK", "HK"], suggested, licenseRequired: false });
-  expect(fkHk[0].label).toBe("Welche Qualifikation hast du in der Pflege?");
-  expect(fkHk.at(-1)).toEqual({ ...LICENSE_QUESTION, disqualify: [] });
-  expect(templateQuestions(["BK"])).toBeUndefined();
-  // Ohne Vorlage zählen die Vorschläge – ein eigener Führerschein-Vorschlag fällt weg.
-  const bk = assembleQuestions({ roles: ["BK"], suggested: [...suggested, LICENSE_QUESTION], licenseRequired: false });
-  expect(bk.map((q) => q.label)).toEqual(["Hast du einen Abschluss?", LICENSE_QUESTION.label]);
+test("fest sind nur PFK-Frage, Stellenwahl und – auf Verlangen – der Führerschein", () => {
+  const suggested = [
+    { label: "Hast du eine abgeschlossene Pflegefachkraft-Ausbildung?", options: ["Ja", "Nein"], disqualify: ["Nein"] },
+    { label: "Hast du einen Führerschein?", options: ["Ja", "Nein"], disqualify: ["Nein"] },
+    { label: "Bist du bereit, im Nachtdienst zu arbeiten?", options: ["Ja", "Nein"], disqualify: ["Nein"] },
+  ];
+  const pfk = assembleQuestions({ roles: ["PFK"], suggested, licenseRequired: false });
+  expect(pfk.map((q) => q.label)).toEqual([PFK_QUESTION.label, "Bist du bereit, im Nachtdienst zu arbeiten?"]);
+  const withLicense = assembleQuestions({ roles: ["HK"], suggested, licenseRequired: true });
+  expect(withLicense.map((q) => q.label)).toEqual([
+    "Hast du eine abgeschlossene Pflegefachkraft-Ausbildung?",
+    "Bist du bereit, im Nachtdienst zu arbeiten?",
+    LICENSE_QUESTION.label,
+  ]);
+});
+
+test("Pflege und Leitung gemischt fragt zuerst nach der Stelle", () => {
+  expect(roleChoiceQuestion(["PFK", "PDL"])).toEqual({
+    label: "Für welche Stelle interessierst du dich?",
+    options: ["Pflegefachkraft", "Pflegedienstleitung"],
+    disqualify: [],
+  });
+  expect(roleChoiceQuestion(["PFK", "FK"])).toBeUndefined();
+  expect(roleChoiceQuestion(["PDL"], "Praxisanleiter")).toBeUndefined();
+  expect(assembleQuestions({ roles: ["PFK", "Stv. PDL"], suggested: [], licenseRequired: false })[0].label).toBe("Für welche Stelle interessierst du dich?");
 });
 
 test("Ausschlüsse müssen eine der Antworten sein", () => {
