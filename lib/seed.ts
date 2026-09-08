@@ -11,7 +11,7 @@
  * Formular), fällt mit einer Warnung heraus statt halb übernommen zu werden.
  */
 import { graph as realGraph } from "./graph";
-import type { AdInput } from "./launch";
+import type { AdInput, FormatAsset } from "./launch";
 import { defaultsFromAdSet } from "./prefill";
 import type { GeoPlace } from "./geo";
 
@@ -120,37 +120,35 @@ export function seedFromCampaign(raw: unknown): CampaignSeed {
             fileName: adName,
           },
         };
-      } else if (Array.isArray(acr) && acr.length >= 2) {
-        // split
-        const sortedRules = [...acr].sort((a, b) => (Number(a.priority) || 0) - (Number(b.priority) || 0));
-        const portraitRule = sortedRules[0];
-        const squareRule = sortedRules[1];
-
-        const getLabel = (rule: any) => rule?.video_label?.name || rule?.image_label?.name;
-        const portraitLabel = getLabel(portraitRule);
-        const squareLabel = getLabel(squareRule);
-
-        const findAsset = (label: string): any => {
+      } else if (Array.isArray(acr) && acr.length) {
+        // Split. Der Ads Manager schreibt meist drei Regeln (Story/Reels, Feed,
+        // Rest), und zwei davon tragen dasselbe Video – Reihenfolge und Anzahl
+        // der Regeln sagen also nichts über die Hälften. Hochformat ist, was
+        // in Story/Reels läuft; die andere Hälfte das erste davon verschiedene
+        // Medium. Ein Medium in allen Regeln ist kein Paar, sondern UGC/Einzelbild.
+        const findAsset = (rule: any): FormatAsset | null => {
+          const label = rule?.video_label?.name || rule?.image_label?.name;
           if (!label) return null;
-          const vid = (assetFeed.videos ?? []).find((v: any) => (v.adlabels ?? []).some((l: any) => l.name === label));
+          const has = (x: any) => (x.adlabels ?? []).some((l: any) => l.name === label);
+          const vid = (assetFeed.videos ?? []).find(has);
           if (vid?.video_id) return { kind: "video", videoId: String(vid.video_id), thumbnailUrl: vid.thumbnail_url ? String(vid.thumbnail_url) : undefined, fileName: adName };
-          const img = (assetFeed.images ?? []).find((i: any) => (i.adlabels ?? []).some((l: any) => l.name === label));
+          const img = (assetFeed.images ?? []).find(has);
           if (img?.hash) return { kind: "image", hash: String(img.hash), fileName: adName };
           return null;
         };
+        const isPortraitRule = (r: any) => {
+          const spec = r?.customization_spec ?? {};
+          return [...(spec.facebook_positions ?? []), ...(spec.instagram_positions ?? [])].some((p: string) => /story|reels/.test(p));
+        };
+        const key = (a: FormatAsset) => (a.kind === "video" ? a.videoId : a.hash);
 
-        const portraitAsset = findAsset(portraitLabel);
-        const squareAsset = findAsset(squareLabel);
+        const sortedRules = [...acr].sort((a, b) => (Number(a.priority) || 0) - (Number(b.priority) || 0));
+        const portrait = findAsset(sortedRules.find(isPortraitRule) ?? sortedRules[0]);
+        const square = portrait && sortedRules.map(findAsset).find((a) => a && key(a) !== key(portrait));
 
-        if (portraitAsset && squareAsset) {
-          seedAd = {
-            metaId: adId,
-            name: adName,
-            type: "split",
-            portrait: portraitAsset,
-            square: squareAsset,
-          };
-        }
+        if (portrait && square) seedAd = { metaId: adId, name: adName, type: "split", portrait, square };
+        else if (portrait?.kind === "video") seedAd = { metaId: adId, name: adName, type: "ugc", asset: portrait };
+        else if (portrait?.kind === "image") seedAd = { metaId: adId, name: adName, type: "single", asset: portrait };
       }
 
       if (seedAd) {

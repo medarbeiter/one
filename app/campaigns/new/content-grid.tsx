@@ -269,7 +269,15 @@ export function AdTile({
   const takesAsset = ad.type === "ugc" || ad.type === "single";
 
   const badge =
-    ad.type === "ugc" ? "UGC-Video" : ad.type === "single" ? "Einzelbild" : "Foto-Paar";
+    ad.type === "ugc"
+      ? "UGC-Video"
+      : ad.type === "single"
+        ? "Einzelbild"
+        : ad.portrait.kind === "video" && ad.square.kind === "video"
+          ? "Video-Paar"
+          : ad.portrait.kind === "image" && ad.square.kind === "image"
+            ? "Foto-Paar"
+            : "Video + Foto";
 
   // Nur was für diese eine Anzeige gilt: eine Warnung oder die Leihe. Was für
   // jede Anzeige ihrer Art gilt, stand vorher fünfzehnmal untereinander im

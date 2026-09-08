@@ -86,6 +86,44 @@ test("seedFromCampaign", () => {
                 }
               },
               {
+                // Ads-Manager-Form: drei Regeln, Story+Feed teilen sich ein Video,
+                // die dritte (ohne Platzierung) trägt das zweite. Priorität 2
+                // steht absichtlich vorn.
+                id: "ad_pair",
+                name: "Video Pair",
+                status: "ACTIVE",
+                creative: {
+                  asset_feed_spec: {
+                    bodies: [{ text: "B" }],
+                    titles: [{ text: "T" }],
+                    videos: [
+                      { video_id: "vid_rest", thumbnail_url: "b.jpg", adlabels: [{ name: "rest" }] },
+                      { video_id: "vid_story", thumbnail_url: "a.jpg", adlabels: [{ name: "story" }, { name: "feed" }] },
+                    ],
+                    asset_customization_rules: [
+                      { priority: 2, video_label: { name: "feed" }, customization_spec: { facebook_positions: ["feed"] } },
+                      { priority: 1, video_label: { name: "story" }, customization_spec: { facebook_positions: ["story", "facebook_reels"], instagram_positions: ["story", "reels"] } },
+                      { priority: 3, video_label: { name: "rest" }, customization_spec: {} },
+                    ],
+                  },
+                },
+              },
+              {
+                // Ein Video in allen Regeln: kein Paar, ein UGC-Video.
+                id: "ad_one",
+                name: "One Video",
+                status: "ACTIVE",
+                creative: {
+                  asset_feed_spec: {
+                    videos: [{ video_id: "vid_only", adlabels: [{ name: "x" }, { name: "y" }] }],
+                    asset_customization_rules: [
+                      { priority: 1, video_label: { name: "x" }, customization_spec: { facebook_positions: ["story"] } },
+                      { priority: 2, video_label: { name: "y" }, customization_spec: {} },
+                    ],
+                  },
+                },
+              },
+              {
                 id: "ad_4",
                 name: "Carousel Ad",
                 status: "ACTIVE",
@@ -164,7 +202,7 @@ test("seedFromCampaign", () => {
   expect(set2.bodies).toEqual(["Body 1", "Body 2"]);
   expect(set2.titles).toEqual(["Title 1"]);
   expect(set2.description).toBe("Desc 1");
-  expect(set2.ads).toHaveLength(2);
+  expect(set2.ads).toHaveLength(4);
   expect(set2.ads[0]).toEqual({
     metaId: "ad_2",
     name: "Split Ad",
@@ -177,6 +215,19 @@ test("seedFromCampaign", () => {
     name: "Single Ad",
     type: "single",
     asset: { kind: "image", hash: "single_hash", fileName: "Single Ad" }
+  });
+  expect(set2.ads[2]).toEqual({
+    metaId: "ad_pair",
+    name: "Video Pair",
+    type: "split",
+    portrait: { kind: "video", videoId: "vid_story", thumbnailUrl: "a.jpg", fileName: "Video Pair" },
+    square: { kind: "video", videoId: "vid_rest", thumbnailUrl: "b.jpg", fileName: "Video Pair" }
+  });
+  expect(set2.ads[3]).toEqual({
+    metaId: "ad_one",
+    name: "One Video",
+    type: "ugc",
+    asset: { kind: "video", videoId: "vid_only", thumbnailUrl: undefined, fileName: "One Video" }
   });
 
   const set3 = seed.adSets[2];
