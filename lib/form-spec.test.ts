@@ -17,6 +17,7 @@ import {
   privacyLinkText,
   questionLines,
   REACHABILITY,
+  templateQuestions,
 } from "./form-spec";
 
 const base = {
@@ -58,14 +59,18 @@ test("ohne Datenschutz-URL zählt die Website", () => {
   expect(buildFormSpec({ ...base, privacyUrl: " " }).privacyUrl).toBe("https://vitalcura.de/");
 });
 
-test("PFK bekommt immer die Ausbildungsfrage zuerst, Führerschein nur auf Verlangen", () => {
-  const suggested = [
-    { label: "Hast du einen Abschluss als Pflegefachkraft?", options: ["Ja", "Nein"], disqualify: ["Nein"] },
-    { label: "Arbeitest du auch im Nachtdienst?", options: ["Ja", "Nein"], disqualify: [] },
-  ];
-  const qs = assembleQuestions({ roles: ["PFK"], suggested, licenseRequired: true });
-  expect(qs.map((q) => q.label)).toEqual([PFK_QUESTION.label, LICENSE_QUESTION.label, "Arbeitest du auch im Nachtdienst?"]);
-  expect(assembleQuestions({ roles: ["QE"], suggested: [], licenseRequired: false })).toEqual([]);
+test("die Vorlage folgt der breitesten Stellenklasse, der Führerschein kommt immer dazu", () => {
+  const suggested = [{ label: "Hast du einen Abschluss?", options: ["Ja", "Nein"], disqualify: ["Nein"] }];
+  const pfk = assembleQuestions({ roles: ["PFK"], suggested, licenseRequired: true });
+  expect(pfk.map((q) => q.label)).toEqual([PFK_QUESTION.label, LICENSE_QUESTION.label]);
+  expect(pfk[1].disqualify).toEqual(["Nein"]);
+  const fkHk = assembleQuestions({ roles: ["FK", "HK"], suggested, licenseRequired: false });
+  expect(fkHk[0].label).toBe("Welche Qualifikation hast du in der Pflege?");
+  expect(fkHk.at(-1)).toEqual({ ...LICENSE_QUESTION, disqualify: [] });
+  expect(templateQuestions(["BK"])).toBeUndefined();
+  // Ohne Vorlage zählen die Vorschläge – ein eigener Führerschein-Vorschlag fällt weg.
+  const bk = assembleQuestions({ roles: ["BK"], suggested: [...suggested, LICENSE_QUESTION], licenseRequired: false });
+  expect(bk.map((q) => q.label)).toEqual(["Hast du einen Abschluss?", LICENSE_QUESTION.label]);
 });
 
 test("Ausschlüsse müssen eine der Antworten sein", () => {

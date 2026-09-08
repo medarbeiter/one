@@ -71,18 +71,62 @@ export function privacyLinkText(business: string): string {
   return business.trim() && full.length <= LINK_TEXT_LIMIT ? full : "Datenschutzrichtlinie ansehen";
 }
 
-/** Immer bei Pflegefachkräften – die erste Frage, mit „Nein“ als Nicht-Lead. */
+/**
+ * Die Fragen je Stellenklasse – abgelesen an fünf Referenzformularen der
+ * Agentur (Lars Beeck FK, Pflege 2.0 FK/HK-QE/MA, ITS Home PFK/sPDL), nicht
+ * erfunden. Was dort in jedem Formular steht: eine Qualifikationsfrage, der
+ * Führerschein, zuletzt die Erreichbarkeit als Freitext.
+ */
 export const PFK_QUESTION: FormQuestion = {
   label: "Hast du eine abgeschlossene 3-jährige Ausbildung in der Pflege?",
   options: ["Ja", "Nein"],
   disqualify: ["Nein"],
 };
 
+const FK_QUESTION: FormQuestion = {
+  label: "Hast du eine Ausbildung in der Pflege?",
+  options: ["Ja, als Fachkraft", "Ja, als Hilfskraft", "Nein, keine Ausbildung"],
+  disqualify: ["Nein, keine Ausbildung"],
+};
+
+const HK_QUESTIONS: FormQuestion[] = [
+  {
+    label: "Welche Qualifikation hast du in der Pflege?",
+    options: ["Gelernte Pflegehelfer/in", "LG1-Schein", "Erfahrung, aber keine Ausbildung", "Keine Erfahrung/Ausbildung"],
+    disqualify: [],
+  },
+  { label: "Wie viel Erfahrung hast du in der Pflege?", options: ["Mehr als 2 Jahre", "Weniger als 2 Jahre"], disqualify: [] },
+  { label: "Möchtest du die Pflege gern kennenlernen?", options: ["Ja", "Nein"], disqualify: ["Nein"] },
+];
+
+const MA_QUESTIONS: FormQuestion[] = [
+  {
+    label: "Hast du eine Ausbildung in der Pflege?",
+    options: ["Ja, als Pflegehelfer/in", "Ja, als Fachkraft", "Nein, keine Ausbildung"],
+    disqualify: [],
+  },
+  { label: "Möchtest du gerne im Umgang mit Menschen arbeiten?", options: ["Ja", "Nein"], disqualify: ["Nein"] },
+];
+
 export const LICENSE_QUESTION: FormQuestion = {
   label: "Hast du einen Führerschein?",
   options: ["Ja", "Nein"],
   disqualify: ["Nein"],
 };
+
+/**
+ * Die Vorlage zu den Stellen: die breiteste Klasse gewinnt, damit eine
+ * Kampagne „FK + HK“ nicht die Hilfskräfte aussortiert. Kein Treffer heißt:
+ * die KI schlägt vor (lib/form-questions.ts).
+ */
+export function templateQuestions(roles: string[]): FormQuestion[] | undefined {
+  const has = (...codes: string[]) => codes.some((c) => roles.includes(c));
+  if (has("MA")) return MA_QUESTIONS;
+  if (has("HK", "QE", "PA", "PH")) return HK_QUESTIONS;
+  if (has("FK")) return [FK_QUESTION];
+  if (has("PFK", "PDL", "Stv. PDL")) return [PFK_QUESTION];
+  return undefined;
+}
 
 /** `PFK/PA v1 JP` – Kürzel, wo eins existiert, sonst die Bezeichnung wörtlich. */
 export function formName(roles: string[], roleFreeText: string | undefined, version: number, initials: string): string {
@@ -124,24 +168,21 @@ const clean = (q: FormQuestion): FormQuestion | undefined => {
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
 /**
- * Fragen zusammensetzen: feste Regeln vorn, dann die Vorschläge – ohne
- * Doppelungen (gleiche Beschriftung) und ohne leere Fragen.
+ * Fragen zusammensetzen: die Vorlage zur Stellenklasse, sonst die Vorschläge;
+ * dahinter immer der Führerschein – in allen fünf Referenzformularen steht er,
+ * als Ausschluss nur, wenn der Kunde ihn verlangt.
  */
 export function assembleQuestions(input: {
   roles: string[];
   suggested: FormQuestion[];
   licenseRequired: boolean;
 }): FormQuestion[] {
-  const fixed: FormQuestion[] = [];
-  if (input.roles.includes("PFK")) fixed.push(PFK_QUESTION);
-  if (input.licenseRequired) fixed.push(LICENSE_QUESTION);
+  const base = templateQuestions(input.roles) ?? input.suggested.filter((q) => !/f[üu]hrerschein/i.test(q.label));
+  const license = input.licenseRequired ? LICENSE_QUESTION : { ...LICENSE_QUESTION, disqualify: [] };
   const out: FormQuestion[] = [];
-  for (const raw of [...fixed, ...input.suggested]) {
+  for (const raw of [...base, license]) {
     const q = clean(raw);
-    if (!q || out.some((x) => same(x.label, q.label))) continue;
-    // Die Ausbildungsfrage kommt in vielen Schreibweisen; die feste Fassung gewinnt.
-    if (!fixed.includes(raw) && fixed.includes(PFK_QUESTION) && /ausbildung|abschluss|examen|qualifikation|pflegefachkraft/i.test(q.label)) continue;
-    out.push(q);
+    if (q && !out.some((x) => same(x.label, q.label))) out.push(q);
   }
   return out;
 }

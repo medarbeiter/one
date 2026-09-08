@@ -5,7 +5,7 @@
  * deterministisch davor bzw. dahinter. Läuft nur auf dem Server.
  */
 import { mistral, roleLabels } from "./bodies";
-import { assembleQuestions, type FormQuestion } from "./form-spec";
+import { assembleQuestions, templateQuestions, type FormQuestion } from "./form-spec";
 
 export type QuestionsInput = {
   roles: string[];
@@ -33,8 +33,14 @@ GESUCHTE STELLEN: ${roles}
 KONTEXT AUS AUFGABE UND ONBOARDING (kann leer sein):
 ${context || "–"}
 
+SO SEHEN DIE FORMULARE DER AGENTUR AUS (Beispiele, Ton und Länge genau so treffen):
+- Pflegefachkraft: „Hast du eine abgeschlossene 3-jährige Ausbildung in der Pflege?“ → Ja / Nein
+- Fachkraft: „Hast du eine Ausbildung in der Pflege?“ → Ja, als Fachkraft / Ja, als Hilfskraft / Nein, keine Ausbildung
+- Hilfskraft/Quereinsteiger: „Welche Qualifikation hast du in der Pflege?“ → Gelernte Pflegehelfer/in / LG1-Schein / Erfahrung, aber keine Ausbildung / Keine Erfahrung/Ausbildung; „Möchtest du die Pflege gern kennenlernen?“ → Ja / Nein
+- Allgemein: „Möchtest du gerne im Umgang mit Menschen arbeiten?“ → Ja / Nein
+
 REGELN:
-- Höchstens 3 Multiple-Choice-Fragen, die trennen, ob jemand für die Stelle passt: Qualifikation/Abschluss, Berufserfahrung, Schichtbereitschaft, Umzug/Umkreis – was für diese Stellen wirklich entscheidet.
+- Höchstens 2 Multiple-Choice-Fragen im Stil der Beispiele: eine zur Qualifikation für genau diese Stelle, höchstens eine zur Erfahrung oder Motivation.
 - Jede Frage kurz (höchstens 80 Zeichen), freundlich, per Du. 2 bis 4 Antworten, jede höchstens 3 Wörter – am liebsten „Ja“ / „Nein“. Keine Erklärsätze in den Antworten.
 - Keine Frage nach Qualifikation, Abschluss oder Ausbildung, wenn Pflegefachkräfte gesucht sind – die kommt fest dazu.
 - Nenne je Frage, welche Antworten eindeutig NICHT passen (disqualify). Bei "Ja/Nein"-Fragen ist das meist "Nein". Erfinde keine Ausschlüsse, die der Kunde nicht verlangt.
@@ -67,6 +73,8 @@ export function parseQuestions(content: string): FormQuestion[] {
 
 export async function suggestQuestions(input: QuestionsInput): Promise<FormQuestion[]> {
   let suggested: FormQuestion[] = [];
+  // Mistral nur, wenn keine Vorlage zur Stellenklasse passt (BK, HW, Koch, Freitext).
+  if (templateQuestions(input.roles)) return assembleQuestions({ roles: input.roles, suggested, licenseRequired: licenseRequired(input) });
   try {
     suggested = parseQuestions(await mistral(questionsPrompt(input), { temperature: 0.2 }));
   } catch (e) {
