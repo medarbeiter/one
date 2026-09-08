@@ -100,6 +100,8 @@ export async function listFormsAction(pageId: string, refresh = false): Promise<
  */
 export type FormSuggestInput = {
   pageId: string;
+  /** Der beworbene Kunde – für den Datenschutz-Linktext. */
+  business: string;
   taskId?: string;
   roles: string[];
   roleFreeText?: string;
@@ -142,6 +144,7 @@ export async function suggestFormAction(input: FormSuggestInput): Promise<FormSu
     return {
       warnings,
       spec: buildFormSpec({
+        business: input.business,
         roles: input.roles,
         roleFreeText: input.roleFreeText,
         version: nextVersion(names, input.roles, input.roleFreeText, input.initials),

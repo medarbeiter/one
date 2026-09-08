@@ -403,11 +403,12 @@ async function contact(spec) {
 async function privacy(spec) {
   await goTo(T.nav.privacy);
   // Zwei Textfelder: Link (leer) und Link-Text (vorbelegt „Visit …“).
-  const [link] = await waitFor(() => {
+  const [link, linkText] = await waitFor(() => {
     const inputs = [...dialog().querySelectorAll('input[type="text"]')].filter(visible);
     return inputs.length >= 2 ? inputs : null;
   }, "Link");
   setValue(link, spec.privacyUrl);
+  if (spec.privacyLinkText) setValue(linkText, spec.privacyLinkText);
 }
 
 async function endings(spec) {

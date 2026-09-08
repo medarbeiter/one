@@ -14,11 +14,13 @@ import {
   nextVersion,
   parseQuestionLines,
   PFK_QUESTION,
+  privacyLinkText,
   questionLines,
   REACHABILITY,
 } from "./form-spec";
 
 const base = {
+  business: "VitalCura",
   roles: ["PFK"],
   version: 1,
   initials: "JP",
@@ -93,4 +95,10 @@ test("der Hash ist base64url und trägt Umlaute", () => {
   expect(enc).toMatch(/^[A-Za-z0-9_-]+$/);
   const json = new TextDecoder().decode(Uint8Array.from(atob(enc.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0)));
   expect(JSON.parse(json).intro.title).toContain("🫶🏻");
+});
+
+test("der Datenschutz-Linktext nennt den Kunden, solange er ins Limit passt", () => {
+  expect(buildFormSpec(base).privacyLinkText).toBe("Datenschutzrichtlinie von VitalCura ansehen");
+  expect(privacyLinkText("Pflegedienst mit einem viel zu langen Namen für Metas Linktext GmbH & Co. KG")).toBe("Datenschutzrichtlinie ansehen");
+  expect(privacyLinkText("")).toBe("Datenschutzrichtlinie ansehen");
 });

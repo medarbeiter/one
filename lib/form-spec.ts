@@ -29,11 +29,15 @@ export type FormSpec = {
   freeText: string[];
   contact: { headline: string; fields: ["FULL_NAME", "PHONE", "EMAIL"] };
   privacyUrl: string;
+  /** „Datenschutzrichtlinie von {Kunde} ansehen“ – Meta erlaubt 70 Zeichen. */
+  privacyLinkText: string;
   website: string;
   endings: { lead: FormEnding; nonLead: FormEnding };
 };
 
 export type FormSpecInput = {
+  /** Der beworbene Kunde – steht im Datenschutz-Linktext. */
+  business: string;
   roles: string[];
   roleFreeText?: string;
   version: number;
@@ -60,6 +64,12 @@ const NON_LEAD_TEXT =
   "Basierend auf deinen Antworten ist dies vielleicht nicht die beste Option für dich. " +
   "Sieh dir auf unserer Website an, was wir sonst noch anbieten.";
 const BUTTON = "Website ansehen";
+const LINK_TEXT_LIMIT = 70;
+
+export function privacyLinkText(business: string): string {
+  const full = `Datenschutzrichtlinie von ${business.trim()} ansehen`;
+  return business.trim() && full.length <= LINK_TEXT_LIMIT ? full : "Datenschutzrichtlinie ansehen";
+}
 
 /** Immer bei Pflegefachkräften – die erste Frage, mit „Nein“ als Nicht-Lead. */
 export const PFK_QUESTION: FormQuestion = {
@@ -153,6 +163,7 @@ export function buildFormSpec(input: FormSpecInput): FormSpec {
     freeText: [REACHABILITY],
     contact: { headline: CONTACT_HEADLINE, fields: ["FULL_NAME", "PHONE", "EMAIL"] },
     privacyUrl: input.privacyUrl.trim() || website,
+    privacyLinkText: privacyLinkText(input.business),
     website,
     endings: {
       lead: ending(LEAD_TITLE, LEAD_TEXT),

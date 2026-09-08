@@ -46,6 +46,7 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
   // Die Vorlage folgt den Feldern – was hier steht, geht so in den Baukasten.
   const current = spec
     ? buildFormSpec({
+        business: input.business,
         roles: input.roles,
         roleFreeText: input.roleFreeText,
         version: Number(spec.name.match(/ v(\d+)/)?.[1] ?? 1),
