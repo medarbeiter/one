@@ -203,8 +203,13 @@ export function overviewFacts(markdown: string): { address?: string; rolesText?:
   const km = Number(pick("(?:Umkreis|Radius)")?.match(/\d+/)?.[0]);
   // Die Website steht mal als Zeile, mal nur irgendwo als Link – für das
   // Lead-Formular (Datenschutz, Zielseite). Nur die URL, nie der Rest des Docs.
+  // ClickUp liefert Links als Markdown „[text](url)“ – die URL in den Klammern
+  // zählt, sonst die nackte Domain; nie das „](“ dazwischen.
+  const line = pick("(?:Website|Webseite|Homepage)");
   const website =
-    pick("(?:Website|Webseite|Homepage)")?.match(/[\w.-]+\.[a-z]{2,}\S*/i)?.[0] ??
+    line?.match(/\((https?:\/\/[^)\s]+)\)/)?.[1] ??
+    line?.match(/https?:\/\/[^\s\])]+/)?.[0] ??
+    line?.match(/[\w.-]+\.[a-z]{2,}[^\s\])]*/i)?.[0] ??
     markdown.match(/https?:\/\/(?!(?:www\.)?(?:facebook|instagram|clickup|google|drive)\.)[^\s)>\]]+/i)?.[0];
   return {
     address: pick("Adresse"),

@@ -7,10 +7,15 @@ kein API-Aufruf: `docs/superpowers/specs/2026-08-16-lead-form-creation-design.md
 
 1. `chrome://extensions` → „Entwicklermodus“ an → „Entpackte Erweiterung laden“ → diesen Ordner wählen.
 2. In Meta Business Suite auf der Kundenseite angemeldet sein.
-3. Im Assistenten unter „Lead-Formular“: **Vorlage vorschlagen** → prüfen → **In Meta bauen**.
+3. `/campaigns/new` neu laden – unter „Lead-Formular“ steht dann „Die Erweiterung (v…) öffnet den Baukasten“.
+4. **Vorlage vorschlagen** → prüfen → **In Meta bauen**. Ein neuer Tab geht auf, die Erweiterung
+   baut bis zur Prüfung; „Formular erstellen“ klickt der Mensch.
 
-Die Vorlage reist im URL-Hash (`#mo_form=…`), `capture.js` liest ihn vor der SPA. Über das
-Popup lässt sich die JSON auch einfügen oder die letzte Vorlage erneut starten.
+`bridge.js` läuft auf der App (localhost, *.med-arbeiter.de, *.medarbeiter.de – andere
+Domain in `manifest.json` ergänzen) und reicht die Vorlage an `background.js`, der sie in
+`chrome.storage.session` legt und den Baukasten öffnet. Ohne Erweiterung fällt der Knopf
+auf den URL-Hash zurück (`capture.js`). Das Popup ist nur zum Wiederholen oder für eine von
+Hand eingefügte Vorlage als JSON – nicht die Fragenzeilen aus der App.
 
 ## Kalibrieren
 

@@ -130,7 +130,7 @@ export function assembleQuestions(input: {
     const q = clean(raw);
     if (!q || out.some((x) => same(x.label, q.label))) continue;
     // Die Ausbildungsfrage kommt in vielen Schreibweisen; die feste Fassung gewinnt.
-    if (!fixed.includes(raw) && fixed.includes(PFK_QUESTION) && /ausbildung/i.test(q.label)) continue;
+    if (!fixed.includes(raw) && fixed.includes(PFK_QUESTION) && /ausbildung|abschluss|examen|qualifikation|pflegefachkraft/i.test(q.label)) continue;
     out.push(q);
   }
   return out;

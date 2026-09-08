@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Banner, Button, Text, TextArea, TextInput } from "@astryxdesign/core";
 import { SparkleIcon } from "@phosphor-icons/react";
 import {
@@ -58,9 +58,21 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
     : undefined;
   const blockers = current ? formSpecBlockers(current) : [];
 
+  // Mit Erweiterung: die Vorlage geht direkt an sie (bridge.js), sie öffnet
+  // den Baukasten und legt los. Ohne: der Hash-Weg, der die Erweiterung
+  // ebenfalls startet, falls sie doch da ist – sonst bleibt es der Baukasten.
+  // bridge.js setzt das Attribut bei document_start; erst nach dem Hydrieren
+  // lesen, sonst passt der Server-Text nicht zum Client.
+  const [extension, setExtension] = useState<string>();
+  useEffect(() => setExtension(document.documentElement.dataset.moFormExt), []);
   const build = () => {
     if (!current) return;
-    window.open(`${instantFormsUrl(input.pageId)}#mo_form=${encodeSpec(current)}`, "_blank");
+    const url = instantFormsUrl(input.pageId);
+    if (extension) {
+      window.postMessage({ type: "mo_form:build", url, spec: JSON.stringify(current) }, window.location.origin);
+      return;
+    }
+    window.open(`${url}#mo_form=${encodeSpec(current)}`, "_blank");
   };
 
   return (
@@ -84,7 +96,9 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
           />
         )}
         <Text type="supporting" as="span">
-          Fragen von der KI, alles andere nach Vorlage. Die Chrome-Erweiterung baut das Formular im Baukasten.
+          {extension
+            ? `Fragen von der KI, alles andere nach Vorlage. Die Erweiterung (v${extension}) öffnet den Baukasten und baut das Formular bis zur Prüfung.`
+            : "Chrome-Erweiterung nicht gefunden – extension/ unter chrome://extensions laden, dann diese Seite neu laden."}
         </Text>
       </div>
 

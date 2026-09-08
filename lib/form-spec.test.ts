@@ -58,7 +58,7 @@ test("ohne Datenschutz-URL zählt die Website", () => {
 
 test("PFK bekommt immer die Ausbildungsfrage zuerst, Führerschein nur auf Verlangen", () => {
   const suggested = [
-    { label: "Hast du eine Ausbildung?", options: ["Ja", "Nein"], disqualify: ["Nein"] },
+    { label: "Hast du einen Abschluss als Pflegefachkraft?", options: ["Ja", "Nein"], disqualify: ["Nein"] },
     { label: "Arbeitest du auch im Nachtdienst?", options: ["Ja", "Nein"], disqualify: [] },
   ];
   const qs = assembleQuestions({ roles: ["PFK"], suggested, licenseRequired: true });

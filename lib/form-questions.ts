@@ -35,7 +35,8 @@ ${context || "–"}
 
 REGELN:
 - Höchstens 3 Multiple-Choice-Fragen, die trennen, ob jemand für die Stelle passt: Qualifikation/Abschluss, Berufserfahrung, Schichtbereitschaft, Umzug/Umkreis – was für diese Stellen wirklich entscheidet.
-- Jede Frage kurz, freundlich, per Du. 2 bis 4 Antworten, kurz.
+- Jede Frage kurz (höchstens 80 Zeichen), freundlich, per Du. 2 bis 4 Antworten, jede höchstens 3 Wörter – am liebsten „Ja“ / „Nein“. Keine Erklärsätze in den Antworten.
+- Keine Frage nach Qualifikation, Abschluss oder Ausbildung, wenn Pflegefachkräfte gesucht sind – die kommt fest dazu.
 - Nenne je Frage, welche Antworten eindeutig NICHT passen (disqualify). Bei "Ja/Nein"-Fragen ist das meist "Nein". Erfinde keine Ausschlüsse, die der Kunde nicht verlangt.
 - Keine Frage nach Ausbildung, wenn Quereinsteiger gesucht sind.
 - Keine Frage nach dem Führerschein und keine Kontaktfrage – die kommen fest dazu.

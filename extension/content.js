@@ -378,15 +378,19 @@ async function build(spec) {
 }
 
 // ---------- Start ----------
+// Drei Wege zur Vorlage: der Knopf in der App (chrome.storage.session, über
+// background.js), der URL-Hash (capture.js → sessionStorage) und das Popup.
 let running = false;
 async function run(json) {
   if (running) return "läuft schon";
-  const text = json ?? sessionStorage.getItem("mo_form");
+  const stored = await chrome.storage.session.get(["mo_form", "mo_form_done"]);
+  const text = json ?? (stored.mo_form && !stored.mo_form_done ? stored.mo_form : null) ?? sessionStorage.getItem("mo_form");
   if (!text) return "keine Vorlage – in /campaigns/new „In Meta bauen“ klicken oder JSON einfügen";
   sessionStorage.setItem("mo_form", text);
   running = true;
   try {
     await build(JSON.parse(text));
+    await chrome.storage.session.set({ mo_form_done: true });
   } catch (e) {
     console.warn("[mo_form]", e);
   } finally {
@@ -402,4 +406,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   return true;
 });
 
-if (sessionStorage.getItem("mo_form") && !sessionStorage.getItem("mo_form_done")) run();
+chrome.storage.session.get(["mo_form", "mo_form_done"]).then((s) => {
+  const pending = (s.mo_form && !s.mo_form_done) || (sessionStorage.getItem("mo_form") && !sessionStorage.getItem("mo_form_done"));
+  if (pending) run();
+});

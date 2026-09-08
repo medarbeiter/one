@@ -147,3 +147,9 @@ test("toBrief liest das Ausgabenlimit als Text mit Euro-Zeichen", () => {
   expect(toBrief(raw).spendCapEuros).toBe(2435);
   expect(toBrief(raw).dailyBudgetEuros).toBeUndefined();
 });
+
+test("overviewFacts liest die Website aus einem Markdown-Link, ohne das „](“", () => {
+  const md = "Adresse: X\nWebsite: [pflegedienst.de](https://pflegedienst.de/)\n";
+  expect(overviewFacts(md).website).toBe("https://pflegedienst.de/");
+  expect(overviewFacts("Website: vitalcura.de\n").website).toBe("vitalcura.de");
+});
