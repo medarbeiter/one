@@ -132,6 +132,24 @@ async function click(el) {
   return el;
 }
 
+/** Menüeinträge reagieren teils auf mousedown, nicht auf click – die ganze Folge schicken. */
+async function realClick(el) {
+  el.scrollIntoView({ block: "center" });
+  const r = el.getBoundingClientRect();
+  const init = { bubbles: true, cancelable: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 };
+  for (const type of ["pointerover", "mouseover", "pointerdown", "mousedown", "pointerup", "mouseup"]) el.dispatchEvent(new MouseEvent(type, init));
+  el.click();
+  await sleep(SETTLE_MS);
+  return el;
+}
+
+/** Erst warten, bis der Eintrag da ist, dann die Animation abwarten, dann frisch suchen – der erste Fund ist nach dem Neuzeichnen oft nicht mehr im DOM. */
+async function pickAfterAnimation(find, what) {
+  await waitFor(find, what);
+  await sleep(MENU_MS);
+  return realClick(await waitFor(find, what));
+}
+
 const clickText = async (texts, opts) => click(await waitFor(() => byText(texts, opts)[0], texts));
 
 /** React-Inputs merken nur Änderungen über den nativen Setter plus input-Event. */
@@ -154,11 +172,7 @@ async function fillPlaceholder(ph, value, root) {
 /** Das Menü/Listbox, das gerade offen ist – Meta rendert es außerhalb des Dialogs. */
 const openMenuItems = () => [...document.querySelectorAll('[role="menuitem"],[role="option"]')].filter(visible);
 
-async function pickMenuItem(text) {
-  const item = await waitFor(() => openMenuItems().find((o) => norm(o.innerText).startsWith(norm(text))), text);
-  await sleep(MENU_MS);
-  return click(item);
-}
+const pickMenuItem = (text) => pickAfterAnimation(() => openMenuItems().find((o) => norm(o.innerText).startsWith(norm(text))), text);
 
 /** Nach oben bis zum Container, der `test` erfüllt – z. B. die Karte einer Frage. */
 function up(el, test, max = 12) {
@@ -299,23 +313,19 @@ async function setLogic(combo, outcome, nextLabel, nextNumber) {
   if (outcome === "submit") {
     await pickMenuItem(T.questions.submit);
     // Untermenü mit den Zielseiten – die Lead-Seite ist E1.
-    await sleep(MENU_MS);
-    const e1 = openMenuItems().find((o) => T.end.leadRow.test(norm(o.innerText).toUpperCase())) ?? openMenuItems()[0];
-    if (e1) await click(e1);
+    await pickAfterAnimation(() => openMenuItems().find((o) => T.end.leadRow.test(norm(o.innerText).toUpperCase())) ?? openMenuItems()[0], "E1").catch(() => {});
     return;
   }
   await pickMenuItem(T.questions.goToQuestion);
-  const pop = await waitFor(() => up(byText(T.questions.goToQuestionPopover, { root: document.body, sel: "*" })[0], (n) => n.querySelector("input")), T.questions.goToQuestionPopover);
-  // Vorhandene Frage: der Eintrag, der Nummer oder Beschriftung trägt.
-  const entry = [...pop.querySelectorAll('[role="button"],[role="menuitem"],[role="option"],[role="radio"],label')]
-    .filter(visible)
-    .find((el) => {
+  // Vorhandene Frage: der Eintrag im Popover, der Nummer oder Beschriftung trägt.
+  const entry = () => {
+    const pop = up(byText(T.questions.goToQuestionPopover, { root: document.body, sel: "*" })[0], (n) => n.querySelector("input"));
+    return pop && [...pop.querySelectorAll('[role="button"],[role="menuitem"],[role="option"],[role="radio"],label')].filter(visible).find((el) => {
       const t = norm(el.innerText);
       return t.includes(norm(nextLabel)) || t.startsWith(`f${nextNumber} `) || t.startsWith(`f${nextNumber}`);
     });
-  if (!entry) throw new Error(`Frage ${nextNumber} („${nextLabel}“) steht nicht in „${T.questions.goToQuestionPopover}“`);
-  await sleep(MENU_MS);
-  await click(entry);
+  };
+  await pickAfterAnimation(entry, `Frage ${nextNumber} („${nextLabel}“) in „${T.questions.goToQuestionPopover}“`);
 }
 
 async function contact(spec) {
@@ -342,16 +352,15 @@ async function contact(spec) {
     await clickText(T.contact.addCategory);
     const cat = await waitFor(() => anyText(T.contact.contactFields).at(-1), T.contact.contactFields);
     const before = new Set(anyText(names));
+    // Nur hovern – ein Klick auf die Kategorie schließt das Menü wieder.
     hover(cat);
-    let item = await waitFor(() => anyText(names).find((el) => !before.has(el)), names, 2500).catch(() => null);
-    if (!item) {
-      await click(cat);
-      item = await waitFor(() => anyText(names).find((el) => !before.has(el)), names);
-    }
     await sleep(MENU_MS);
-    await click(item);
+    hover(cat);
+    // Der innerste neue Treffer ist der Eintrag im Untermenü.
+    await pickAfterAnimation(() => anyText(names).filter((el) => !before.has(el)).at(-1), names);
     document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await sleep(SETTLE_MS);
+    if (!has(names)) throw new Error(`„${list(names)[0]}“ wurde nicht in die Liste übernommen`);
   };
 
   // Telefon zuerst: solange E-Mail das einzige Kontaktfeld ist, bleibt ihr
@@ -362,8 +371,9 @@ async function contact(spec) {
   if (email) {
     const trash = [...email.parentElement.children].filter((s) => s !== email).flatMap((s) => [...s.querySelectorAll('[role="button"]')]).find(visible);
     if (!trash) throw new Error("Löschen-Knopf neben E-Mail nicht gefunden");
-    await click(trash);
-    await clickText(T.contact.confirmDelete, { root: document.body });
+    if (trash.getAttribute("aria-disabled") === "true") throw new Error("E-Mail lässt sich nicht löschen – Telefonnummer fehlt noch");
+    await realClick(trash);
+    await pickAfterAnimation(() => byText(T.contact.confirmDelete, { root: document.body })[0], T.contact.confirmDelete);
   }
   await addField(T.contact.email);
 }
