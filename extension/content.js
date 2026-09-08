@@ -319,13 +319,27 @@ async function contact(spec) {
     return leaf ? up(leaf, (n) => n.parentElement && [...n.parentElement.children].some((s) => s !== n && s.querySelector?.('[role="button"]'))) : null;
   };
 
+  // Das Kategorie-Menü und sein Untermenü sind keine menuitems, nur Text.
+  // Das Untermenü öffnet auf Hover; sein Eintrag „Telefonnummer“ ist der, den
+  // es vor dem Hover noch nicht gab – die Zeile in der Liste heißt genauso.
+  const anyText = (names) => {
+    const w = list(names).map(norm);
+    return [...document.body.querySelectorAll("*")].filter((el) => visible(el) && w.includes(norm(el.innerText)));
+  };
+  const hover = (el) => {
+    for (const type of ["pointerover", "pointerenter", "mouseover", "mouseenter", "mousemove"])
+      el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
+  };
   const addField = async (names) => {
     await clickText(T.contact.addCategory);
-    const cat = await waitFor(() => openMenuItems().find((o) => norm(o.innerText).startsWith(norm(T.contact.contactFields))), T.contact.contactFields);
-    cat.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
-    cat.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
-    await sleep(SETTLE_MS);
-    const item = await waitFor(() => openMenuItems().find((o) => names.map(norm).includes(norm(o.innerText))), names);
+    const cat = await waitFor(() => anyText(T.contact.contactFields).at(-1), T.contact.contactFields);
+    const before = new Set(anyText(names));
+    hover(cat);
+    let item = await waitFor(() => anyText(names).find((el) => !before.has(el)), names, 2500).catch(() => null);
+    if (!item) {
+      await click(cat);
+      item = await waitFor(() => anyText(names).find((el) => !before.has(el)), names);
+    }
     await click(item);
     document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await sleep(SETTLE_MS);
