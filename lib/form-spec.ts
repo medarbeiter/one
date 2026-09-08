@@ -54,11 +54,12 @@ export const INTRO_TEXT =
   "Beantworte uns dazu ein paar Fragen und sag uns, wie wir dich am besten erreichen können.";
 export const introTitle = (city: string) => `Bewirb dich bei uns in ${city.trim()} 🫶🏻`;
 
-const LEAD_TITLE = "Du erhältst zu deiner Bewerbung einen Anruf von uns!";
+const LEAD_TITLE = "Du erhältst zu deiner Bewerbung einen Anruf von unserem Team.";
 const LEAD_TEXT =
+  "Vielen Dank für deine Bewerbung!\n\n" +
   "Wir werden dich zum gewünschten Zeitpunkt anrufen, damit wir über deine Bewerbung sprechen können.\n\n" +
   "Wir freuen uns auf dich!\n\n" +
-  "Schau dich gern mal auf unserer Website um:";
+  "Bitte stelle sicher, dass du telefonisch erreichbar bist.";
 const NON_LEAD_TITLE = "Danke für dein Interesse!";
 const NON_LEAD_TEXT =
   "Basierend auf deinen Antworten ist dies vielleicht nicht die beste Option für dich. " +

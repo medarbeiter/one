@@ -47,7 +47,7 @@ test("Sprache, Freigabe, Intro und Enden stehen fest", () => {
   expect(s.intro.title).toBe("Bewirb dich bei uns in Hennef 🫶🏻");
   expect(s.contact.fields).toEqual(["FULL_NAME", "PHONE", "EMAIL"]);
   expect(s.freeText).toEqual([REACHABILITY]);
-  expect(s.endings.lead.title).toBe("Du erhältst zu deiner Bewerbung einen Anruf von uns!");
+  expect(s.endings.lead.title).toBe("Du erhältst zu deiner Bewerbung einen Anruf von unserem Team.");
   expect(s.endings.nonLead.title).toBe("Danke für dein Interesse!");
   expect(s.endings.lead.buttonLabel).toBe("Website ansehen");
   expect(s.endings.nonLead.url).toBe("https://vitalcura.de/");

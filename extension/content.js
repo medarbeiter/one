@@ -520,50 +520,48 @@ async function endings(spec) {
     ["E1", spec.endings.lead],
     ["E2", spec.endings.nonLead],
   ]) {
-    // Aufgeklappt hat der Abschnitt genau eine Textarea (Beschreibung) und vier
-    // Textfelder: Name, Überschrift, Link, Call-to-Action. Zugeklappte Zeilen
-    // haben keine Felder – also reicht der Blick auf den ganzen Dialog.
-    // Bleibt E1 offen, während E2 aufklappt, zählt die letzte Textarea – E2
-    // liegt im Dokument hinter E1. Die Textfelder: zwei davor (Name,
-    // Überschrift), zwei danach (Link, Call-to-Action).
+    // Die aufgeklappte Karte dieser Zielseite: der Vorfahr der Beschreibung
+    // (Textarea), dessen Text mit „E1 “ bzw. „E2 “ beginnt. Nur darin wird
+    // gesucht – eine noch offene E1 darf nicht für E2 gehalten werden (sonst
+    // bekommt E1 den Nicht-Lead-Text und E2 bleibt leer). Vor der Textarea
+    // stehen Name und Überschrift; Link und Call-to-Action folgen ihrer
+    // Beschriftung, in wechselnder Reihenfolge, und Link ist kein type="text".
     const after = (a, b) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
-    const fields = () => {
-      const ta = [...dialog().querySelectorAll("textarea")].filter(visible).at(-1);
-      if (!ta) return null;
-      const all = [...dialog().querySelectorAll('input[type="text"]')].filter(visible);
-      const idx = all.findIndex((i) => after(ta, i));
-      if (idx < 2 || all.length < idx + 1) return null;
-      return { ta, inputs: all.slice(idx - 2) };
+    const head = new RegExp(`^${rowRe}\\s`, "i");
+    const card = () => {
+      for (const ta of [...dialog().querySelectorAll("textarea")].filter(visible)) {
+        const c = up(ta, (n) => head.test(norm(n.innerText)), 20);
+        if (c) return { card: c, ta };
+      }
+      return null;
     };
-    for (let attempt = 0; !fields(); attempt++) {
+    for (let attempt = 0; !card(); attempt++) {
       if (attempt >= 3) throw new Error(`Zielseite „${rowRe}“ klappt nicht auf`);
       await realClick(await waitFor(() => collapsedRow(rowRe), rowRe));
-      await waitFor(fields, "Zielseite", 3000).catch(() => null);
+      await waitFor(card, "Zielseite", 3000).catch(() => null);
     }
-    const website = [...dialog().querySelectorAll(`input[type="radio"][value="${T.end.websiteRadio}"]`)].filter(visible).find((r) => after(fields().ta, r));
+    const website = [...card().card.querySelectorAll(`input[type="radio"][value="${T.end.websiteRadio}"]`)].filter(visible)[0];
     if (website && !website.checked) {
       await click(website);
       await sleep(SETTLE_MS); // die Karte zeichnet neu, das Link-Feld kommt erst jetzt
     }
-    // Link und Call-to-Action über ihre Beschriftung: das erste Eingabefeld
-    // nach dem Text, hinter der Beschreibung (so bleibt eine noch offene E1
-    // außen vor, wenn E2 dran ist). Das Link-Feld ist kein type="text".
-    const { ta, inputs } = fields();
+    const { card: c, ta } = card();
+    const before = [...c.querySelectorAll('input[type="text"]')].filter((i) => visible(i) && after(i, ta));
     const field = (label) => {
-      const leaf = [...dialog().querySelectorAll("*")].find((el) => visible(el) && el.children.length === 0 && norm(el.textContent) === norm(label) && after(ta, el));
-      return leaf && [...dialog().querySelectorAll("input,textarea")].filter(visible).find((i) => after(leaf, i));
+      const leaf = [...c.querySelectorAll("*")].find((el) => visible(el) && el.children.length === 0 && norm(el.textContent) === norm(label) && after(ta, el));
+      return leaf && [...c.querySelectorAll("input,textarea")].filter(visible).find((i) => after(leaf, i));
     };
     const link = field(T.end.link);
     const cta = field(T.end.cta);
-    if (!link || !cta) throw new Error(`Felder „${T.end.link}“ / „${T.end.cta}“ in ${rowRe} nicht gefunden`);
-    setValue(inputs[1], e.title);
+    if (before.length < 2 || !link || !cta) throw new Error(`Felder „${T.end.link}“ / „${T.end.cta}“ in ${rowRe} nicht gefunden`);
+    setValue(before[1], e.title);
     setValue(ta, e.description);
     setValue(link, e.url);
     setValue(cta, e.buttonLabel);
     await sleep(SETTLE_MS);
     // Zuklappen, damit die zweite Zielseite allein ihre Felder zeigt.
-    const head = collapsedRow(rowRe) ?? [...dialog().querySelectorAll("*")].find((el) => visible(el) && el.children.length === 0 && new RegExp(`^${rowRe}\\s`, "i").test(norm(el.textContent)));
-    if (head) await realClick(head);
+    const headLeaf = [...c.querySelectorAll("*")].find((el) => visible(el) && el.children.length === 0 && head.test(norm(el.textContent)));
+    if (headLeaf) await realClick(headLeaf);
     await sleep(SETTLE_MS);
   }
 }
