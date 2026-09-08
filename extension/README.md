@@ -24,7 +24,9 @@ Der Baukasten hat keine stabilen Selektoren; gefunden wird über sichtbaren Text
 Platzhalter und aria-Beschriftungen. Alle stehen in `T` am Anfang von `content.js`,
 abgelesen am echten Baukasten (2026-09-08). Hält ein Schritt an, nennt das Overlay unten
 rechts die fehlende Beschriftung: im Baukasten nachsehen, wie sie wirklich heißt, in `T`
-ergänzen, Erweiterung neu laden, Popup → „Erneut“.
+ergänzen, Erweiterung neu laden. **Schritt erneut** in der Karte setzt beim gescheiterten
+Schritt wieder an; Popup → „Erneut“ beginnt von vorn (nötig, wenn „Fragen und Logik“
+abbrach – der Schritt legt sonst Fragen doppelt an).
 
 Was der Baukasten tatsächlich tut (deshalb die Reihenfolge im Skript):
 

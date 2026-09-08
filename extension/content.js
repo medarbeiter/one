@@ -67,8 +67,11 @@ const T = {
     leadRow: /^E1\s/, // im Popover von „Formular senden“
     choosePopover: "Zielseite auswählen",
     websiteRadio: "VIEW_WEBSITE",
-    // Reihenfolge der Textfelder in einer aufgeklappten Zielseite:
-    // Name der Zielseite, Überschrift, Link, Call-to-Action; dazu eine Textarea.
+    // Beschriftungen über den Textfeldern einer aufgeklappten Zielseite; die
+    // Reihenfolge von Link und Call-to-Action ist je Zielseite verschieden.
+    headline: "Überschrift",
+    link: "Link",
+    cta: "Call-to-Action",
   },
 };
 
@@ -104,13 +107,32 @@ style.textContent = `
 .mo-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: linear-gradient(#f7edd2, #faf8f3); font-weight: 600; font-size: 13px }
 .mo-head .mo-dot { width: 10px; height: 10px; border-radius: 50%; background: #e1b025; box-shadow: 0 0 0 0 #e1b02580; animation: mo-glow 1.4s ease-out infinite }
 .mo-bar { height: 3px; background: #ece2c9 } .mo-bar > i { display: block; height: 100%; background: #e1b025; width: 0; transition: width 400ms cubic-bezier(.2,.8,.2,1) }
+.mo-retry { margin-left: auto; font: 600 12px system-ui; color: #231a02; background: #e1b025; border: 0; border-radius: 6px; padding: 4px 10px; cursor: pointer }
+.mo-retry:hover { background: #f0c23a }
+.mo-frame { position: fixed; inset: 0; z-index: 2147483644; pointer-events: none; opacity: 0; transition: opacity 400ms; box-shadow: inset 0 0 0 3px #e1b025, inset 0 0 40px #e1b02566 }
+.mo-frame.mo-on { opacity: 1; animation: mo-breathe 2.2s ease-in-out infinite }
+@keyframes mo-breathe { 0%, 100% { box-shadow: inset 0 0 0 3px #e1b025, inset 0 0 40px #e1b02533 } 50% { box-shadow: inset 0 0 0 4px #e1b025, inset 0 0 70px #e1b02580 } }
+.mo-notice { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; background: #231a02; color: #f7edd2;
+  font: 600 13px system-ui; padding: 8px 14px; border-radius: 999px; box-shadow: 0 6px 20px #0005; animation: mo-in 300ms cubic-bezier(.2,.8,.2,1) }
+.mo-notice .mo-dot { width: 8px; height: 8px; border-radius: 50%; background: #e1b025; animation: mo-glow 1.4s ease-out infinite }
 .mo-log { padding: 8px 12px; white-space: pre-wrap; color: #67625a; max-height: 150px; overflow: hidden }
-@media (prefers-reduced-motion: reduce) { .mo-cursor, .mo-bar > i { transition: none } .mo-ring, .mo-glow, .mo-tag, .mo-panel, .mo-dot { animation-duration: 1ms } }`;
+@media (prefers-reduced-motion: reduce) { .mo-cursor, .mo-bar > i { transition: none } .mo-ring, .mo-glow, .mo-tag, .mo-panel, .mo-dot, .mo-frame.mo-on, .mo-notice { animation-duration: 1ms } }`;
 document.documentElement.appendChild(style);
 
 const panel = document.createElement("div");
 panel.className = "mo-panel";
-panel.innerHTML = '<div class="mo-head"><span class="mo-dot"></span><span class="mo-title">Formular bauen</span></div><div class="mo-bar"><i></i></div><div class="mo-log"></div>';
+panel.innerHTML =
+  '<div class="mo-head"><span class="mo-dot"></span><span class="mo-title">Formular bauen</span><button class="mo-retry" hidden>Schritt erneut</button></div>' +
+  '<div class="mo-bar"><i></i></div><div class="mo-log"></div>';
+const frame = document.createElement("div");
+frame.className = "mo-frame";
+frame.innerHTML = '<div class="mo-notice"><span class="mo-dot"></span>Die Erweiterung baut das Formular – bitte nichts anklicken</div>';
+/** Solange gearbeitet wird: goldener Rand um das Fenster und der Hinweis oben – und kein Knopf für den Neustart. */
+function working(on) {
+  if (on && !frame.isConnected) document.body.appendChild(frame);
+  frame.classList.toggle("mo-on", on);
+  panel.querySelector(".mo-retry").hidden = on || failedAt < 0;
+}
 const cursor = document.createElement("div");
 cursor.className = "mo-cursor";
 const lines = [];
@@ -390,7 +412,10 @@ function collapsedRow(prefix) {
     const t = norm(el.innerText);
     return re.test(t) && (t.match(other) ?? []).every((m) => m.trim().toLowerCase() === prefix.toLowerCase());
   });
-  return hits.at(-1);
+  // Innerste Treffer, davon der erste im Dokument: die Vorschau rechts trägt
+  // dieselbe Zeile („E1 End page for leads“ unter dem Handy) und liegt im
+  // Dokument hinter der Liste – ein Klick dort öffnet nichts.
+  return hits.find((h) => !hits.some((o) => o !== h && h.contains(o)));
 }
 
 async function expandQuestion(n) {
@@ -508,21 +533,29 @@ async function endings(spec) {
       if (!ta) return null;
       const all = [...dialog().querySelectorAll('input[type="text"]')].filter(visible);
       const idx = all.findIndex((i) => after(ta, i));
-      if (idx < 2 || all.length < idx + 2) return null;
-      return { ta, inputs: all.slice(idx - 2, idx + 2) };
+      if (idx < 2 || all.length < idx + 1) return null;
+      return { ta, inputs: all.slice(idx - 2) };
     };
     for (let attempt = 0; !fields(); attempt++) {
       if (attempt >= 3) throw new Error(`Zielseite „${rowRe}“ klappt nicht auf`);
       await realClick(await waitFor(() => collapsedRow(rowRe), rowRe));
       await waitFor(fields, "Zielseite", 3000).catch(() => null);
     }
+    const website = [...dialog().querySelectorAll(`input[type="radio"][value="${T.end.websiteRadio}"]`)].filter(visible).find((r) => after(fields().ta, r));
+    if (website && !website.checked) {
+      await click(website);
+      await sleep(SETTLE_MS); // die Karte zeichnet neu, das Link-Feld kommt erst jetzt
+    }
+    // Felder über ihre Beschriftung: der kleinste Vorfahr, dessen Text mit ihr beginnt.
     const { ta, inputs } = fields();
-    const website = [...dialog().querySelectorAll(`input[type="radio"][value="${T.end.websiteRadio}"]`)].filter(visible).find((r) => after(ta, r));
-    if (website && !website.checked) await click(website);
-    setValue(inputs[1], e.title);
+    const field = (label) => inputs.find((i) => up(i, (n) => n !== i && norm(n.innerText).startsWith(norm(label)), 6));
+    const link = field(T.end.link);
+    const cta = field(T.end.cta);
+    if (!link || !cta) throw new Error(`Felder „${T.end.link}“ / „${T.end.cta}“ in ${rowRe} nicht gefunden`);
+    setValue(field(T.end.headline) ?? inputs[1], e.title);
     setValue(ta, e.description);
-    setValue(inputs[2], e.url);
-    setValue(inputs[3], e.buttonLabel);
+    setValue(link, e.url);
+    setValue(cta, e.buttonLabel);
     await sleep(SETTLE_MS);
     // Zuklappen, damit die zweite Zielseite allein ihre Felder zeigt.
     const head = collapsedRow(rowRe) ?? [...dialog().querySelectorAll("*")].find((el) => visible(el) && el.children.length === 0 && new RegExp(`^${rowRe}\\s`, "i").test(norm(el.textContent)));
@@ -531,18 +564,36 @@ async function endings(spec) {
   }
 }
 
-async function build(spec) {
-  lines.length = 0;
-  done = 0;
-  say(`Vorlage „${spec.name}“ – ${spec.questions.length} Fragen`);
-  await step("Baukasten öffnen", openBuilder);
-  await step("Einstellungen: Deutsch, Offen", settings);
-  await step("Formulartyp: Name", () => formType(spec));
-  await step("Intro", () => intro(spec));
-  await step("Fragen und Logik", () => questions(spec));
-  await step("Kontaktinformationen", () => contact(spec));
-  await step("Datenschutz", () => privacy(spec));
-  await step("Zielseiten", () => endings(spec));
+const STEP_LIST = [
+  ["Baukasten öffnen", () => openBuilder()],
+  ["Einstellungen: Deutsch, Offen", () => settings()],
+  ["Formulartyp: Name", (spec) => formType(spec)],
+  ["Intro", (spec) => intro(spec)],
+  ["Fragen und Logik", (spec) => questions(spec)],
+  ["Kontaktinformationen", (spec) => contact(spec)],
+  ["Datenschutz", (spec) => privacy(spec)],
+  ["Zielseiten", (spec) => endings(spec)],
+];
+
+/** Ab Schritt `from` – nach einem Fehler geht es beim gescheiterten weiter, nicht von vorn. */
+// ponytail: „Fragen und Logik“ ist nicht idempotent – ein Neustart mittendrin legt Fragen doppelt an; dann Popup → „Erneut“ im frischen Baukasten.
+async function build(spec, from = 0) {
+  if (from === 0) lines.length = 0;
+  done = from;
+  working(true);
+  say(from ? `Weiter ab „${STEP_LIST[from][0]}“` : `Vorlage „${spec.name}“ – ${spec.questions.length} Fragen`);
+  for (let i = from; i < STEP_LIST.length; i++) {
+    const [name, fn] = STEP_LIST[i];
+    try {
+      await step(name, () => fn(spec));
+    } catch (e) {
+      failedAt = i;
+      working(false);
+      throw e;
+    }
+  }
+  failedAt = -1;
+  working(false);
   sessionStorage.setItem("mo_form_done", "1");
   progress(STEPS, "Fertig – bitte prüfen");
   cursor.style.opacity = "0";
@@ -553,6 +604,22 @@ async function build(spec) {
 // Drei Wege zur Vorlage: der Knopf in der App (chrome.storage.local, über
 // background.js), der URL-Hash (capture.js → sessionStorage) und das Popup.
 let running = false;
+let failedAt = -1;
+let lastSpec = null;
+async function retryFailed() {
+  if (running || failedAt < 0 || !lastSpec) return;
+  running = true;
+  try {
+    await build(lastSpec, failedAt);
+    await chrome.storage.local.set({ mo_form_done: true });
+  } catch (e) {
+    console.warn("[mo_form]", e);
+  } finally {
+    running = false;
+  }
+}
+panel.querySelector(".mo-retry").addEventListener("click", retryFailed);
+
 async function run(json) {
   if (running) return "läuft schon";
   const stored = await chrome.storage.local.get(["mo_form", "mo_form_done"]);
@@ -561,7 +628,8 @@ async function run(json) {
   sessionStorage.setItem("mo_form", text);
   running = true;
   try {
-    await build(JSON.parse(text));
+    lastSpec = JSON.parse(text);
+    await build(lastSpec);
     await chrome.storage.local.set({ mo_form_done: true });
   } catch (e) {
     console.warn("[mo_form]", e);
