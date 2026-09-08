@@ -70,7 +70,7 @@ const T = {
     // Beschriftungen über den Textfeldern einer aufgeklappten Zielseite; die
     // Reihenfolge von Link und Call-to-Action ist je Zielseite verschieden.
     link: "Link",
-    cta: "Call-to-Action",
+    cta: ["Call-to-Action", "Call-to-Action-Text"],
   },
 };
 
@@ -82,7 +82,7 @@ const MENU_MS = 600;
 // ---------- Overlay ----------
 // Sichtbar machen, was die Erweiterung tut: ein goldener Zeiger gleitet zum
 // Ziel, jeder Klick zieht einen Ring, jedes Feld leuchtet auf, wenn Text
-// hineingeht, und die Karte unten rechts nennt Schritt und Fortschritt.
+// hineingeht, und die Karte oben mittig nennt Schritt und Fortschritt.
 // Alles nur Kosmetik – ohne Wirkung auf den Baukasten und ohne Wartezeit
 // außer dem Gleiten (GLIDE_MS), damit das Auge mitkommt.
 const GLIDE_MS = 260;
@@ -101,7 +101,7 @@ style.textContent = `
 .mo-glow { position: fixed; border-radius: 6px; border: 2px solid #e1b025; z-index: 2147483645; pointer-events: none; animation: mo-glow 900ms ease-out forwards }
 .mo-tag { position: fixed; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: #231a02; color: #f7edd2;
   font: 12px/1.3 system-ui; padding: 3px 8px; border-radius: 6px; z-index: 2147483647; pointer-events: none; animation: mo-tag 1100ms ease-out forwards }
-.mo-panel { position: fixed; right: 16px; bottom: 16px; z-index: 2147483647; width: 360px; background: #faf8f3; color: #1c1917; border: 1px solid #d8d2c6;
+.mo-panel { position: fixed; top: 12px; left: 50%; translate: -50% 0; z-index: 2147483647; width: min(440px, calc(100vw - 24px)); background: #faf8f3; color: #1c1917; border: 1px solid #d8d2c6;
   font: 12px/1.45 system-ui; border-radius: 12px; box-shadow: 0 8px 28px #0004; overflow: hidden; animation: mo-in 300ms cubic-bezier(.2,.8,.2,1) }
 .mo-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: linear-gradient(#f7edd2, #faf8f3); font-weight: 600; font-size: 13px }
 .mo-head .mo-dot { width: 10px; height: 10px; border-radius: 50%; background: #e1b025; box-shadow: 0 0 0 0 #e1b02580; animation: mo-glow 1.4s ease-out infinite }
@@ -111,9 +111,7 @@ style.textContent = `
 .mo-frame { position: fixed; inset: 0; z-index: 2147483644; pointer-events: none; opacity: 0; transition: opacity 400ms; box-shadow: inset 0 0 0 3px #e1b025, inset 0 0 40px #e1b02566 }
 .mo-frame.mo-on { opacity: 1; animation: mo-breathe 2.2s ease-in-out infinite }
 @keyframes mo-breathe { 0%, 100% { box-shadow: inset 0 0 0 3px #e1b025, inset 0 0 40px #e1b02533 } 50% { box-shadow: inset 0 0 0 4px #e1b025, inset 0 0 70px #e1b02580 } }
-.mo-notice { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; background: #231a02; color: #f7edd2;
-  font: 600 13px system-ui; padding: 8px 14px; border-radius: 999px; box-shadow: 0 6px 20px #0005; animation: mo-in 300ms cubic-bezier(.2,.8,.2,1) }
-.mo-notice .mo-dot { width: 8px; height: 8px; border-radius: 50%; background: #e1b025; animation: mo-glow 1.4s ease-out infinite }
+.mo-notice { background: #231a02; color: #f7edd2; font: 600 13px/1.45 system-ui; padding: 8px 12px }
 .mo-log { padding: 8px 12px; white-space: pre-wrap; color: #67625a; max-height: 150px; overflow: hidden }
 @media (prefers-reduced-motion: reduce) { .mo-cursor, .mo-bar > i { transition: none } .mo-ring, .mo-glow, .mo-tag, .mo-panel, .mo-dot, .mo-frame.mo-on, .mo-notice { animation-duration: 1ms } }`;
 document.documentElement.appendChild(style);
@@ -121,15 +119,16 @@ document.documentElement.appendChild(style);
 const panel = document.createElement("div");
 panel.className = "mo-panel";
 panel.innerHTML =
+  '<div class="mo-notice" hidden>Die Erweiterung baut das Formular – bitte nichts anklicken</div>' +
   '<div class="mo-head"><span class="mo-dot"></span><span class="mo-title">Formular bauen</span><button class="mo-retry" hidden>Schritt erneut</button></div>' +
   '<div class="mo-bar"><i></i></div><div class="mo-log"></div>';
 const frame = document.createElement("div");
 frame.className = "mo-frame";
-frame.innerHTML = '<div class="mo-notice"><span class="mo-dot"></span>Die Erweiterung baut das Formular – bitte nichts anklicken</div>';
 /** Solange gearbeitet wird: goldener Rand um das Fenster und der Hinweis oben – und kein Knopf für den Neustart. */
 function working(on) {
   if (on && !frame.isConnected) document.body.appendChild(frame);
   frame.classList.toggle("mo-on", on);
+  panel.querySelector(".mo-notice").hidden = !on;
   panel.querySelector(".mo-retry").hidden = on || failedAt < 0;
 }
 const cursor = document.createElement("div");
@@ -548,7 +547,7 @@ async function endings(spec) {
     const { card: c, ta } = card();
     const before = [...c.querySelectorAll('input[type="text"]')].filter((i) => visible(i) && after(i, ta));
     const field = (label) => {
-      const leaf = [...c.querySelectorAll("*")].find((el) => visible(el) && el.children.length === 0 && norm(el.textContent) === norm(label) && after(ta, el));
+      const leaf = [...c.querySelectorAll("*")].find((el) => visible(el) && el.children.length === 0 && list(label).some((text) => norm(el.textContent) === norm(text)) && after(ta, el));
       return leaf && [...c.querySelectorAll("input,textarea")].filter(visible).find((i) => after(leaf, i));
     };
     const link = field(T.end.link);

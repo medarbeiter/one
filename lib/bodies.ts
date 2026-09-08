@@ -33,6 +33,16 @@ export type BodiesInput = {
   instructions?: string;
 };
 
+// Dieselben Sprachregeln für Primärtexte, Überschriften und Beschreibung.
+const COPY_LANGUAGE = `Arbeitgebername: Verwende den natürlichen, öffentlich verständlichen Einrichtungsnamen statt des vollständigen Firmennamens. Entferne Rechtsformen (GmbH, gGmbH, e.V., GmbH & Co. KG usw.) und reine Betreiberzusätze; erhalte erkennbare Marken und den eigentlichen Einrichtungsnamen. Beispiel: „Seniorenstift am Obermain STE GmbH“ wird „Seniorenstift am Obermain“. Streiche nicht pauschal Großbuchstaben: Marken wie AWO oder DRK bleiben erhalten. Passe Artikel, Pronomen und Präpositionen sowie Genus und Kasus an den gekürzten Namen an: „das Seniorenstift“, „im Seniorenstift am Obermain“, „der Pflegedienst“, „beim Pflegedienst“, „die Seniorenresidenz“, „in der Seniorenresidenz“. Verwende innerhalb der Anzeige denselben Namen; erfinde keinen neuen.
+Ort: Nenne ausschließlich die Stadt bzw. den Ort – keine Straße, Hausnummer oder PLZ, auch wenn eine vollständige Adresse in den Fakten oder Hinweisen steht. Beispiel: „Musterstraße 12, 96231 Bad Staffelstein“ wird „Bad Staffelstein“. Ist kein Ort erkennbar, lasse die Ortsangabe weg; rate nicht. Diese Regeln gelten auch für Namen und Adressen aus zusätzlichen Kampagnenhinweisen. Die Beispiele sind keine Kampagnenfakten und dürfen nur verwendet werden, wenn sie tatsächlich in den Kampagnenfakten stehen.`;
+
+function benefitSelection(benefits: string): string {
+  const count = new Set(benefits.split("\n").map((line) => line.trim().toLowerCase()).filter(Boolean)).size;
+  return `Die Eingabe enthält ${count} Benefits (eine Zeile je Benefit, auch weiche Vorteile zählen). Schreibe ${Math.min(count, 5)} Benefit-Zeilen. ${count > 5 ? 'Danach ist die Schlusszeile „Und mehr...“ PFLICHT, weil die Eingabe mehr als fünf Benefits enthält.' : 'Keine Schlusszeile „Und mehr...“, da keine weiteren Benefits übrig bleiben.'}
+Benefit-Auswahl: Wähle genau fünf unterschiedliche Benefits, sofern mindestens fünf belegt sind. Sind weniger als fünf vorhanden, nenne alle vorhandenen, ohne etwas zu erfinden oder einen Benefit aufzuteilen. Wähle die stärksten für die beworbene Rolle, nicht einfach die ersten: konkrete Vorteile wie Gehalt, Zuschläge, Urlaubstage und planbare Arbeitszeiten vor allgemeinen Aussagen über Team oder Wertschätzung; danach passende Mobilitäts- und Weiterbildungsvorteile. Stärkster Benefit zuerst; passe Reihenfolge und Emojis der Vorlage daran an. Enthalten die Eingaben mehr als fünf unterschiedliche belegte Benefits, folgt unmittelbar nach den fünf Listenpunkten IMMER eine eigene Zeile mit exakt „Und mehr...“, auch wenn weitere Benefits schon im Fließtext erwähnt werden; bei höchstens fünf entfällt diese Zeile. Das ist kein sechster Benefit. Diese Auswahl gilt für jede Vorlage, auch für die Kurzform und die Wertewelt; ergänze dort die Liste und kürze dafür den übrigen Fließtext.`;
+}
+
 /** Ein Block für alle drei Prompts; leer, wenn es nichts zu sagen gibt. */
 function instructionsBlock(instructions?: string): string {
   const text = instructions?.trim();
@@ -71,7 +81,9 @@ Bei uns erwarten Dich…
 
 🏖️ {Benefit 1}
 🚲 {Benefit 2}
-🎄 {Benefit 3 – je Benefit eine eigene Zeile mit eigenem, passendem Emoji; 3–5 Zeilen, nur die stärksten (konkret schlägt weich), bei Auswahl mit „Und mehr…“ schließen}
+🎄 {Benefit 3}
+🗓️ {Benefit 4, wenn vorhanden}
+📚 {Benefit 5, wenn vorhanden – je Benefit ein inhaltlich passendes Emoji; bleiben weitere Benefits übrig, folgt „Und mehr...“}
 
 Hast Du Lust auf ein tolles Miteinander und möchtest Dich weiterentwickeln?
 
@@ -115,25 +127,39 @@ Werde Pflegefachkraft (m/w/d) oder stellvertretende Pflegedienstleitung (sPDL) (
 
 Wir suchen engagierte Mitarbeitende, die unser freundliches und familiäres Team im ambulanten Pflegedienst unterstützen. 🤝
 
+Freue Dich auf:
+✅ Weihnachts- & Urlaubsgeld
+✅ Mindestens 30 Urlaubstage + 2 Regenerationstage
+✅ JobRad
+✅ Kostenlose Weiterbildungen
+✅ Freundliches & familiäres Team
+
 Wir haben aktuell noch Stellen offen für:
 
 ✅ Pflegefachkraft für den ambulanten Dienst
 ✅ Stellvertretende Pflegedienstleitung für den ambulanten Dienst`,
 
-  `BEISPIEL (Wertewelt, drei Absätze mit ✅):
+  `BEISPIEL (Wertewelt mit Benefit-Liste):
 Träumst du nicht auch davon, in einer Umgebung zu arbeiten, die genau das verkörpert?
 
-✅ Ein Team, das Zusammenhalt und gegenseitige Unterstützung lebt:
+Ein Team, das Zusammenhalt und gegenseitige Unterstützung lebt:
 
 Beim AWO Kreisverband Greiz e.V. wird Teamarbeit großgeschrieben. Unsere Mitarbeitenden unterstützen sich gegenseitig und begegnen sich mit Respekt und Wertschätzung.
 
-✅ In einem angenehmen Arbeitsklima, das persönliches und berufliches Wachstum fördert:
+Ein angenehmes Arbeitsklima, das persönliches und berufliches Wachstum fördert:
 
 Mit kostenlosen Weiterbildungen hast du die Möglichkeit, dich kontinuierlich weiterzuentwickeln.
 
-✅ Nicht nur als Arbeitskraft, sondern als Mensch mit individuellen Bedürfnissen gesehen werden:
+Nicht nur als Arbeitskraft, sondern als Mensch mit individuellen Bedürfnissen gesehen werden:
 
 Wir zeigen Wertschätzung durch ein familiäres Miteinander und attraktive Zusatzleistungen.
+
+Freue Dich auf:
+✅ Weihnachts- & Urlaubsgeld
+✅ Mindestens 30 Urlaubstage + 2 Regenerationstage
+✅ JobRad
+✅ Kostenlose Weiterbildungen
+✅ Freundliches & familiäres Team
 
 Deshalb klicke einfach auf "Jetzt bewerben" und bewirb dich mit nur wenigen Klicks online.
 Bis gleich :)
@@ -188,12 +214,15 @@ Der Text endet IMMER mit dem Block der offenen Stellen – auch wenn die Vorlage
 
 Formatierung: Reiner Text – Meta unterstützt KEIN Markdown. Keine **Sternchen**, keine #-Überschriften, keine Markdown-Listen mit - oder *; nur Absätze, Leerzeilen und Emojis wie in der Vorlage. Übernimm den Listenstil der Vorlage: JEDER genannte Benefit bekommt eine eigene Zeile mit genau einem Aufzählungszeichen im Stil der Vorlage (✅, ✔ oder ein thematisch passendes Emoji je Zeile – bei Emoji-Listen für jeden Benefit ein anderes, inhaltlich passendes). Niemals mehrere Benefits in eine Zeile zusammenziehen.
 
-Benefit-Auswahl: 3–5 Zeilen, weniger ist besser als mehr. Nimm NICHT einfach die ersten aus der Liste, sondern wähle die stärksten: Konkretes und Messbares (Geld, Zuschläge, Urlaubstage, Dienstwagen/JobRad, planbare Arbeitszeiten) schlägt Weiches (nettes Team, Wertschätzung, flache Hierarchien) – das Weiche steht ohnehin im Fließtext und wäre in der Liste doppelt. Stärkster Benefit zuerst. Bleiben Benefits übrig, schließe die Liste mit einer Zeile wie „Und mehr…“ ab.
+${COPY_LANGUAGE}
 
 KAMPAGNENFAKTEN:
 ${fakten}
 
 ${TEMPLATES[template]}
+
+Die Vorlage zeigt nur den Stil. Für Anzahl und Abschluss der Benefits gilt stattdessen verbindlich:
+${benefitSelection(input.benefits)}
 
 ${instructionsBlock(input.instructions)}Antworte ausschließlich mit dem fertigen Primärtext – ohne Anführungszeichen drumherum, ohne Überschrift, ohne Erklärung.`;
 }
@@ -367,6 +396,8 @@ Weitere Regeln:
 - Mische die Winkel: Rolle (+ Ort, wenn er kurz ist), Arbeitgeber sucht, Frage oder Aufforderung, Benefit mit Job-Kontext.
 - Duze. Keine erfundenen Fakten – nur genannte Rollen, Ort und Benefits. Keine Emojis.
 
+${COPY_LANGUAGE}
+
 KAMPAGNENFAKTEN:
 ${fakten}
 
@@ -386,7 +417,11 @@ export async function generateTitles(input: BodiesInput): Promise<string[]> {
 function descriptionPrompt(input: BodiesInput): string {
   return `Du schreibst die Beschreibung einer Meta-Stellenanzeige (Facebook/Instagram) in der Pflege – der kurze Block, der unter der Überschrift steht.
 
-Formatiere die folgenden Benefits als Liste: eine kurze Kopfzeile wie „Freue Dich auf...“, dann JEDER Benefit auf einer eigenen Zeile mit ✅ am Anfang. Niemals mehrere Benefits in eine Zeile zusammenziehen, keinen Benefit weglassen, keinen erfinden. Danach eine Schlusszeile mit Aufforderung, sich in 60 Sekunden ohne Anschreiben und Lebenslauf zu bewerben. Duze.
+Formatiere die ausgewählten Benefits als Liste: eine kurze Kopfzeile wie „Freue Dich auf...“, dann jeder ausgewählte Benefit auf einer eigenen Zeile mit ✅ am Anfang. Niemals mehrere Benefits in eine Zeile zusammenziehen, keinen erfinden. Danach eine Schlusszeile mit Aufforderung, sich in 60 Sekunden ohne Anschreiben und Lebenslauf zu bewerben. Duze.
+
+${COPY_LANGUAGE}
+
+${benefitSelection(input.benefits)}
 
 BENEFITS:
 ${input.benefits.trim() || "keine angegeben – schreibe zwei kurze Zeilen über das Team und die Bewerbung in 60 Sekunden"}

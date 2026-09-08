@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { generateBody, generateDescription, generateTitles, mistral, parseBody, parseTitles, roleLabels } from "./bodies";
+import { BODY_TEMPLATE_COUNT, generateBody, generateDescription, generateTitles, mistral, parseBody, parseTitles, roleLabels } from "./bodies";
 
 test("parseTitles liest die Liste, wirft zu Lange weg und kappt bei fünf", () => {
   expect(parseTitles('{"titel": ["Kurz", "  Pflege-Jobs (m/w/d)  "]}')).toEqual([
@@ -82,5 +82,51 @@ test("Hinweise erreichen Primärtext, Überschriften und Beschreibung – als de
     expect(sent[0]).not.toContain("ZUSÄTZLICHE KAMPAGNENHINWEISE");
   } finally {
     globalThis.fetch = realFetch;
+  }
+});
+
+test("alle Textvorlagen verlangen natürliche Namen, nur den Ort und fünf starke Benefits", async () => {
+  const realFetch = globalThis.fetch;
+  const key = process.env.MISTRAL_API_KEY;
+  process.env.MISTRAL_API_KEY = "test";
+  const sent: string[] = [];
+  globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+    sent.push(JSON.parse(String(init?.body)).messages[0].content);
+    return Response.json({ choices: [{ message: { content: '{"titel":["Pflege-Job"]}' } }] });
+  }) as typeof fetch;
+  try {
+    const input = {
+      business: "Seniorenstift am Obermain STE GmbH", roles: ["PFK"],
+      place: "Musterstraße 12, 96231 Bad Staffelstein",
+      benefits: "Nettes Team\nJobRad\n33 Urlaubstage\nWeihnachtsgeld\nPlanbare Dienste\nBezahlte Weiterbildung",
+    };
+    for (let i = 0; i < BODY_TEMPLATE_COUNT; i++) await generateBody(input, i);
+    await generateDescription(input);
+    await generateTitles(input);
+    for (const prompt of sent) {
+      expect(prompt).toContain("Seniorenstift am Obermain“");
+      expect(prompt).toContain("Artikel, Pronomen und Präpositionen");
+      expect(prompt).toContain("keine Straße, Hausnummer oder PLZ");
+    }
+    for (const prompt of sent.slice(0, -1)) {
+      expect(prompt).toContain("Die Eingabe enthält 6 Benefits");
+      expect(prompt).toContain("Schreibe 5 Benefit-Zeilen");
+      expect(prompt).toContain("PFLICHT");
+      expect(prompt).toContain("genau fünf unterschiedliche Benefits");
+      expect(prompt).toContain("weniger als fünf");
+      expect(prompt).toContain("Und mehr...");
+      expect(prompt).not.toContain("3–5");
+      expect(prompt).not.toContain("weniger ist besser");
+      expect(prompt).not.toContain("keinen Benefit weglassen");
+    }
+    await generateDescription({ ...input, benefits: "JobRad\n33 Urlaubstage\njobrad\n" });
+    expect(sent.at(-1)).toContain("Schreibe 2 Benefit-Zeilen");
+    expect(sent.at(-1)).toContain("Keine Schlusszeile");
+    await generateDescription({ ...input, benefits: "" });
+    expect(sent.at(-1)).toContain("Schreibe 0 Benefit-Zeilen");
+  } finally {
+    globalThis.fetch = realFetch;
+    if (key === undefined) delete process.env.MISTRAL_API_KEY;
+    else process.env.MISTRAL_API_KEY = key;
   }
 });
