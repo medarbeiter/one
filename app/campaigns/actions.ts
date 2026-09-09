@@ -326,7 +326,7 @@ export async function briefsAction(): Promise<{ briefs: Brief[]; error?: string 
 
 // Ads Manager erwartet die Konto-ID ohne "act_" – dieselbe Adresse wie in receipt.tsx.
 /**
- * Nach dem Anlegen: Aufgabe auf „abnahme kampagne“, Kommentar mit Name und
+ * Nach dem Anlegen: Aufgabe umbenannt in den Kampagnennamen, auf „abnahme kampagne“, Kommentar mit Name und
  * Link. Ein Fehler hier ist eine Zeile in der Quittung – die Kampagne steht.
  */
 export async function closeBriefAction(
@@ -338,6 +338,7 @@ export async function closeBriefAction(
   try {
     await closeBrief(
       taskId,
+      campaignName,
       `Kampagne über One angelegt (pausiert): ${campaignName}\n${adsManagerUrl(adAccount, campaignId)}`,
     );
     return {};

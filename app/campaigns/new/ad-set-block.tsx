@@ -20,6 +20,7 @@ import { PlusIcon, SparkleIcon, XIcon } from "@phosphor-icons/react";
 import type { LeadForm } from "@/lib/forms";
 import { matchFormHint, newlyAppeared } from "@/lib/forms";
 import { FormBuilder } from "./form-builder";
+import { GhlHinweis } from "./ghl-hinweis";
 import type { Source } from "@/lib/brief";
 import { cleanStem, nextCreativeName } from "@/lib/media";
 import { cityOf } from "./state";
@@ -1145,6 +1146,7 @@ export function AdSetBlock({
               : `Aus der Aufgabe gewählt: „${detected.name}“.`}
           </Text>
         )}
+        {value.formId && <GhlHinweis formName={selectedForm?.name} />}
         {formsError && (
           <Banner status="error" title="Lead-Formulare konnten nicht geladen werden" description={formsError} />
         )}

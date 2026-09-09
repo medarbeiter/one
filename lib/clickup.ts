@@ -2,7 +2,7 @@
  * ClickUp, der Auftragseingang: je Kunde ein Ordner, darin eine Liste
  * „Meta-Kampagnen“, darin die Infotask der Kampagne. Welche davon dran ist,
  * sagt ihr Status – `kampagne anlegen`. Der Assistent liest sie, legt die
- * Kampagne an und schiebt die Aufgabe auf `abnahme kampagne`.
+ * Kampagne an, benennt die Aufgabe nach ihr und schiebt sie auf `abnahme kampagne`.
  *
  * Kein SDK: drei Aufrufe gegen die REST-API v2 mit einem persönlichen Token.
  * Die Team-ID (ein Workspace) wird beim ersten Aufruf gelesen und behalten.
@@ -306,7 +306,11 @@ export async function listComments(taskId: string): Promise<{ text: string; date
 }
 
 /** Nach dem Anlegen: Status weiter, Kommentar mit dem Ergebnis dran. */
-export async function closeBrief(taskId: string, comment: string): Promise<void> {
-  await api(`task/${encodeURIComponent(taskId)}`, { method: "PUT", body: JSON.stringify({ status: DONE_STATUS }) });
+export async function closeBrief(taskId: string, name: string, comment: string): Promise<void> {
+  // Die Infotask heißt danach wie die Kampagne – so findet man sie im Ads Manager wieder.
+  await api(`task/${encodeURIComponent(taskId)}`, {
+    method: "PUT",
+    body: JSON.stringify({ name, status: DONE_STATUS }),
+  });
   await addComment(taskId, comment);
 }

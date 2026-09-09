@@ -41,6 +41,7 @@ import {
   withArrivedAssets,
   type WizardAdSet,
 } from "./state";
+import { GhlHinweis } from "./ghl-hinweis";
 import { drainArrived, useUploadVersion } from "./upload-queue";
 import { Entwuerfe } from "./entwuerfe";
 import { AdSetBlock } from "./ad-set-block";
@@ -1145,6 +1146,8 @@ function WizardSteps({
                 )}
 
                 {progress && <LaunchProgressBar progress={progress} />}
+
+                {campaignId && <GhlHinweis />}
 
                 {submission && (
                   <ReceiptPanel state={result} submission={submission} onRetry={submitWizard} />
