@@ -184,18 +184,24 @@ export async function autopilotTask(taskId: string, deps: AutopilotDeps = realDe
   if (!brief.benefits?.value?.trim()) notes.push("Benefits: keine gefunden – die Texte nennen keine.");
   if (!brief.dailyBudgetEuros) notes.push(`Tagesbudget: keins in der Aufgabe – Hausstandard ${DEFAULT_DAILY_BUDGET} €.`);
 
-  // Formular: der Hinweis aus der Aufgabe, sonst das einzige der Seite.
+  // Formular: der Hinweis aus der Aufgabe, sonst das einzige der Seite. Passt
+  // nichts eindeutig, nimmt das erste der Seite den Platz ein – die Kampagne
+  // ist pausiert, und wer prüft, tauscht es über „Bearbeiten“ aus. Neun von
+  // zehn Aufgaben nennen kein Formular; daran darf der Lauf nicht scheitern.
+  // Nur ohne ein einziges Formular geht nichts: Meta verlangt an jeder
+  // Lead-Anzeige eins.
   let form: LeadForm | undefined;
   if (client?.page) {
     const forms = await deps.listLeadForms(client.page.id);
     const hint = brief.formHint?.value;
     form = hint ? matchFormHint(forms, hint) : forms.length === 1 ? forms[0] : undefined;
-    if (!form)
-      halts.push(
-        hint
-          ? `Lead-Formular: keins passt eindeutig zu „${hint}“ (${forms.map((f) => f.name).join(", ") || "keins auf der Seite"}).`
-          : `Lead-Formular: die Seite hat ${forms.length} und die Aufgabe nennt keins.`,
+    if (!form && !forms.length) halts.push("Lead-Formular: die Seite hat keins – eins im Baukasten anlegen.");
+    else if (!form) {
+      form = forms[0];
+      notes.push(
+        `${hint ? `Lead-Formular: keins passt eindeutig zu „${hint}“` : `Lead-Formular: die Seite hat ${forms.length} und die Aufgabe nennt keins`} – vorläufig „${form.name}“, beim Prüfen setzen.`,
       );
+    }
   }
   if (halts.length || !client?.page || !adAccount || !form) return { halts, notes };
 

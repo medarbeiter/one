@@ -86,10 +86,25 @@ test("autopilotTask sammelt alle billigen Gründe, bevor es anhält", async () =
   ]);
 });
 
+test("autopilotTask legt ohne eindeutiges Formular trotzdem an – mit dem ersten der Seite und einer Warnung", async () => {
+  const sent: WizardSubmission[] = [];
+  const d = deps(sent);
+  const noHint = { ...d, assembleBrief: async () => ({ ...brief, formHint: undefined }) };
+  const out = await autopilotTask("t1", noHint);
+  expect("campaignId" in out).toBe(true);
+  expect(sent[0].adSets[0].formId).toBe("f1");
+  expect(out.notes).toContain("Lead-Formular: die Seite hat 2 und die Aufgabe nennt keins – vorläufig „Renningen Formular“, beim Prüfen setzen.");
+  const wrongHint = { ...d, assembleBrief: async () => ({ ...brief, formHint: { value: "Berlin", sources: ["clickup"] as never } }) };
+  const out2 = await autopilotTask("t1", wrongHint);
+  expect("campaignId" in out2).toBe(true);
+  expect(out2.notes).toContain("Lead-Formular: keins passt eindeutig zu „Berlin“ – vorläufig „Renningen Formular“, beim Prüfen setzen.");
+});
+
 test("autopilotTask hält an, wo der Wizard eine Person braucht", async () => {
   const d = deps([]);
-  const noHint = { ...d, assembleBrief: async () => ({ ...brief, formHint: undefined }) };
-  expect(await autopilotTask("t1", noHint)).toMatchObject({ halts: ["Lead-Formular: die Seite hat 2 und die Aufgabe nennt keins."] });
+  // Ohne ein einziges Formular lehnt Meta jede Lead-Anzeige ab – da hilft kein Platzhalter.
+  const noForms = { ...d, listLeadForms: async () => [] };
+  expect(await autopilotTask("t1", noForms)).toMatchObject({ halts: ["Lead-Formular: die Seite hat keins – eins im Baukasten anlegen."] });
   const empty = { ...d, driveMedia: async () => ({ path: "", files: [] }) };
   expect(await autopilotTask("t1", empty)).toMatchObject({ halts: [expect.stringContaining("kein Kundenordner")] });
 });
