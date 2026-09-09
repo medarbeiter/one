@@ -380,19 +380,22 @@ async function questions(spec) {
     setValue(label, text);
   }
 
-  // 2) Logik. Ausschluss → Formular schließen (E2). Sonst → nächste Frage;
-  //    die letzte Frage → Formular senden (E1).
-  const all = [...spec.questions.map((q) => ({ ...q, mc: true })), ...spec.freeText.map((label) => ({ label, options: [], disqualify: [], mc: false }))];
+  // 2) Logik je Antwort, wie die Vorlage sie nennt (goto): "nolead" → Formular
+  //    schließen (E2), "lead" → Formular senden (E1), Zahl → diese Frage,
+  //    sonst die nächste; hinter der letzten Frage heißt „nächste“ senden.
+  const all = [...spec.questions.map((q) => ({ ...q, mc: true })), ...spec.freeText.map((label) => ({ label, options: [], goto: {}, mc: false }))];
   for (let qi = 0; qi < all.length; qi++) {
     const q = all[qi];
-    const next = all[qi + 1];
     await expandQuestion(qi + 1);
     await sleep(SETTLE_MS);
     const card = cardOf(await waitFor(() => byPlaceholder(q.mc ? T.ph.mcLabel : T.ph.shortLabel).find((i) => norm(i.value) === norm(q.label)), q.label));
     const combos = q.mc ? optionCombos(card) : [card.querySelector('[role="combobox"]')];
     for (let i = 0; i < combos.length; i++) {
-      const outcome = q.mc && q.disqualify.includes(q.options[i]) ? "close" : next ? "question" : "submit";
-      await setLogic(combos[i], outcome, next?.label, qi + 2);
+      const g = (q.mc && (q.goto ?? {})[q.options[i]]) || "next";
+      const targetIndex = typeof g === "number" ? g - 1 : qi + 1;
+      const target = all[targetIndex];
+      const outcome = g === "nolead" ? "close" : g === "lead" || !target ? "submit" : "question";
+      await setLogic(combos[i], outcome, target?.label, targetIndex + 1);
     }
   }
 }

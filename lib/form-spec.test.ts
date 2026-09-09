@@ -6,15 +6,18 @@
 import { expect, test } from "bun:test";
 import {
   assembleQuestions,
+  type FormQuestion,
   buildFormSpec,
   formName,
   formSpecBlockers,
   LICENSE_QUESTION,
+  moveQuestion,
   nextVersion,
   PFK_QUESTION,
   questionBlockers,
   privacyLinkText,
   REACHABILITY,
+  removeQuestion,
   roleChoiceQuestion,
 } from "./form-spec";
 
@@ -59,9 +62,9 @@ test("ohne Datenschutz-URL zählt die Website", () => {
 
 test("fest sind nur PFK-Frage, Stellenwahl und – auf Verlangen – der Führerschein", () => {
   const suggested = [
-    { label: "Hast du eine abgeschlossene Pflegefachkraft-Ausbildung?", options: ["Ja", "Nein"], disqualify: ["Nein"] },
-    { label: "Hast du einen Führerschein?", options: ["Ja", "Nein"], disqualify: ["Nein"] },
-    { label: "Bist du bereit, im Nachtdienst zu arbeiten?", options: ["Ja", "Nein"], disqualify: ["Nein"] },
+    { label: "Hast du eine abgeschlossene Pflegefachkraft-Ausbildung?", options: ["Ja", "Nein"], goto: { Nein: "nolead" as const } },
+    { label: "Hast du einen Führerschein?", options: ["Ja", "Nein"], goto: { Nein: "nolead" as const } },
+    { label: "Bist du bereit, im Nachtdienst zu arbeiten?", options: ["Ja", "Nein"], goto: { Nein: "nolead" as const } },
   ];
   const pfk = assembleQuestions({ roles: ["PFK"], suggested, licenseRequired: false });
   expect(pfk.map((q) => q.label)).toEqual([PFK_QUESTION.label, "Bist du bereit, im Nachtdienst zu arbeiten?"]);
@@ -77,19 +80,48 @@ test("Pflege und Leitung gemischt fragt zuerst nach der Stelle", () => {
   expect(roleChoiceQuestion(["PFK", "PDL"])).toEqual({
     label: "Für welche Stelle interessierst du dich?",
     options: ["Pflegefachkräfte", "Pflegedienstleitung"],
-    disqualify: [],
+    goto: {},
   });
   expect(roleChoiceQuestion(["PFK", "PHK"])).toBeUndefined();
   expect(roleChoiceQuestion(["PDL"], "Praxisanleiter")).toBeUndefined();
   expect(assembleQuestions({ roles: ["PFK", "Stv. PDL"], suggested: [], licenseRequired: false })[0].label).toBe("Für welche Stelle interessierst du dich?");
 });
 
-test("Ausschlüsse müssen eine der Antworten sein", () => {
+test("Ziele müssen zu einer Antwort gehören und eins der vier Ziele sein", () => {
   const [q] = buildFormSpec({
     ...base,
-    questions: [{ label: "Schicht?", options: ["Früh", "Spät"], disqualify: ["Nacht", "Spät"] }],
+    questions: [{ label: "Schicht?", options: ["Früh", "Spät", "Nacht"], goto: { Tag: "nolead", Spät: "nolead", Früh: "next", Nacht: 0 } }],
   }).questions;
-  expect(q.disqualify).toEqual(["Spät"]);
+  expect(q.goto).toEqual({ Spät: "nolead" });
+});
+
+test("Sprünge der KI zählen ihre eigene Liste – nach dem Zusammensetzen stimmen die Nummern", () => {
+  const suggested: FormQuestion[] = [
+    { label: "Ausbildung?", options: ["Fachkraft", "Hilfskraft", "Keine"], goto: { Fachkraft: 3, Keine: "nolead" } },
+    { label: "LG1?", options: ["Ja", "Nein"], goto: {} },
+    { label: "Nachtdienst?", options: ["Ja", "Nein"], goto: { Nein: "nolead" } },
+  ];
+  const qs = assembleQuestions({ roles: ["PFK"], suggested, licenseRequired: false });
+  expect(qs.map((q) => q.label)).toEqual([PFK_QUESTION.label, "Ausbildung?", "LG1?", "Nachtdienst?"]);
+  expect(qs[1].goto).toEqual({ Fachkraft: 4, Keine: "nolead" });
+  // Ziel fällt weg (hier: Dublette der festen Frage) → weiter zur nächsten.
+  const dropped = assembleQuestions({
+    roles: ["PFK"],
+    suggested: [{ label: "A?", options: ["x", "y"], goto: { x: 2 } }, { label: PFK_QUESTION.label, options: ["Ja", "Nein"], goto: {} }],
+    licenseRequired: false,
+  });
+  expect(dropped[1].goto).toEqual({});
+});
+
+test("Verschieben und Löschen nehmen die Sprünge mit", () => {
+  const qs: FormQuestion[] = [
+    { label: "A", options: ["1", "2"], goto: { "1": 3 } },
+    { label: "B", options: ["1", "2"], goto: { "2": "nolead" } },
+    { label: "C", options: ["1", "2"], goto: {} },
+  ];
+  expect(moveQuestion(qs, 1, 1).map((q) => [q.label, q.goto])).toEqual([["A", { "1": 2 }], ["C", {}], ["B", { "2": "nolead" }]]);
+  expect(removeQuestion(qs, 2).map((q) => q.goto)).toEqual([{}, { "2": "nolead" }]);
+  expect(removeQuestion(qs, 1).map((q) => q.goto)).toEqual([{ "1": 2 }, {}]);
 });
 
 test("Blocker nennen Website, Fragen und Ort", () => {
@@ -98,18 +130,32 @@ test("Blocker nennen Website, Fragen und Ort", () => {
 });
 
 test("Blocker je Frage: Text, zwei Antworten, keine Doppelten, nicht jeden aussortieren, Logik irgendwo", () => {
-  expect(questionBlockers([{ label: "", options: ["Ja"], disqualify: [] }])).toEqual([
+  expect(questionBlockers([{ label: "", options: ["Ja"], goto: {} }])).toEqual([
     "F1: Es fehlt der Fragetext.",
     "F1: Mindestens zwei Antworten.",
     "Keine Antwort führt zur Nicht-Lead-Seite – mindestens eine Frage braucht bedingte Logik.",
   ]);
-  expect(questionBlockers([{ label: "Schicht?", options: ["Früh", "früh "], disqualify: ["Früh"] }])).toEqual([
+  expect(questionBlockers([{ label: "Schicht?", options: ["Früh", "früh "], goto: { Früh: "nolead" } }])).toEqual([
     "F1: Eine Antwort steht doppelt.",
   ]);
-  expect(questionBlockers([{ label: "Schicht?", options: ["Früh", "Spät"], disqualify: ["Früh", "Spät"] }])).toEqual([
+  expect(questionBlockers([{ label: "Schicht?", options: ["Früh", "Spät"], goto: { Früh: "nolead", Spät: "nolead" } }])).toEqual([
     "F1: Jede Antwort führt zur Nicht-Lead-Seite – niemand käme durch.",
   ]);
-  expect(questionBlockers([PFK_QUESTION, { label: "Schicht?", options: ["Früh", "Spät"], disqualify: [] }])).toEqual([]);
+  expect(questionBlockers([PFK_QUESTION, { label: "Schicht?", options: ["Früh", "Spät"], goto: {} }])).toEqual([]);
+});
+
+test("Blocker für Sprünge: nur vorwärts, und jede Frage muss erreichbar sein", () => {
+  const b = { label: "B", options: ["1", "2"], goto: {} };
+  expect(questionBlockers([{ label: "A", options: ["1", "2"], goto: { "1": 1, "2": 9 } }, b])).toEqual([
+    "F1: „1“ verweist auf F1 – nur auf eine spätere Frage.",
+    "F1: „2“ verweist auf F9 – nur auf eine spätere Frage.",
+    "F2: Keine Antwort führt hierher.",
+    "Keine Antwort führt zur Nicht-Lead-Seite – mindestens eine Frage braucht bedingte Logik.",
+  ]);
+  expect(questionBlockers([{ label: "A", options: ["1", "2"], goto: { "1": 3, "2": "nolead" } }, b, { ...b, label: "C" }])).toEqual([
+    "F2: Keine Antwort führt hierher.",
+  ]);
+  expect(questionBlockers([{ label: "A", options: ["1", "2", "3"], goto: { "1": 3, "2": "nolead" } }, { ...b, goto: { "1": "lead" } }, { ...b, label: "C" }])).toEqual([]);
 });
 
 test("der Datenschutz-Linktext nennt den Kunden, solange er ins Limit passt", () => {

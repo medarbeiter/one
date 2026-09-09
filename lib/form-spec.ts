@@ -9,13 +9,48 @@
  */
 import { ROLES } from "./naming";
 
+/**
+ * Wohin eine Antwort führt – genau die vier Ziele, die Metas Baukasten kennt:
+ * "next" die folgende Frage (Standard, steht deshalb nicht im JSON),
+ * eine Zahl = eine spätere Frage (F-Nummer, 1-basiert),
+ * "lead" = Formular senden (Zielseite E1), "nolead" = Formular schließen (E2).
+ */
+export type Goto = "next" | "lead" | "nolead" | number;
+
 export type FormQuestion = {
   label: string;
   /** Antwortmöglichkeiten, in Reihenfolge. */
   options: string[];
-  /** Antworten, die auf die Nicht-Lead-Zielseite führen (bedingte Logik). */
-  disqualify: string[];
+  /** Ziel je Antwort (Schlüssel = Antworttext). Fehlt eine Antwort, heißt das "next". */
+  goto: Record<string, Goto>;
 };
+
+export const gotoOf = (q: FormQuestion, option: string): Goto => q.goto[option] ?? "next";
+
+/** Ziele auf eine Fragenummer umschreiben – nach Verschieben oder Löschen einer Frage. */
+export function renumber(questions: FormQuestion[], map: (n: number) => Goto): FormQuestion[] {
+  return questions.map((q) => ({
+    ...q,
+    goto: Object.fromEntries(Object.entries(q.goto).map(([o, g]) => [o, typeof g === "number" ? map(g) : g]).filter(([, g]) => g !== "next")),
+  }));
+}
+
+/** Frage i eine Stelle nach oben (-1) oder unten (+1); Verweise wandern mit. */
+export function moveQuestion(questions: FormQuestion[], i: number, dir: -1 | 1): FormQuestion[] {
+  const j = i + dir;
+  if (j < 0 || j >= questions.length) return questions;
+  const next = [...questions];
+  [next[i], next[j]] = [next[j], next[i]];
+  return renumber(next, (n) => (n === i + 1 ? j + 1 : n === j + 1 ? i + 1 : n));
+}
+
+/** Frage i entfernen; Verweise darauf werden "next", spätere rücken auf. */
+export function removeQuestion(questions: FormQuestion[], i: number): FormQuestion[] {
+  return renumber(
+    questions.filter((_, k) => k !== i),
+    (n) => (n === i + 1 ? "next" : n > i + 1 ? n - 1 : n),
+  );
+}
 
 export type FormEnding = { title: string; description: string; buttonLabel: string; url: string };
 
@@ -82,14 +117,14 @@ export function privacyLinkText(business: string): string {
 export const PFK_QUESTION: FormQuestion = {
   label: "Hast du eine abgeschlossene 3-jährige Ausbildung in der Pflege?",
   options: ["Ja", "Nein"],
-  disqualify: ["Nein"],
+  goto: { Nein: "nolead" },
 };
 
 /** Nur, wenn Aufgabe oder Onboarding den Führerschein verlangen. */
 export const LICENSE_QUESTION: FormQuestion = {
   label: "Hast du einen Führerschein?",
   options: ["Ja", "Nein"],
-  disqualify: ["Nein"],
+  goto: { Nein: "nolead" },
 };
 
 /** Pflege und Leitung sind verschiedene Berufe – sucht ein Kunde beides, fragt das Formular zuerst, wohin. */
@@ -104,7 +139,7 @@ export function roleChoiceQuestion(roles: string[], roleFreeText?: string): Form
   const management = codes.some((c) => MANAGEMENT.has(c));
   const care = codes.some((c) => CARE.has(c));
   if (!(management && care) || labels.length < 2) return undefined;
-  return { label: "Für welche Stelle interessierst du dich?", options: [...new Set(labels)], disqualify: [] };
+  return { label: "Für welche Stelle interessierst du dich?", options: [...new Set(labels)], goto: {} };
 }
 
 /** `PFK/PA v1 JP` – Kürzel, wo eins existiert, sonst die Bezeichnung wörtlich. */
@@ -140,8 +175,12 @@ const clean = (q: FormQuestion): FormQuestion | undefined => {
   const label = q.label.trim();
   const options = q.options.map((o) => o.trim()).filter(Boolean);
   if (!label || options.length < 2) return undefined;
-  const disqualify = q.disqualify.map((o) => o.trim()).filter((o) => options.includes(o));
-  return { label, options, disqualify };
+  const goto: Record<string, Goto> = {};
+  for (const [o, g] of Object.entries(q.goto ?? {})) {
+    const key = o.trim();
+    if (options.includes(key) && g !== "next" && (g === "lead" || g === "nolead" || (Number.isInteger(g) && (g as number) > 0))) goto[key] = g;
+  }
+  return { label, options, goto };
 };
 
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
@@ -168,11 +207,23 @@ export function assembleQuestions(input: {
       !(fixed.includes(PFK_QUESTION) && /3.?j[äa]hrig|dreij[äa]hrig|pflegefachkraft|examin/i.test(q.label) && q.options.length <= 2),
   );
   const out: FormQuestion[] = [];
+  const raws: FormQuestion[] = [];
   for (const raw of [...fixed, ...suggested, ...(input.licenseRequired ? [LICENSE_QUESTION] : [])]) {
     const q = clean(raw);
-    if (q && !out.some((x) => same(x.label, q.label))) out.push(q);
+    if (q && !out.some((x) => same(x.label, q.label))) {
+      out.push(q);
+      raws.push(raw);
+    }
   }
-  return out;
+  // Zahlen in den KI-Vorschlägen zählen die Vorschlagsliste – hier stehen
+  // feste Fragen davor und manche Vorschläge fallen weg, also neu zählen.
+  return out.map((q, i) => {
+    if (!input.suggested.includes(raws[i])) return q;
+    return renumber([q], (n) => {
+      const target = raws.indexOf(input.suggested[n - 1]) + 1;
+      return target > i + 1 ? target : "next";
+    })[0];
+  });
 }
 
 export function buildFormSpec(input: FormSpecInput): FormSpec {
@@ -217,19 +268,32 @@ export function formSpecBlockers(spec: FormSpec): string[] {
 
 /**
  * Die bedingte Logik ist der Zweck des Formulars: mindestens eine Antwort muss
- * auf die Nicht-Lead-Seite führen, und keine Frage darf jeden aussortieren.
+ * auf die Nicht-Lead-Seite führen, keine Frage darf jeden aussortieren, Sprünge
+ * gehen nur vorwärts, und jede Frage muss von irgendeiner Antwort erreicht werden.
  */
 export function questionBlockers(questions: FormQuestion[]): string[] {
   const out: string[] = [];
+  const reached = new Set<number>([1]);
   questions.forEach((q, i) => {
     const n = `F${i + 1}`;
     const opts = q.options.map((o) => o.trim()).filter(Boolean);
     if (!q.label.trim()) out.push(`${n}: Es fehlt der Fragetext.`);
     if (opts.length < 2) out.push(`${n}: Mindestens zwei Antworten.`);
     if (new Set(opts.map((o) => o.toLowerCase())).size !== opts.length) out.push(`${n}: Eine Antwort steht doppelt.`);
-    if (opts.length && opts.every((o) => q.disqualify.includes(o))) out.push(`${n}: Jede Antwort führt zur Nicht-Lead-Seite – niemand käme durch.`);
+    if (opts.length && opts.every((o) => gotoOf(q, o) === "nolead")) out.push(`${n}: Jede Antwort führt zur Nicht-Lead-Seite – niemand käme durch.`);
+    for (const o of opts) {
+      const g = gotoOf(q, o);
+      if (g === "next") reached.add(i + 2);
+      else if (typeof g === "number") {
+        if (g <= i + 1 || g > questions.length) out.push(`${n}: „${o}“ verweist auf F${g} – nur auf eine spätere Frage.`);
+        else reached.add(g);
+      }
+    }
   });
-  if (questions.length && !questions.some((q) => q.disqualify.some((d) => q.options.includes(d))))
+  questions.forEach((_, i) => {
+    if (i > 0 && !reached.has(i + 1)) out.push(`F${i + 1}: Keine Antwort führt hierher.`);
+  });
+  if (questions.length && !questions.some((q) => q.options.some((o) => gotoOf(q, o) === "nolead")))
     out.push("Keine Antwort führt zur Nicht-Lead-Seite – mindestens eine Frage braucht bedingte Logik.");
   return out;
 }

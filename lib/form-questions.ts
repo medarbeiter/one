@@ -5,7 +5,8 @@
  * deterministisch davor bzw. dahinter. Läuft nur auf dem Server.
  */
 import { mistral, roleLabels } from "./bodies";
-import { assembleQuestions, roleChoiceQuestion, type FormQuestion } from "./form-spec";
+import { brick, bricksForPrompt } from "./form-bricks";
+import { assembleQuestions, roleChoiceQuestion, type FormQuestion, type Goto } from "./form-spec";
 
 export type QuestionsInput = {
   roles: string[];
@@ -63,28 +64,25 @@ ${req || "–"}
 BENEFITS (nur Kontext, daraus entstehen keine Fragen):
 ${input.benefits?.trim() || "–"}
 
-SO KLINGEN DIE FORMULARE DER AGENTUR (Ton und Länge treffen, Inhalt an den Kunden anpassen):
-- „Hast du eine Ausbildung in der Pflege?“ → „Ja, die 3-jährige Ausbildung zur Pflegefachkraft“ / „Ja, die 1-jährige Ausbildung zur Pflegehilfskraft“ / „Nein, keine Ausbildung“
-- „Welche Qualifikation hast du in der Pflege?“ → „Gelernte Pflegehelfer/in (1 Jahr)“ / „LG1-Schein“ / „Erfahrung, aber keine Ausbildung“ / „Keine Erfahrung“
-- „Wie viel Erfahrung hast du in der Pflege?“ → „Mehr als 2 Jahre“ / „Weniger als 2 Jahre“
-- „Möchtest du die Pflege gern kennenlernen?“ → „Ja“ / „Nein“
-- „Bist du bereit, im Früh- und Spätdienst zu arbeiten?“ → „Ja“ / „Nein“
+FERTIGE BAUSTEINE (Wortlaut der Agentur – passt einer, nimm ihn per {"brick":"id"} statt ihn umzuschreiben; Ton und Länge sind auch das Maß für eigene Fragen):
+${bricksForPrompt()}
 
 REGELN:
 - 1 bis 3 Multiple-Choice-Fragen. Jede Frage muss sich aus den Stellen, der Aufgabe oder den Voraussetzungen begründen – keine allgemeinen Fragen.
 - Ausbildungen immer mit ihrer Dauer nennen: 3-jährige Ausbildung zur Pflegefachkraft, 1-jährige Ausbildung zur Pflegehilfskraft, LG1-Schein. Nie nur „Ja, als Fachkraft“.
-- Verlangt der Kunde etwas ausdrücklich (bestimmte Ausbildung, Schichten, Wochenende, Nachtdienst, Erfahrung, Sprache), frag genau danach und setze die Antworten, die ihn nicht erfüllen, in "disqualify". Wünsche ohne Muss werden gefragt, aber nicht ausgeschlossen.
+- Verlangt der Kunde etwas ausdrücklich (bestimmte Ausbildung, Schichten, Wochenende, Nachtdienst, Erfahrung, Sprache), frag genau danach und gib den Antworten, die ihn nicht erfüllen, das Ziel "nolead". Wünsche ohne Muss werden gefragt, aber nicht ausgeschlossen.
+- "goto" nennt je Antwort das Ziel; fehlt eine Antwort, geht es zur nächsten Frage. Ziele: "nolead" (Kein Lead), "lead" (Formular sofort senden), oder eine Zahl = Nummer einer späteren Frage in deiner Liste (Sprung, z. B. Fachkraft überspringt die Hilfskraft-Frage).
 - Antworten kurz (höchstens 6 Wörter), 2 bis 4 je Frage, ohne Erklärsätze.
 - Nicht fragen (kommt fest dazu oder ist tabu): ${fixed.join("; ")}. Kein Gehalt, Alter, Herkunft, Gesundheit, Familie.
 - Keine Frage nach Ausbildung, wenn ausdrücklich Quereinsteiger ohne Ausbildung gesucht sind.
 
 Antworte NUR mit JSON, ohne Erklärung:
-[{"label":"…","options":["…","…"],"disqualify":["…"]}]`;
+[{"brick":"id"},{"label":"…","options":["…","…"],"goto":{"…":"nolead"}}]`;
 }
 
 const unfence = (s: string) => s.replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, "").trim();
 
-/** Defensiv wie parseCampaignContext in lib/brief.ts: alles Fremde fällt heraus. */
+/** Defensiv wie parseCampaignContext in lib/brief.ts: alles Fremde fällt heraus. Bausteine per id, Ziele nur die vier bekannten. */
 export function parseQuestions(content: string): FormQuestion[] {
   let data: unknown;
   try {
@@ -95,8 +93,26 @@ export function parseQuestions(content: string): FormQuestion[] {
   if (!Array.isArray(data)) return [];
   const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
   const list = (v: unknown) => (Array.isArray(v) ? v.map(str).filter(Boolean) : []);
+  const goto = (v: unknown): Record<string, Goto> => {
+    const out: Record<string, Goto> = {};
+    if (!v || typeof v !== "object" || Array.isArray(v)) return out;
+    for (const [o, g] of Object.entries(v as Record<string, unknown>)) {
+      if (g === "lead" || g === "nolead" || (typeof g === "number" && Number.isInteger(g) && g > 0)) out[o.trim()] = g;
+    }
+    return out;
+  };
   return data
-    .map((q) => ({ label: str((q as { label?: unknown })?.label), options: list((q as { options?: unknown })?.options), disqualify: list((q as { disqualify?: unknown })?.disqualify) }))
+    .map((q): FormQuestion => {
+      const b = brick(str((q as { brick?: unknown })?.brick));
+      if (b) return { ...b.question, goto: { ...b.question.goto } };
+      const options = list((q as { options?: unknown })?.options);
+      return {
+        label: str((q as { label?: unknown })?.label),
+        options,
+        // Altes Feld der KI-Antwort – wer es noch schreibt, meint "nolead".
+        goto: { ...Object.fromEntries(list((q as { disqualify?: unknown })?.disqualify).map((o) => [o, "nolead" as const])), ...goto((q as { goto?: unknown })?.goto) },
+      };
+    })
     .filter((q) => q.label && q.options.length >= 2)
     .slice(0, 4);
 }

@@ -31,7 +31,8 @@ type FormSpec = {
   language: "Deutsch";
   sharing: "Offen";
   intro: { title: string; description: string };
-  questions: { label: string; options: string[]; disqualify: string[] }[]; // Multiple Choice
+  questions: { label: string; options: string[]; goto: Record<string, Goto> }[]; // Multiple Choice
+  // Goto = "next" | "lead" | "nolead" | number (F-Nummer einer späteren Frage); fehlt = "next"
   freeText: string[];                    // zuletzt: „Wann bist du am besten erreichbar?“
   contact: { headline: string; fields: ["FULL_NAME", "PHONE", "EMAIL"] };
   privacyUrl: string;
@@ -40,9 +41,12 @@ type FormSpec = {
 };
 ```
 
-Bedingte Logik ist immer an. Jede Option in `disqualify` führt zu „Formular schließen“
-(Zielseite E2 für Nicht-Leads); alle anderen „Zu einer Frage“ (die nächste); die letzte
-Frage führt per „Formular senden“ auf E1.
+Bedingte Logik ist immer an. Je Antwort steht in `goto` eins der vier Ziele des Baukastens:
+`"nolead"` → „Formular schließen“ (E2), `"lead"` → „Formular senden“ (E1), eine Zahl →
+„Zu einer Frage“ (nur vorwärts), sonst die nächste Frage; hinter der letzten Frage heißt
+„nächste“ senden. `questionBlockers()` verlangt Vorwärts-Sprünge, Erreichbarkeit jeder
+Frage und mindestens ein `"nolead"`. Fertige Fragen mit Logik stehen in
+`lib/form-bricks.ts`; der Editor bietet sie als Menü, Mistral setzt sie per `{"brick":"id"}`.
 
 ## Transport
 

@@ -8,7 +8,7 @@ kein API-Aufruf: `docs/superpowers/specs/2026-08-16-lead-form-creation-design.md
 1. `chrome://extensions` → „Entwicklermodus“ an → „Entpackte Erweiterung laden“ → diesen Ordner wählen.
 2. In Meta Business Suite auf der Kundenseite angemeldet sein.
 3. `/campaigns/new` neu laden – unter „Lead-Formular“ steht dann „Die Erweiterung (v…) öffnet den Baukasten“.
-4. **Vorlage vorschlagen** → Fragen und „Kein Lead“-Antworten im Editor prüfen → **In Meta bauen**. Ein neuer Tab geht auf, die Erweiterung
+4. **Vorlage vorschlagen** → Fragen und das Ziel jeder Antwort (weiter, Sprung, senden, Kein Lead) im Editor prüfen → **In Meta bauen**. Ein neuer Tab geht auf, die Erweiterung
    baut bis zur Prüfung; „Formular erstellen“ klickt der Mensch.
 
 `bridge.js` läuft auf der App (localhost, *.med-arbeiter.de, *.medarbeiter.de – andere

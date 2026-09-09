@@ -1,24 +1,29 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Badge, Banner, Button, IconButton, Text, TextInput, ToggleButton } from "@astryxdesign/core";
+import { Badge, Banner, Button, DropdownMenu, IconButton, Selector, Text, TextInput } from "@astryxdesign/core";
+import { ArrowDownIcon, ArrowSquareOutIcon, ArrowUpIcon, PlusIcon, SparkleIcon, TrashIcon } from "@phosphor-icons/react";
+import { BRICKS } from "@/lib/form-bricks";
 import {
-  ArrowDownIcon,
-  ArrowSquareOutIcon,
-  ArrowUpIcon,
-  PlusIcon,
-  ProhibitIcon,
-  SparkleIcon,
-  TrashIcon,
-} from "@phosphor-icons/react";
-import { buildFormSpec, formSpecBlockers, type FormQuestion, type FormSpec } from "@/lib/form-spec";
+  buildFormSpec,
+  formSpecBlockers,
+  gotoOf,
+  moveQuestion,
+  REACHABILITY,
+  removeQuestion,
+  type FormQuestion,
+  type FormSpec,
+  type Goto,
+} from "@/lib/form-spec";
 import { instantFormsUrl } from "@/lib/forms";
 import { suggestFormAction, type FormSuggestInput } from "../actions";
 
 /**
  * Der Editor für ein neues Lead-Formular: die KI schlägt die Fragen vor, der
- * Rest ist Regel (lib/form-spec.ts). Jede Antwort ist entweder „weiter“ oder
- * „Kein Lead“ – das ist die bedingte Logik, die Meta nur im Baukasten kennt.
+ * Rest ist Regel (lib/form-spec.ts). Jede Antwort hat ein Ziel – nächste
+ * Frage, eine spätere Frage, Formular senden oder Kein Lead – dieselben vier,
+ * die Metas Baukasten je Antwort anbietet, damit man hier sieht, was dort
+ * entsteht. Fertige Fragen kommen aus den Bausteinen (lib/form-bricks.ts).
  * „In Meta bauen“ reicht die Vorlage an die Erweiterung (extension/), die den
  * Baukasten tippt. Ohne Erweiterung gibt es keinen Editor, nur den Link in den
  * Baukasten: eine Vorlage, die niemand abtippt, wäre bloß Lesestoff.
@@ -107,32 +112,44 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
 
   const update = (i: number, patch: Partial<FormQuestion>) =>
     setQuestions((qs) => qs.map((q, j) => (j === i ? { ...q, ...patch } : q)));
-  const move = (i: number, dir: -1 | 1) =>
-    setQuestions((qs) => {
-      const next = [...qs];
-      const [q] = next.splice(i, 1);
-      next.splice(i + dir, 0, q);
-      return next;
-    });
   const setOption = (i: number, k: number, text: string) => {
     const q = questions[i];
     const old = q.options[k];
-    update(i, {
-      options: q.options.map((o, m) => (m === k ? text : o)),
-      disqualify: q.disqualify.map((d) => (d === old ? text : d)),
-    });
+    const goto = { ...q.goto };
+    if (old in goto) {
+      const g = goto[old];
+      delete goto[old];
+      goto[text] = g;
+    }
+    update(i, { options: q.options.map((o, m) => (m === k ? text : o)), goto });
   };
-  const toggleNoLead = (i: number, option: string) => {
-    const q = questions[i];
-    update(i, {
-      disqualify: q.disqualify.includes(option) ? q.disqualify.filter((d) => d !== option) : [...q.disqualify, option],
-    });
+  const setGoto = (i: number, option: string, value: string) => {
+    const goto = { ...questions[i].goto };
+    if (value === "next") delete goto[option];
+    else goto[option] = /^\d+$/.test(value) ? Number(value) : (value as Goto);
+    update(i, { goto });
   };
   const removeOption = (i: number, k: number) => {
     const q = questions[i];
-    update(i, { options: q.options.filter((_, m) => m !== k), disqualify: q.disqualify.filter((d) => d !== q.options[k]) });
+    const goto = { ...q.goto };
+    delete goto[q.options[k]];
+    update(i, { options: q.options.filter((_, m) => m !== k), goto });
   };
-  const addQuestion = () => setQuestions((qs) => [...qs, { label: "", options: ["Ja", "Nein"], disqualify: ["Nein"] }]);
+  const addQuestion = (q: FormQuestion = { label: "", options: ["Ja", "Nein"], goto: { Nein: "nolead" } }) =>
+    setQuestions((qs) => [...qs, { ...q, goto: { ...q.goto } }]);
+  const short = (label: string) => (label.length > 40 ? `${label.slice(0, 38)}…` : label);
+  // Die Ziele einer Antwort in Frage i: weiter, jede spätere Frage, senden, Kein Lead.
+  const targets = (i: number) => {
+    const later = questions.slice(i + 1).map((q, k) => ({ value: String(i + k + 2), label: `F${i + k + 2} ${short(q.label) || "(ohne Text)"}` }));
+    const next = i + 1 < questions.length ? `F${i + 2} ${short(questions[i + 1].label) || "(ohne Text)"}` : `F${questions.length + 1} ${REACHABILITY}`;
+    return [
+      { value: "next", label: `Weiter: ${next}` },
+      ...(later.length > 1 ? [{ type: "section" as const, title: "Springe zu", options: later.slice(1) }] : []),
+      { type: "divider" as const },
+      { value: "lead", label: "Formular senden – Lead (E1)" },
+      { value: "nolead", label: "Kein Lead – Formular schließen (E2)" },
+    ];
+  };
 
   const reachIndex = questions.length + 1;
 
@@ -196,61 +213,57 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
                       width="100%"
                     />
                   </div>
-                  <IconButton variant="ghost" size="sm" label="Nach oben" icon={<ArrowUpIcon size={16} />} isDisabled={i === 0} onClick={() => move(i, -1)} />
+                  <IconButton variant="ghost" size="sm" label="Nach oben" icon={<ArrowUpIcon size={16} />} isDisabled={i === 0} onClick={() => setQuestions((qs) => moveQuestion(qs, i, -1))} />
                   <IconButton
                     variant="ghost"
                     size="sm"
                     label="Nach unten"
                     icon={<ArrowDownIcon size={16} />}
                     isDisabled={i === questions.length - 1}
-                    onClick={() => move(i, 1)}
+                    onClick={() => setQuestions((qs) => moveQuestion(qs, i, 1))}
                   />
                   <IconButton
                     variant="ghost"
                     size="sm"
                     label="Frage entfernen"
                     icon={<TrashIcon size={16} />}
-                    onClick={() => setQuestions((qs) => qs.filter((_, j) => j !== i))}
+                    onClick={() => setQuestions((qs) => removeQuestion(qs, i))}
                   />
                 </div>
                 <ul className="space-y-1 pl-10">
-                  {q.options.map((o, k) => {
-                    const noLead = q.disqualify.includes(o);
-                    return (
-                      <li key={k} className="flex items-center gap-2">
-                        <div className="min-w-0 flex-1">
-                          <TextInput
-                            label={`Antwort ${k + 1}`}
-                            isLabelHidden
-                            value={o}
-                            onChange={(v) => setOption(i, k, v)}
-                            placeholder="Antwort"
-                            size="sm"
-                            width="100%"
-                          />
-                        </div>
-                        <Text type="supporting" as="span" className="w-28 text-right tabular-nums">
-                          {noLead ? "→ Kein Lead (E2)" : `→ F${i + 2}`}
-                        </Text>
-                        <ToggleButton
+                  {q.options.map((o, k) => (
+                    <li key={k} className="flex items-center gap-2">
+                      <div className="min-w-0 flex-1">
+                        <TextInput
+                          label={`Antwort ${k + 1}`}
+                          isLabelHidden
+                          value={o}
+                          onChange={(v) => setOption(i, k, v)}
+                          placeholder="Antwort"
                           size="sm"
-                          label="Kein Lead"
-                          icon={<ProhibitIcon size={14} />}
-                          isPressed={noLead}
-                          onPressedChange={() => toggleNoLead(i, o)}
-                          isDisabled={!o.trim()}
+                          width="100%"
                         />
-                        <IconButton
-                          variant="ghost"
-                          size="sm"
-                          label="Antwort entfernen"
-                          icon={<TrashIcon size={14} />}
-                          isDisabled={q.options.length <= 2}
-                          onClick={() => removeOption(i, k)}
-                        />
-                      </li>
-                    );
-                  })}
+                      </div>
+                      <Selector
+                        label={`Ziel von „${o || `Antwort ${k + 1}`}“`}
+                        isLabelHidden
+                        size="sm"
+                        width={260}
+                        options={targets(i)}
+                        value={String(gotoOf(q, o))}
+                        onChange={(v) => setGoto(i, o, v)}
+                        isDisabled={!o.trim()}
+                      />
+                      <IconButton
+                        variant="ghost"
+                        size="sm"
+                        label="Antwort entfernen"
+                        icon={<TrashIcon size={14} />}
+                        isDisabled={q.options.length <= 2}
+                        onClick={() => removeOption(i, k)}
+                      />
+                    </li>
+                  ))}
                   <li>
                     <Button
                       variant="ghost"
@@ -265,7 +278,17 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
               </li>
             ))}
           </ol>
-          <Button variant="ghost" size="sm" icon={<PlusIcon size={14} />} label="Frage" onClick={addQuestion} isDisabled={questions.length >= 6} />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="ghost" size="sm" icon={<PlusIcon size={14} />} label="Eigene Frage" onClick={() => addQuestion()} isDisabled={questions.length >= 6} />
+            <DropdownMenu
+              button={{ label: "Baustein", variant: "ghost", size: "sm", isDisabled: questions.length >= 6 }}
+              items={BRICKS.map((b) => ({
+                label: b.question.label,
+                isDisabled: questions.some((q) => q.label.trim().toLowerCase() === b.question.label.toLowerCase()),
+                onClick: () => addQuestion(b.question),
+              }))}
+            />
+          </div>
 
           {/* Was fest ist, steht sichtbar – nur nicht editierbar. */}
           <div className="space-y-1 rounded-md bg-neutral-50 p-2">
