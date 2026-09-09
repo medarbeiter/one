@@ -27,24 +27,32 @@ export const formatDate = (d: Date) =>
  * angesprochen wird – ohne den Zusatz schriebe sie Texte für eine Fachrolle.
  */
 export const ROLES: readonly { code: string; label: string; prompt?: string }[] = [
-  { code: "FK", label: "Fachkräfte" },
-  { code: "HK", label: "Hilfskräfte" },
-  { code: "PFK", label: "Pflegefachkraft" },
+  { code: "PFK", label: "Pflegefachkräfte" },
+  { code: "PHK", label: "Pflegehilfskräfte" },
   { code: "PDL", label: "Pflegedienstleitung" },
   { code: "Stv. PDL", label: "Stv. Pflegedienstleitung" },
-  { code: "MA", label: "Mitarbeiter" },
-  { code: "PA", label: "Pflegeassistenz" },
-  { code: "PH", label: "Pflegehelfer" },
   {
-    code: "QE",
-    label: "Quereinsteiger",
+    code: "MA",
+    label: "Mitarbeiter",
     prompt:
-      "Quereinsteiger – gesucht wird praktisch jede und jeder, keine Ausbildung oder Pflege-Erfahrung nötig",
+      "Mitarbeiter in der Pflege – gesucht werden Pflegekräfte allgemein, egal ob Fach- oder Hilfskraft, keine bestimmte Position",
   },
-  { code: "BK", label: "Betreuungskraft" },
-  { code: "HW", label: "Hauswirtschaftskraft" },
-  { code: "Koch", label: "Koch" },
+  { code: "BK", label: "Betreuungskräfte" },
+  { code: "HW", label: "Hauswirtschaftskräfte" },
+  { code: "Koch", label: "Köche" },
 ];
+
+/**
+ * Kürzel aus Altbeständen (ClickUp-Aufgaben, alte Kampagnennamen), die es im
+ * UI nicht mehr gibt – beim Lesen auf das nächste heutige Kürzel abgebildet.
+ */
+export const LEGACY_CODES: Readonly<Record<string, string>> = {
+  FK: "PFK",
+  HK: "PHK",
+  PA: "PHK",
+  PH: "PHK",
+  QE: "MA",
+};
 
 // Zweistelliges Jahr – formatDate bleibt vierstellig, das braucht die Anzeige.
 const shortDate = (d: Date) =>
@@ -73,13 +81,14 @@ export function parseCampaignName(
   const m = /^(.+?) - (?:(.*?) )?ab \d{2}\.\d{2}\.\d{2,4}\b/.exec(name.trim());
   if (!m) return undefined;
   // Längste Kürzel zuerst, sonst nähme "PDL" dem "Stv. PDL" die Hälfte weg.
-  const codes = [...ROLES.map((r) => r.code)].sort((a, b) => b.length - a.length);
+  const codes = [...ROLES.map((r) => r.code), ...Object.keys(LEGACY_CODES)].sort((a, b) => b.length - a.length);
   const roles: string[] = [];
   let rest = (m[2] ?? "").trim();
   for (;;) {
     const code = codes.find((c) => rest === c || rest.startsWith(`${c}/`) || rest.startsWith(`${c} `));
     if (!code) break;
-    roles.push(code);
+    const today = LEGACY_CODES[code] ?? code;
+    if (!roles.includes(today)) roles.push(today);
     rest = rest.slice(code.length).replace(/^\//, "").trim();
   }
   return { business: m[1].trim(), roles, roleFreeText: rest };

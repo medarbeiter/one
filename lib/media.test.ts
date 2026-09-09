@@ -136,6 +136,7 @@ test("creative names fill the first free number", () => {
   expect(nextCreativeName(["Creative 1", "Creative 2"])).toBe("Creative 3");
   // Eine geliehene Anzeige behält ihren Namen; lokale zählen darum herum.
   expect(nextCreativeName(["Creative 1", "Creative 3"])).toBe("Creative 2");
+  expect(nextCreativeName(["Creative 1", "Bild 1"], "Bild")).toBe("Bild 2");
 });
 
 test("the ad name is the file name without its extension", () => {

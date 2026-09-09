@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import {
   Banner,
   Button,
@@ -19,6 +19,12 @@ import type { WizardImageAsset } from "./state";
  * und sind selten schon 9:16 oder 1:1 – Meta beschneidet sie dann selbst, und
  * zwar mittig und ohne Rücksicht darauf, wo der Kopf sitzt. Hier wird der
  * Ausschnitt einmal gewählt und als eigenes Bild hochgeladen.
+ *
+ * Beide Formate in einem Dialog: jede Seite hat ihr eigenes Bild, ihren Zoom
+ * und ihren Ausschnitt. Wer zwischen 9:16 und 1:1 wechselt, verliert nichts.
+ * Übernommen wird, was angefasst wurde – und die Seite, mit der der Dialog
+ * aufging, immer. Das Hochladen läuft danach im Hintergrund weiter; die
+ * Kachel zeigt so lange, dass sie wartet.
  *
  * Gerechnet wird in drei Größen, die auseinanderzuhalten sind:
  * - **natürlich**: die Pixel der Datei (nw × nh)
@@ -41,82 +47,106 @@ const MIN_WIDTH = 600;
 const MAX_ZOOM = 4;
 
 type Point = { x: number; y: number };
+type Size = { w: number; h: number };
+
+/** Eine Seite des Dialogs: welches Format aus welchem Bild geschnitten wird. */
+export type CropSide = { target: Orientation; asset: WizardImageAsset };
+
+type Edit = { zoom: number; offset: Point; natural?: Size; touched: boolean };
+const BLANK: Edit = { zoom: 1, offset: { x: 0, y: 0 }, touched: false };
+
+// Ein zweiter Zuschnitt geht vom Original aus, nicht vom ersten Ausschnitt.
+const sourceOf = (a: WizardImageAsset) => ({
+  hash: a.sourceHash ?? a.hash,
+  fileName: a.sourceFileName ?? a.fileName,
+});
+
+/**
+ * Die Geometrie einer Seite. Der Rahmen muss immer vollständig gefüllt sein –
+ * deshalb "cover" als Grundmaß, und der Zoom setzt darauf auf. Der Zoom endet,
+ * wo der Ausschnitt unter Metas Mindestbreite fiele; ein Bild, das schon
+ * ungezoomt darunter liegt, darf trotzdem zugeschnitten werden.
+ */
+function geometry(frame: Size, e: Edit) {
+  const n = e.natural;
+  const base = n ? Math.max(frame.w / n.w, frame.h / n.h) : 1;
+  const maxZoom = n ? Math.max(1, Math.min(MAX_ZOOM, frame.w / base / MIN_WIDTH)) : 1;
+  const sizeAt = (z: number): Size => (n ? { w: n.w * base * z, h: n.h * base * z } : frame);
+  const clamp = (o: Point, s = sizeAt(e.zoom)): Point => ({
+    x: Math.min(0, Math.max(frame.w - s.w, o.x)),
+    y: Math.min(0, Math.max(frame.h - s.h, o.y)),
+  });
+  return { base, maxZoom, sizeAt, clamp, shown: sizeAt(e.zoom), pos: clamp(e.offset) };
+}
+
+// Mittig starten: der Ausschnitt, den auch Meta nähme – nur eben verschiebbar.
+const centered = (frame: Size, n: Size): Point => {
+  const b = Math.max(frame.w / n.w, frame.h / n.h);
+  return { x: (frame.w - n.w * b) / 2, y: (frame.h - n.h * b) / 2 };
+};
+
+async function upload(side: CropSide, blob: Blob, adAccount: string): Promise<WizardImageAsset> {
+  const source = sourceOf(side.asset);
+  // Der Name trägt das Format: in Metas Bildbibliothek stehen sonst zwei
+  // Dateien gleichen Namens nebeneinander. Ein altes Kürzel fällt vorher
+  // weg – „Lea 9x16 1x1.jpg“ wäre ein Widerspruch im Namen.
+  const stem = splitFormatToken(source.fileName).stem;
+  const fileName = `${stem} ${side.target === "portrait" ? "9x16" : "1x1"}.jpg`;
+  const fd = new FormData();
+  fd.set("file", new File([blob], fileName, { type: "image/jpeg" }));
+  fd.set("adAccount", adAccount);
+  const json = await fetch("/api/upload", { method: "POST", body: fd }).then((r) => r.json());
+  if (json.error) throw new Error(json.error);
+  return {
+    kind: "image",
+    hash: json.hash,
+    fileName,
+    orientation: side.target,
+    // Dasselbe Motiv, also derselbe Fingerabdruck – die Paarung erkennt es weiter.
+    fingerprint: side.asset.fingerprint,
+    sourceHash: source.hash,
+    sourceFileName: source.fileName,
+  };
+}
 
 export function CropDialog({
-  asset,
-  adAccount,
-  isOpen,
-  onOpenChange,
-  onCropped,
-  targets = ["portrait", "square"],
+  sides,
   initialTarget,
+  adAccount,
+  onOpenChange,
+  onApply,
 }: {
-  asset: WizardImageAsset;
+  sides: CropSide[];
   adAccount: string;
-  isOpen: boolean;
-  onOpenChange: (open: boolean) => void;
-  onCropped: (cropped: WizardImageAsset) => void;
-  /** Welche Formate zur Wahl stehen – in einem Paar nur das der Hälfte. */
-  targets?: Orientation[];
   initialTarget?: Orientation;
+  onOpenChange: (open: boolean) => void;
+  /** Die Uploads laufen weiter, wenn der Dialog schon zu ist – die Kachel wartet darauf. */
+  onApply: (result: Promise<WizardImageAsset[]>) => void;
 }) {
-  // Voreinstellung ist das Format, das noch fehlt: ein quadratisches Bild wird
-  // hier meistens zum Hochformat gemacht, nicht umgekehrt.
-  const [target, setTarget] = useState<Orientation>(
-    initialTarget ??
-      (targets.includes(asset.orientation === "portrait" ? "square" : "portrait")
-        ? asset.orientation === "portrait"
-          ? "square"
-          : "portrait"
-        : targets[0]),
-  );
-  const [zoom, setZoom] = useState(1);
-  const [offset, setOffset] = useState<Point>({ x: 0, y: 0 });
-  const [natural, setNatural] = useState<{ w: number; h: number }>();
-  const [busy, setBusy] = useState(false);
+  const first = initialTarget ?? sides[0].target;
+  const [target, setTarget] = useState<Orientation>(first);
+  const [edits, setEdits] = useState<Partial<Record<Orientation, Edit>>>({});
   const [error, setError] = useState<string>();
   const [dragging, setDragging] = useState(false);
 
-  const img = useRef<HTMLImageElement>(null);
+  const imgs = useRef<Partial<Record<Orientation, HTMLImageElement | null>>>({});
   const frameEl = useRef<HTMLDivElement>(null);
   /** Alle gedrückten Zeiger – einer schiebt, zwei kneifen. */
   const pointers = useRef(new Map<number, Point>());
 
   const frame = FRAMES[target];
-  // Ein zweiter Zuschnitt geht vom Original aus, nicht vom ersten Ausschnitt.
-  const sourceHash = asset.sourceHash ?? asset.hash;
-  const sourceFileName = asset.sourceFileName ?? asset.fileName;
-  const src = imagePreviewUrl(sourceHash, adAccount);
+  const edit = edits[target] ?? BLANK;
+  const { natural, zoom } = edit;
+  const g = geometry(frame, edit);
+  const { pos, shown, maxZoom } = g;
 
-  // Der Rahmen muss immer vollständig gefüllt sein – deshalb "cover" als
-  // Grundmaß, und der Zoom setzt darauf auf.
-  const base = natural ? Math.max(frame.w / natural.w, frame.h / natural.h) : 1;
-  // Der Zoom endet, wo der Ausschnitt unter Metas Mindestbreite fiele. Ein
-  // Bild, das schon ungezoomt darunter liegt, darf trotzdem zugeschnitten
-  // werden – nur nicht noch weiter vergrößert.
-  const maxZoom = natural ? Math.max(1, Math.min(MAX_ZOOM, frame.w / base / MIN_WIDTH)) : 1;
-  const shown = natural
-    ? { w: natural.w * base * zoom, h: natural.h * base * zoom }
-    : { w: frame.w, h: frame.h };
-
+  const patch = (o: Orientation, p: Partial<Edit>) =>
+    setEdits((e) => ({ ...e, [o]: { ...(e[o] ?? BLANK), ...p } }));
   // Geklemmt wird beim Zeichnen, nicht in einem Effekt: so steht nie für ein
   // Bild lang ein leerer Streifen im Rahmen.
-  const clamp = (o: Point, s = shown): Point => ({
-    x: Math.min(0, Math.max(frame.w - s.w, o.x)),
-    y: Math.min(0, Math.max(frame.h - s.h, o.y)),
-  });
-  const pos = clamp(offset);
+  const setOffset = (offset: Point) => patch(target, { offset, touched: true });
 
-  // Mittig starten: der Ausschnitt, den auch Meta nähme – nur eben verschiebbar.
-  const center = (n: { w: number; h: number }, f = frame) => {
-    const b = Math.max(f.w / n.w, f.h / n.h);
-    setOffset({ x: (f.w - n.w * b) / 2, y: (f.h - n.h * b) / 2 });
-  };
-
-  const reset = () => {
-    setZoom(1);
-    if (natural) center(natural);
-  };
+  const reset = () => natural && patch(target, { zoom: 1, offset: centered(frame, natural), touched: true });
 
   /**
    * Zoomen um einen Punkt im Rahmen: was unter dem Zeiger liegt, bleibt unter
@@ -127,25 +157,11 @@ export function CropDialog({
     const z = Math.min(maxZoom, Math.max(1, next));
     if (z === zoom) return;
     const k = z / zoom;
-    const s = natural ? { w: natural.w * base * z, h: natural.h * base * z } : shown;
-    setOffset(clamp({ x: pivot.x - (pivot.x - pos.x) * k, y: pivot.y - (pivot.y - pos.y) * k }, s));
-    setZoom(z);
+    const offset = g.clamp({ x: pivot.x - (pivot.x - pos.x) * k, y: pivot.y - (pivot.y - pos.y) * k }, g.sizeAt(z));
+    patch(target, { zoom: z, offset, touched: true });
   };
-  const frameCenter = { x: frame.w / 2, y: frame.h / 2 };
 
-  // Das Rad zoomt. Als React-Handler wäre der Listener passiv und die Seite
-  // scrollte mit – deshalb von Hand und mit preventDefault.
-  useEffect(() => {
-    const el = frameEl.current;
-    if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const r = el.getBoundingClientRect();
-      zoomAt(zoom * Math.exp(-e.deltaY * 0.002), { x: e.clientX - r.left, y: e.clientY - r.top });
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  });
+  const frameCenter = { x: frame.w / 2, y: frame.h / 2 };
 
   const local = (e: { clientX: number; clientY: number }): Point => {
     const r = frameEl.current!.getBoundingClientRect();
@@ -166,7 +182,7 @@ export function CropDialog({
     pointers.current.set(e.pointerId, now);
 
     if (others.length === 0) {
-      setOffset(clamp({ x: pos.x + now.x - was.x, y: pos.y + now.y - was.y }));
+      setOffset(g.clamp({ x: pos.x + now.x - was.x, y: pos.y + now.y - was.y }));
       return;
     }
     // Zwei Finger: der Abstand ist der Zoom, die Mitte der Drehpunkt – und wer
@@ -179,9 +195,8 @@ export function CropDialog({
     const shifted = { x: pos.x + mid.x - midWas.x, y: pos.y + mid.y - midWas.y };
     const z = Math.min(maxZoom, Math.max(1, before ? zoom * (after / before) : zoom));
     const k = z / zoom;
-    const s = natural ? { w: natural.w * base * z, h: natural.h * base * z } : shown;
-    setOffset(clamp({ x: mid.x - (mid.x - shifted.x) * k, y: mid.y - (mid.y - shifted.y) * k }, s));
-    setZoom(z);
+    const offset = g.clamp({ x: mid.x - (mid.x - shifted.x) * k, y: mid.y - (mid.y - shifted.y) * k }, g.sizeAt(z));
+    patch(target, { zoom: z, offset, touched: true });
   };
 
   const onPointerEnd = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -199,7 +214,7 @@ export function CropDialog({
       ArrowUp: { x: 0, y: -step },
       ArrowDown: { x: 0, y: step },
     };
-    if (nudge[e.key]) setOffset(clamp({ x: pos.x + nudge[e.key].x, y: pos.y + nudge[e.key].y }));
+    if (nudge[e.key]) setOffset(g.clamp({ x: pos.x + nudge[e.key].x, y: pos.y + nudge[e.key].y }));
     else if (e.key === "+" || e.key === "=") zoomAt(zoom * 1.1, frameCenter);
     else if (e.key === "-") zoomAt(zoom / 1.1, frameCenter);
     else if (e.key === "0") reset();
@@ -207,89 +222,72 @@ export function CropDialog({
     e.preventDefault();
   };
 
-  const switchTarget = (o: Orientation) => {
-    setTarget(o);
-    setZoom(1);
-    if (natural) center(natural, FRAMES[o]);
-  };
-
-  async function apply() {
-    const el = img.current;
-    if (!el || !natural) return;
-    setBusy(true);
-    setError(undefined);
-    try {
-      const scale = base * zoom;
+  /** Die Ausschnitte werden hier gezeichnet, solange die Bilder noch im DOM stehen; hochgeladen wird danach. */
+  function apply() {
+    const jobs: { side: CropSide; blob: Promise<Blob | null> }[] = [];
+    for (const side of sides) {
+      const e = edits[side.target];
+      const el = imgs.current[side.target];
+      if (!e?.natural || !el || !(e.touched || side.target === first)) continue;
+      const f = FRAMES[side.target];
+      const { base, pos } = geometry(f, e);
+      const scale = base * e.zoom;
       // Vom Rahmen zurück in die Pixel der Datei.
-      const sw = frame.w / scale;
-      const sh = frame.h / scale;
+      const sw = f.w / scale;
+      const sh = f.h / scale;
       const sx = -pos.x / scale;
       const sy = -pos.y / scale;
 
       // Das Ziel im exakten Verhältnis – nicht im gerundeten des Rahmens.
       const tw = Math.max(1, Math.round(Math.min(MAX_WIDTH, sw)));
-      const th = Math.max(1, Math.round(tw * frame.ratio));
+      const th = Math.max(1, Math.round(tw * f.ratio));
 
       const canvas = document.createElement("canvas");
       canvas.width = tw;
       canvas.height = th;
       const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("Der Browser stellt kein Canvas bereit.");
+      if (!ctx) {
+        setError("Der Browser stellt kein Canvas bereit.");
+        return;
+      }
       // JPEG kennt keine Transparenz – ohne diesen Grund würde sie schwarz.
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, tw, th);
       ctx.drawImage(el, sx, sy, sw, sh, 0, 0, tw, th);
-
-      const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/jpeg", 0.92));
-      if (!blob) throw new Error("Der Zuschnitt konnte nicht erzeugt werden.");
-
-      // Der Name trägt das Format: in Metas Bildbibliothek stehen sonst zwei
-      // Dateien gleichen Namens nebeneinander. Ein altes Kürzel fällt vorher
-      // weg – „Lea 9x16 1x1.jpg“ wäre ein Widerspruch im Namen.
-      const stem = splitFormatToken(sourceFileName).stem;
-      const fileName = `${stem} ${target === "portrait" ? "9x16" : "1x1"}.jpg`;
-      const fd = new FormData();
-      fd.set("file", new File([blob], fileName, { type: "image/jpeg" }));
-      fd.set("adAccount", adAccount);
-      const json = await fetch("/api/upload", { method: "POST", body: fd }).then((r) => r.json());
-      if (json.error) throw new Error(json.error);
-
-      onCropped({
-        kind: "image",
-        hash: json.hash,
-        fileName,
-        orientation: target,
-        // Dasselbe Motiv, also derselbe Fingerabdruck – die Paarung erkennt es weiter.
-        fingerprint: asset.fingerprint,
-        sourceHash,
-        sourceFileName,
-      });
-      onOpenChange(false);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
+      jobs.push({ side, blob: new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.92)) });
     }
+    if (jobs.length) {
+      onApply(
+        Promise.all(
+          jobs.map(async ({ side, blob }) => {
+            const b = await blob;
+            if (!b) throw new Error("Der Zuschnitt konnte nicht erzeugt werden.");
+            return upload(side, b, adAccount);
+          }),
+        ),
+      );
+    }
+    onOpenChange(false);
   }
 
   const canZoom = maxZoom > 1;
 
   return (
-    <Dialog isOpen={isOpen} onOpenChange={onOpenChange}>
+    <Dialog isOpen onOpenChange={onOpenChange}>
       <Layout
         header={<DialogHeader title="Bild zuschneiden" onOpenChange={onOpenChange} />}
         content={
           <LayoutContent>
             <div className="space-y-3">
-              {targets.length > 1 && (
+              {sides.length > 1 && (
                 <div className="flex gap-2">
-                  {targets.map((o) => (
+                  {sides.map((s) => (
                     <Button
-                      key={o}
+                      key={s.target}
                       size="sm"
-                      variant={target === o ? "primary" : "secondary"}
-                      label={FRAMES[o].label}
-                      onClick={() => switchTarget(o)}
+                      variant={target === s.target ? "primary" : "secondary"}
+                      label={FRAMES[s.target].label}
+                      onClick={() => setTarget(s.target)}
                     />
                   ))}
                 </div>
@@ -301,7 +299,7 @@ export function CropDialog({
                 <div
                   ref={frameEl}
                   role="img"
-                  aria-label={`Ausschnitt ${FRAMES[target].label}. Pfeiltasten verschieben, Plus und Minus zoomen, 0 setzt zurück.`}
+                  aria-label={`Ausschnitt ${frame.label}. Pfeiltasten verschieben, Plus und Minus zoomen, 0 setzt zurück.`}
                   tabIndex={0}
                   className="border-line bg-surface focus-visible:ring-gold-500 relative touch-none overflow-hidden rounded-xl border outline-none focus-visible:ring-2"
                   style={{ width: frame.w, height: frame.h, cursor: dragging ? "grabbing" : "grab" }}
@@ -317,35 +315,45 @@ export function CropDialog({
                       <Spinner />
                     </div>
                   )}
-                  {/* Gleicher Ursprung über app/api/image – ein fremd geladenes
-                      Bild würde das Canvas sperren und der Zuschnitt käme nie
+                  {/* Ein Bild je Seite, alle geladen: beim Übernehmen müssen
+                      alle Ausschnitte auf einmal gezeichnet werden. Gleicher
+                      Ursprung über app/api/image – ein fremd geladenes Bild
+                      würde das Canvas sperren und der Zuschnitt käme nie
                       wieder heraus. */}
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    ref={img}
-                    src={src}
-                    alt=""
-                    draggable={false}
-                    onLoad={(e) => {
-                      const n = { w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight };
-                      setNatural(n);
-                      center(n);
-                    }}
-                    onError={() => setError("Das Bild konnte nicht geladen werden.")}
-                    className="pointer-events-none absolute select-none"
-                    // Astryx' Reset (:where(img) { max-width: 100% }) liegt in
-                    // @layer astryx-base hinter Tailwinds Utilities – `max-w-none`
-                    // verliert, das Bild würde auf Rahmenbreite gestaucht. Inline
-                    // schlägt jede Ebene.
-                    style={{
-                      maxWidth: "none",
-                      width: shown.w,
-                      height: shown.h,
-                      left: pos.x,
-                      top: pos.y,
-                      visibility: natural ? "visible" : "hidden",
-                    }}
-                  />
+                  {sides.map((s) => (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      key={s.target}
+                      ref={(el) => {
+                        imgs.current[s.target] = el;
+                      }}
+                      src={imagePreviewUrl(sourceOf(s.asset).hash, adAccount)}
+                      alt=""
+                      draggable={false}
+                      onLoad={(e) => {
+                        const n = { w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight };
+                        patch(s.target, { natural: n, offset: centered(FRAMES[s.target], n) });
+                      }}
+                      onError={() => setError("Das Bild konnte nicht geladen werden.")}
+                      className="pointer-events-none absolute select-none"
+                      // Astryx' Reset (:where(img) { max-width: 100% }) liegt in
+                      // @layer astryx-base hinter Tailwinds Utilities – `max-w-none`
+                      // verliert, das Bild würde auf Rahmenbreite gestaucht. Inline
+                      // schlägt jede Ebene.
+                      style={
+                        s.target === target
+                          ? {
+                              maxWidth: "none",
+                              width: shown.w,
+                              height: shown.h,
+                              left: pos.x,
+                              top: pos.y,
+                              visibility: natural ? "visible" : "hidden",
+                            }
+                          : { display: "none" }
+                      }
+                    />
+                  ))}
                 </div>
               </div>
 
@@ -380,17 +388,8 @@ export function CropDialog({
         footer={
           <LayoutFooter hasDivider>
             <div className="flex justify-end gap-2">
-              <Button
-                variant="secondary"
-                label="Abbrechen"
-                onClick={() => onOpenChange(false)}
-                isDisabled={busy}
-              />
-              <Button
-                label={busy ? "Wird hochgeladen…" : "Zuschneiden & übernehmen"}
-                onClick={apply}
-                isDisabled={busy || !natural}
-              />
+              <Button variant="secondary" label="Abbrechen" onClick={() => onOpenChange(false)} />
+              <Button label="Zuschneiden & übernehmen" onClick={apply} isDisabled={!edits[first]?.natural} />
             </div>
           </LayoutFooter>
         }

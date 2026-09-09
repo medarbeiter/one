@@ -19,19 +19,38 @@
  * als Einzelbild, das Meta selbst zurechtschneidet.
  */
 
-import { useEffect, useState, type ReactNode } from "react";
-import { AlertDialog, DropdownMenu, Skeleton, TextInput } from "@astryxdesign/core";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { AlertDialog, DropdownMenu, Skeleton, Spinner, TextInput } from "@astryxdesign/core";
 import { Sign } from "@/theme/icons";
 import { ProgressRing } from "@/app/shell/progress-ring";
 import { cleanStem, imagePreviewUrl, type Orientation } from "@/lib/media";
-import { CropDialog } from "./crop-dialog";
+import { CropDialog, type CropSide } from "./crop-dialog";
 import type { UploadJob } from "./upload-queue";
 import type { WizardAd, WizardAsset, WizardImageAsset, WizardLooseAsset } from "./state";
 
 export const DRAG_TYPE = "application/x-medarbeiter-asset";
 
-/** Welche Hälfte einer Anzeige ein Bild besetzt – für den Ersatz nach dem Zuschnitt. */
-export type AssetSlot = "asset" | "portrait" | "square";
+/**
+ * Der Zuschnitt lädt im Hintergrund hoch, der Dialog ist längst zu. Die Kachel
+ * wartet sichtbar und meldet das Ergebnis über den *jetzigen* onCropped – der
+ * vom Öffnen des Dialogs zeigte noch auf den Stand von damals.
+ */
+function useCropJob(onCropped: (crops: WizardImageAsset[]) => void) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const latest = useRef(onCropped);
+  latest.current = onCropped;
+  const run = (result: Promise<WizardImageAsset[]>) => {
+    setBusy(true);
+    setError(undefined);
+    result
+      .then((crops) => latest.current(crops), (e) => setError((e as Error).message))
+      .finally(() => setBusy(false));
+  };
+  return { busy, error, run };
+}
+
+const CROP_NOTE = "Zuschnitt wird hochgeladen…";
 
 const RATIO = {
   "9:16": "aspect-[9/16]",
@@ -259,11 +278,13 @@ export function AdTile({
   onDissolve: () => void;
   onSwap: () => void;
   onRemove: () => void;
-  onCropped: (slot: AssetSlot, cropped: WizardImageAsset) => void;
+  onCropped: (crops: WizardImageAsset[]) => void;
 }) {
   const [over, setOver] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [crop, setCrop] = useState<AssetSlot | null>(null);
+  // Welches Format der Dialog zuerst zeigt – gesetzt heißt offen.
+  const [cropTarget, setCropTarget] = useState<Orientation>();
+  const cropJob = useCropJob(onCropped);
   const linked = Boolean(ad.source);
   // Ein Paar ist voll; alles mit einem Motiv nimmt noch eine zweite Hälfte auf.
   const takesAsset = ad.type === "ugc" || ad.type === "single";
@@ -282,25 +303,41 @@ export function AdTile({
   // Nur was für diese eine Anzeige gilt: eine Warnung oder die Leihe. Was für
   // jede Anzeige ihrer Art gilt, stand vorher fünfzehnmal untereinander im
   // Raster und war damit keine Auskunft mehr, sondern Grundrauschen.
-  const note = ad.warn
-    ? { text: ad.warn, tone: "warn" as const }
-    : linked
-      ? { text: "Geliehen — Bearbeiten löst die Verbindung" }
-      : ad.reason
-        ? { text: ad.reason }
-        : undefined;
+  const note = cropJob.error
+    ? { text: cropJob.error, tone: "warn" as const }
+    : cropJob.busy
+      ? { text: CROP_NOTE }
+      : ad.warn
+        ? { text: ad.warn, tone: "warn" as const }
+        : linked
+          ? { text: "Geliehen — Bearbeiten löst die Verbindung" }
+          : ad.reason
+            ? { text: ad.reason }
+            : undefined;
+
+  // Beide Formate in einem Dialog: ein Einzelbild wird für 9:16 und 1:1
+  // geschnitten, ein Paar je Hälfte, die ein Bild ist.
+  const cropSides: CropSide[] =
+    ad.type === "single"
+      ? [
+          { target: "portrait", asset: ad.asset },
+          { target: "square", asset: ad.asset },
+        ]
+      : ad.type === "split"
+        ? [
+            ...(ad.portrait.kind === "image" ? [{ target: "portrait" as const, asset: ad.portrait }] : []),
+            ...(ad.square.kind === "image" ? [{ target: "square" as const, asset: ad.square }] : []),
+          ]
+        : [];
+  const canCrop = (o: Orientation) => Boolean(adAccount) && !cropJob.busy && cropSides.some((s) => s.target === o);
 
   const actions: TileAction[] = [];
-  if (adAccount && ad.type === "single") {
-    actions.push({ id: "crop", label: "Zuschneiden", run: () => cropTo("asset", ad.asset.orientation === "portrait" ? "square" : "portrait") });
+  if (ad.type === "single" && canCrop("portrait")) {
+    actions.push({ id: "crop", label: "Zuschneiden", run: () => setCropTarget(ad.asset.orientation === "portrait" ? "square" : "portrait") });
   }
   if (ad.type === "split") {
-    if (adAccount && ad.portrait.kind === "image") {
-      actions.push({ id: "crop-portrait", label: "9:16 zuschneiden", run: () => cropTo("portrait", "portrait") });
-    }
-    if (adAccount && ad.square.kind === "image") {
-      actions.push({ id: "crop-square", label: "1:1 zuschneiden", run: () => cropTo("square", "square") });
-    }
+    if (canCrop("portrait")) actions.push({ id: "crop-portrait", label: "9:16 zuschneiden", run: () => setCropTarget("portrait") });
+    if (canCrop("square")) actions.push({ id: "crop-square", label: "1:1 zuschneiden", run: () => setCropTarget("square") });
     // Die Ausrichtung kommt aus den Maßen, die Platzierung ist eine Entscheidung:
     // wer das Motiv im anderen Rahmen besser findet, tauscht sie hier.
     actions.push({ id: "swap", label: "Formate tauschen", run: onSwap });
@@ -317,22 +354,6 @@ export function AdTile({
     label: "Entfernen",
     run: () => (borrowers.length ? setConfirming(true) : onRemove()),
   });
-
-  const cropAsset =
-    ad.type === "single" && crop === "asset"
-      ? ad.asset
-      : ad.type === "split" && crop === "portrait"
-        ? ad.portrait
-        : ad.type === "split" && crop === "square"
-          ? ad.square
-          : undefined;
-  // Ein Klick auf den Rahmen sagt schon, welches Format gemeint ist.
-  const [cropTarget, setCropTarget] = useState<Orientation>();
-  const cropTo = (slot: AssetSlot, target: Orientation) => {
-    setCropTarget(target);
-    setCrop(slot);
-  };
-  const canCrop = (a: WizardAsset) => adAccount && a.kind === "image";
 
   return (
     <Tile
@@ -355,20 +376,22 @@ export function AdTile({
         <ActionsMenu label={`Aktionen für ${ad.name}`} actions={actions} />
       </TileHeader>
 
-      <Stage>
+      <Stage overlay={cropJob.busy ? <Spinner /> : undefined}>
         {ad.type === "split" ? (
           <>
             <MediaFrame
               ratio="9:16"
               url={previewUrl(ad.portrait, adAccount)}
               alt={ad.portrait.fileName}
-              onCrop={canCrop(ad.portrait) ? () => cropTo("portrait", "portrait") : undefined}
+              isDimmed={cropJob.busy}
+              onCrop={canCrop("portrait") ? () => setCropTarget("portrait") : undefined}
             />
             <MediaFrame
               ratio="1:1"
               url={previewUrl(ad.square, adAccount)}
               alt={ad.square.fileName}
-              onCrop={canCrop(ad.square) ? () => cropTo("square", "square") : undefined}
+              isDimmed={cropJob.busy}
+              onCrop={canCrop("square") ? () => setCropTarget("square") : undefined}
             />
           </>
         ) : ad.type === "ugc" ? (
@@ -383,13 +406,15 @@ export function AdTile({
               ratio="9:16"
               url={previewUrl(ad.asset, adAccount)}
               alt={ad.asset.fileName}
-              onCrop={canCrop(ad.asset) ? () => cropTo("asset", "portrait") : undefined}
+              isDimmed={cropJob.busy}
+              onCrop={canCrop("portrait") ? () => setCropTarget("portrait") : undefined}
             />
             <MediaFrame
               ratio="1:1"
               url={previewUrl(ad.asset, adAccount)}
               alt={ad.asset.fileName}
-              onCrop={canCrop(ad.asset) ? () => cropTo("asset", "square") : undefined}
+              isDimmed={cropJob.busy}
+              onCrop={canCrop("square") ? () => setCropTarget("square") : undefined}
             />
           </>
         )}
@@ -399,21 +424,15 @@ export function AdTile({
 
       {note && <TileNote {...note} />}
 
-      {cropAsset?.kind === "image" && crop && (
+      {cropTarget && cropSides.length > 0 && (
         <CropDialog
-          asset={cropAsset}
+          sides={cropSides}
           adAccount={adAccount}
-          isOpen
-          // In einem Paar hat die Hälfte ihr Format; ein Einzelbild darf beides.
-          targets={crop === "asset" ? undefined : [crop]}
           initialTarget={cropTarget}
           onOpenChange={(open) => {
-            if (!open) setCrop(null);
+            if (!open) setCropTarget(undefined);
           }}
-          onCropped={(cropped) => {
-            onCropped(crop, cropped);
-            setCrop(null);
-          }}
+          onApply={cropJob.run}
         />
       )}
 
@@ -453,11 +472,13 @@ export function LooseTile({
   onPairWith: (draggedId: string) => void;
   /** Bild → Einzelbild-Anzeige, Video → UGC-Anzeige. */
   onPromote: () => void;
-  onCropped: (cropped: WizardImageAsset) => void;
+  onCropped: (crops: WizardImageAsset[]) => void;
   onRemove: () => void;
 }) {
   const [over, setOver] = useState(false);
   const [cropping, setCropping] = useState(false);
+  const cropJob = useCropJob(onCropped);
+  const canCrop = asset.kind === "image" && Boolean(adAccount) && !cropJob.busy;
   const ratio: Ratio = asset.orientation === "portrait" ? "9:16" : "1:1";
 
   // Auch für Videos: ein getrenntes Paar legt sein Video hierher, und ohne
@@ -466,7 +487,7 @@ export function LooseTile({
   // Ziehen ist der schnelle Weg, das Menü der sichere: ohne Maus, ohne Zielen.
   for (const p of partners)
     actions.push({ id: `pair-${p.id}`, label: `Paaren mit „${p.label}“`, run: () => onPairWith(p.id) });
-  if (asset.kind === "image" && adAccount) {
+  if (canCrop) {
     actions.push({
       id: "crop",
       label: asset.orientation === "portrait" ? "1:1 dazu zuschneiden" : "9:16 dazu zuschneiden",
@@ -498,26 +519,36 @@ export function LooseTile({
         <ActionsMenu label={`Aktionen für ${asset.fileName}`} actions={actions} />
       </TileHeader>
 
-      <Stage>
+      <Stage overlay={cropJob.busy ? <Spinner /> : undefined}>
         <MediaFrame
           ratio={ratio}
           url={previewUrl(asset, adAccount)}
           alt={asset.fileName}
-          onCrop={asset.kind === "image" && adAccount ? () => setCropping(true) : undefined}
+          isDimmed={cropJob.busy}
+          onCrop={canCrop ? () => setCropping(true) : undefined}
         />
       </Stage>
 
       {/* Was man mit einer liegengebliebenen Datei tun kann, steht einmal im
           Hinweis über dem Raster und nicht an jeder einzelnen Kachel. */}
       <TileName>{cleanStem(asset.fileName)}</TileName>
+      {cropJob.error ? (
+        <TileNote text={cropJob.error} tone="warn" />
+      ) : cropJob.busy ? (
+        <TileNote text={CROP_NOTE} />
+      ) : null}
 
       {cropping && asset.kind === "image" && (
         <CropDialog
-          asset={asset}
+          // Ein liegengebliebenes Bild bekommt beide Formate; voreingestellt das, das ihm fehlt.
+          sides={[
+            { target: "portrait", asset },
+            { target: "square", asset },
+          ]}
+          initialTarget={asset.orientation === "portrait" ? "square" : "portrait"}
           adAccount={adAccount}
-          isOpen={cropping}
           onOpenChange={setCropping}
-          onCropped={onCropped}
+          onApply={cropJob.run}
         />
       )}
     </Tile>

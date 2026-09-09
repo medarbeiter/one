@@ -7,7 +7,7 @@
  * Kein SDK: drei Aufrufe gegen die REST-API v2 mit einem persönlichen Token.
  * Die Team-ID (ein Workspace) wird beim ersten Aufruf gelesen und behalten.
  */
-import { ROLES } from "./naming";
+import { LEGACY_CODES, ROLES } from "./naming";
 
 const API = "https://api.clickup.com/api/v2";
 export const OPEN_STATUS = "kampagne anlegen";
@@ -95,7 +95,10 @@ export function parseEuro(v: unknown): number | undefined {
 
 // „Stv. PDL“ ist das einzige Kürzel mit Leerzeichen – vor dem Zerlegen zu
 // einem Token gemacht, damit es nicht als „stv“ und „pdl“ ankommt.
-const BY_TOKEN = new Map(ROLES.map((r) => [r.code.toLowerCase().replace(/[^a-z]/g, ""), r.code]));
+const BY_TOKEN = new Map([
+  ...ROLES.map((r) => [r.code.toLowerCase().replace(/[^a-z]/g, ""), r.code] as const),
+  ...Object.entries(LEGACY_CODES).map(([old, code]) => [old.toLowerCase(), code] as const),
+]);
 
 /**
  * Kürzel aus einem Text: „PFK/PDL“, „fk, hk und stv. pdl“. Was kein Kürzel
@@ -127,7 +130,19 @@ export function parseRoles(text: string): { roles: string[]; free: string } {
  * der Assistent darf Stellen erfinden, die die Liste nicht kennt, aber die
  * Liste ist der bessere Weg, wo sie passt.
  */
-const BY_LABEL = new Map(ROLES.map((r) => [r.label.toLowerCase(), r.code]));
+// Labels sind Plural („Pflegefachkräfte“), Mistral liefert oft Singular.
+const BY_LABEL = new Map([
+  ...ROLES.flatMap((r) => {
+    const label = r.label.toLowerCase();
+    return [[label, r.code], [label.replace(/kräfte$/, "kraft").replace(/köche$/, "koch"), r.code]] as const;
+  }),
+  // Bezeichnungen aus Altbeständen, die es im UI nicht mehr gibt.
+  ["fachkraft", "PFK"],
+  ["hilfskraft", "PHK"],
+  ["pflegehelfer", "PHK"],
+  ["pflegeassistenz", "PHK"],
+  ["quereinsteiger", "MA"],
+]);
 export function rolesFromTitles(titles: string[]): { roles: string[]; free: string } {
   const roles: string[] = [];
   const free: string[] = [];

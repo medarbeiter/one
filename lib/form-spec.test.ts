@@ -76,10 +76,10 @@ test("fest sind nur PFK-Frage, Stellenwahl und – auf Verlangen – der Führer
 test("Pflege und Leitung gemischt fragt zuerst nach der Stelle", () => {
   expect(roleChoiceQuestion(["PFK", "PDL"])).toEqual({
     label: "Für welche Stelle interessierst du dich?",
-    options: ["Pflegefachkraft", "Pflegedienstleitung"],
+    options: ["Pflegefachkräfte", "Pflegedienstleitung"],
     disqualify: [],
   });
-  expect(roleChoiceQuestion(["PFK", "FK"])).toBeUndefined();
+  expect(roleChoiceQuestion(["PFK", "PHK"])).toBeUndefined();
   expect(roleChoiceQuestion(["PDL"], "Praxisanleiter")).toBeUndefined();
   expect(assembleQuestions({ roles: ["PFK", "Stv. PDL"], suggested: [], licenseRequired: false })[0].label).toBe("Für welche Stelle interessierst du dich?");
 });

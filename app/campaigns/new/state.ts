@@ -570,34 +570,43 @@ export function promoteLoose(
     return { ads: [...set.ads, { id, name, type: "ugc", asset }], loose };
   }
   const { id: _id, ...asset } = found;
-  return { ads: [...set.ads, { id, name: nextCreativeName(taken), type: "single", asset }], loose };
+  return { ads: [...set.ads, { id, name: nextCreativeName(taken, "Bild"), type: "single", asset }], loose };
 }
 
 /**
- * Ein Zuschnitt kommt zurück. Drei Fälle, und nur einer ist ein Ersatz:
+ * Zuschnitte kommen zurück – einer oder beide Formate auf einmal. Drei Fälle,
+ * und nur einer ist ein Ersatz:
  *
- * - In einem Paar ersetzt er seine Hälfte.
+ * - In einem Paar ersetzt jeder Zuschnitt die Hälfte seines Formats.
  * - Ein Einzelbild oder eine liegengebliebene Datei, ins *andere* Format
  *   geschnitten, wird zum Paar aus Original und Ausschnitt – genau dafür
- *   schneidet man ein einzelnes Bild zu.
- * - Ins *gleiche* Format geschnitten (4:5 → 1:1) ersetzt er das Bild.
+ *   schneidet man ein einzelnes Bild zu. Kommt das eigene Format mit, steht
+ *   dieser Ausschnitt statt des Originals im Paar.
+ * - Nur ins *gleiche* Format geschnitten (4:5 → 1:1) ersetzt er das Bild.
  */
 export function applyCrop(
   set: Pick<WizardAdSet, "ads" | "loose">,
-  at: { adId: string; slot: "asset" | "portrait" | "square" } | { looseId: string },
-  cropped: WizardImageAsset,
+  at: { adId: string } | { looseId: string },
+  cropped: WizardImageAsset | WizardImageAsset[],
 ): Pick<WizardAdSet, "ads" | "loose"> {
-  const pairOf = (original: WizardImageAsset) =>
-    cropped.orientation === "portrait"
-      ? { portrait: cropped, square: original }
-      : { portrait: original, square: cropped };
+  const crops = Array.isArray(cropped) ? cropped : [cropped];
+  const by = (o: Orientation) => crops.find((c) => c.orientation === o);
+  const fromOne = (
+    original: WizardImageAsset,
+  ): { single: WizardImageAsset } | { pair: { portrait: WizardImageAsset; square: WizardImageAsset } } => {
+    const own = by(original.orientation) ?? original;
+    const other = by(original.orientation === "portrait" ? "square" : "portrait");
+    if (!other) return { single: own };
+    return { pair: original.orientation === "portrait" ? { portrait: own, square: other } : { portrait: other, square: own } };
+  };
 
   if ("looseId" in at) {
     const found = set.loose.find((x) => x.id === at.looseId);
     if (!found || found.kind !== "image") return set;
     const { id: _id, ...original } = found;
-    if (cropped.orientation === original.orientation)
-      return { ads: set.ads, loose: set.loose.map((x) => (x.id === at.looseId ? { ...cropped, id: x.id } : x)) };
+    const r = fromOne(original);
+    if ("single" in r)
+      return { ads: set.ads, loose: set.loose.map((x) => (x.id === at.looseId ? { ...r.single, id: x.id } : x)) };
     const taken = new Set(set.ads.map((a) => a.name));
     return {
       ads: [
@@ -606,7 +615,7 @@ export function applyCrop(
           id: crypto.randomUUID(),
           name: nextCreativeName(taken),
           type: "split",
-          ...pairOf(original),
+          ...r.pair,
           reason: `Aus einem Bild zugeschnitten: ${original.fileName}`,
         },
       ],
@@ -618,18 +627,22 @@ export function applyCrop(
     loose: set.loose,
     ads: set.ads.map((a) => {
       if (a.id !== at.adId) return a;
-      if (a.type === "single" && cropped.orientation !== a.asset.orientation) {
+      if (a.type === "single") {
+        const r = fromOne(a.asset);
+        if ("single" in r) return detachAd({ ...a, asset: r.single });
         const { asset, ...rest } = a;
+        // Aus „Bild N“ wird ein Paar – und das heißt „Creative N“.
+        const taken = new Set(set.ads.filter((x) => x.id !== a.id).map((x) => x.name));
         return detachAd({
           ...rest,
+          name: /^Bild \d+$/.test(a.name) ? nextCreativeName(taken) : a.name,
           type: "split",
-          ...pairOf(asset),
+          ...r.pair,
           reason: `Aus einem Bild zugeschnitten: ${asset.fileName}`,
         });
       }
-      if (a.type === "single") return detachAd({ ...a, asset: cropped });
-      if (a.type === "split" && (at.slot === "portrait" || at.slot === "square"))
-        return detachAd({ ...a, [at.slot]: cropped });
+      if (a.type === "split")
+        return detachAd({ ...a, portrait: by("portrait") ?? a.portrait, square: by("square") ?? a.square });
       return a;
     }),
   };

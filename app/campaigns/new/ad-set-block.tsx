@@ -32,7 +32,7 @@ import { plural } from "@/lib/labels";
 import { LocationField } from "./location-field";
 import { checkCopy, type CopyField, type Notice } from "@/lib/copy";
 import { enqueue, retryUploads, useUploads, type Pickable } from "./upload-queue";
-import { AdTile, ContentGrid, LooseTile, UploadTile, type AssetSlot } from "./content-grid";
+import { AdTile, ContentGrid, LooseTile, UploadTile } from "./content-grid";
 import {
   applyCrop,
   detachAd,
@@ -841,12 +841,14 @@ export function AdSetBlock({
   const promote = (looseId: string) => onChange(promoteLoose(value, looseId));
   const swap = (adId: string) => onChange({ ads: swapPair(value.ads, adId) });
 
-  /** Nach dem Zuschneiden: Ersatz in der Hälfte, oder ein Paar aus Original und Ausschnitt (state.ts). */
-  const replaceLoose = (looseId: string, asset: WizardImageAsset) =>
-    onChange(applyCrop(value, { looseId }, asset));
+  // Nach dem Zuschneiden: Ersatz in der Hälfte, oder ein Paar aus Original und
+  // Ausschnitt (state.ts). Die Uploads kommen verspätet an – deshalb auf dem
+  // dann aktuellen Stand rechnen, nicht auf dem von vor dem Dialog.
+  const replaceLoose = (looseId: string, crops: WizardImageAsset[]) =>
+    onChange((set) => applyCrop(set, { looseId }, crops));
 
-  const replaceAdAsset = (adId: string, slot: AssetSlot, asset: WizardImageAsset) =>
-    onChange(applyCrop(value, { adId, slot }, asset));
+  const replaceAdAsset = (adId: string, crops: WizardImageAsset[]) =>
+    onChange((set) => applyCrop(set, { adId }, crops));
 
   // Jede Änderung an einer geliehenen Anzeige löst die Verbindung – nur für
   // diese eine, die Quelle bleibt unberührt.
@@ -964,7 +966,7 @@ export function AdSetBlock({
                   onDissolve={() => dissolve(ad.id)}
                   onSwap={() => swap(ad.id)}
                   onRemove={() => removeAd(ad.id)}
-                  onCropped={(slot, cropped) => replaceAdAsset(ad.id, slot, cropped)}
+                  onCropped={(crops) => replaceAdAsset(ad.id, crops)}
                 />
               ))}
               {uploads.map((u) => (
@@ -980,7 +982,7 @@ export function AdSetBlock({
                     .map((o) => ({ id: o.id, label: cleanStem(o.fileName) }))}
                   onPairWith={(draggedId) => pairLoose(draggedId, asset.id)}
                   onPromote={() => promote(asset.id)}
-                  onCropped={(cropped) => replaceLoose(asset.id, cropped)}
+                  onCropped={(crops) => replaceLoose(asset.id, crops)}
                   onRemove={() => removeLoose(asset.id)}
                 />
               ))}

@@ -320,11 +320,11 @@ export function planAds<T extends Classified>(
   return { ads: [...ads, ...pairs], unpaired };
 }
 
-/** Split-Anzeigen heißen "Creative N", je Anzeigengruppe durchnummeriert. */
-export function nextCreativeName(taken: Iterable<string>): string {
+/** Paare heißen "Creative N", Einzelbilder "Bild N" – je Anzeigengruppe durchnummeriert. */
+export function nextCreativeName(taken: Iterable<string>, prefix: "Creative" | "Bild" = "Creative"): string {
   const used = new Set(taken);
   for (let n = 1; ; n++) {
-    const name = `Creative ${n}`;
+    const name = `${prefix} ${n}`;
     if (!used.has(name)) return name;
   }
 }

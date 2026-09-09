@@ -32,11 +32,11 @@ test("parseLocationHint wirft bei Unlesbarem", () => {
 test("parseOnboarding liefert Benefits als Zeilen; Stellen als Kürzel, Unbekanntes als Freitext", () => {
   expect(
     parseOnboarding('{"benefits":["jedes 2. Wochenende bleibt frei","33 Urlaubstage"],"rollen":["FK","XYZ","pdl"]}'),
-  ).toEqual({ benefits: ["jedes 2. Wochenende bleibt frei", "33 Urlaubstage"], roles: ["FK", "PDL"], roleFreeText: "XYZ" });
+  ).toEqual({ benefits: ["jedes 2. Wochenende bleibt frei", "33 Urlaubstage"], roles: ["PFK", "PDL"], roleFreeText: "XYZ" });
   // Die Tabelle aus der Probe vom 2026-09-04: PA, FK, Praxisanleiter.
   expect(parseOnboarding('{"benefits":[],"stellen":["PA","FK","Praxisanleiter","Pflegefachkraft"]}')).toEqual({
     benefits: [],
-    roles: ["PA", "FK", "PFK"],
+    roles: ["PHK", "PFK"],
     roleFreeText: "Praxisanleiter",
   });
 });
@@ -171,7 +171,7 @@ test("assembleBrief: Rollen nirgends außer in der Kundenübersicht", async () =
 test("assembleBrief füllt alles aus ClickUp und der Onboarding-Tabelle, mit Herkunft", async () => {
   const out = await assembleBrief("t1", "", deps());
   expect(out.clientName).toEqual({ value: "MeVita Pflegedienst GmbH", sources: ["clickup"] });
-  expect(out.roles).toEqual({ value: ["FK"], sources: ["clickup"] });
+  expect(out.roles).toEqual({ value: ["PFK"], sources: ["clickup"] });
   expect(out.dailyBudgetEuros).toEqual({ value: 17.05, sources: ["clickup"] });
   expect(out.spendCapEuros).toEqual({ value: 2435, sources: ["clickup"] });
   expect(out.locations).toEqual({ value: ["Mühlgasse 24, 71272 Renningen"], sources: ["clickup"] });
@@ -238,7 +238,7 @@ test("assembleBrief: schweigt die Aufgabe, kommen die Stellen aus der Tabelle �
     }),
   );
   // „12h-Dienste als PA“ trägt das Kürzel im Titel – es zählt als PA, nicht als Freitext.
-  expect(out.roles).toEqual({ value: ["PA", "FK"], sources: ["onboarding"] });
+  expect(out.roles).toEqual({ value: ["PHK", "PFK"], sources: ["onboarding"] });
   expect(out.roleFreeText).toEqual({ value: "Praxisanleiter", sources: ["onboarding"] });
 });
 
@@ -370,7 +370,7 @@ test("Kampagnenkontext: Stellen aus Aufgabe und Onboarding überleben beide, mit
       }),
     }),
   );
-  expect(out.roles).toEqual({ value: ["PFK", "PA"], sources: ["clickup", "onboarding"] });
+  expect(out.roles).toEqual({ value: ["PFK", "PHK"], sources: ["clickup", "onboarding"] });
   expect(out.benefits).toEqual({ value: "Jobrad", sources: ["onboarding"] });
 });
 
@@ -390,7 +390,7 @@ test("Kampagnenkontext: ausdrückliche Hinweise überschreiben Rollen, Orte und 
       },
     }),
   );
-  expect(out.roles).toEqual({ value: ["PA"], sources: ["user"] });
+  expect(out.roles).toEqual({ value: ["PHK"], sources: ["user"] });
   expect(out.locations).toEqual({ value: ["Stuttgart"], sources: ["user"] });
   expect(out.dailyBudgetEuros).toEqual({ value: 40, sources: ["user"] });
   expect(out.spendCapEuros).toEqual({ value: 2435, sources: ["clickup"] });
@@ -418,7 +418,7 @@ test("Kampagnenkontext: leere Hinweise ändern das bisherige Ergebnis nicht", as
   const withNotes = await assembleBrief("t1", "", deps());
   const without = await assembleBrief("t1", undefined, deps());
   expect(withNotes).toEqual(without);
-  expect(withNotes.roles).toEqual({ value: ["FK"], sources: ["clickup"] });
+  expect(withNotes.roles).toEqual({ value: ["PFK"], sources: ["clickup"] });
   expect(withNotes.copyInstructions).toBe("");
   expect(withNotes.aiNotes).toBe("");
 });
@@ -438,7 +438,7 @@ test("Kampagnenkontext: scheitert die Auflösung, gilt die alte Rangfolge – Au
     }),
     (e) => events.push(`${e.step}:${e.status}`),
   );
-  expect(out.roles).toEqual({ value: ["FK"], sources: ["clickup"] });
+  expect(out.roles).toEqual({ value: ["PFK"], sources: ["clickup"] });
   expect(out.benefits).toEqual({ value: "Jobrad", sources: ["onboarding"] });
   expect(out.copyInstructions).toBe("");
   expect(out.warnings.join(" ")).toMatch(/Kampagnenkontext/);
@@ -516,7 +516,7 @@ test("Kampagnenkontext: nur die Aufgabe als Beleg – kein Aufruf, Zeile übersp
   );
   expect(contextCalls).toBe(0);
   expect(events).toContain("context:skipped");
-  expect(out.roles).toEqual({ value: ["FK"], sources: ["clickup"] });
+  expect(out.roles).toEqual({ value: ["PFK"], sources: ["clickup"] });
   expect(out.locations).toEqual({ value: ["Renningen"], sources: ["clickup"] });
   expect(out.warnings.join(" ")).not.toMatch(/Kampagnenkontext/);
 });

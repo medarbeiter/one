@@ -37,9 +37,9 @@ test("parseEuro gibt bei Müll und Null nichts zurück", () => {
 });
 
 test("parseRoles erkennt Kürzel, auch gemischt geschrieben und mit Trennzeichen", () => {
-  expect(parseRoles("FK")).toEqual({ roles: ["FK"], free: "" });
+  expect(parseRoles("FK")).toEqual({ roles: ["PFK"], free: "" });
   expect(parseRoles("PFK/PDL")).toEqual({ roles: ["PFK", "PDL"], free: "" });
-  expect(parseRoles("fk, hk und stv. pdl")).toEqual({ roles: ["FK", "HK", "Stv. PDL"], free: "" });
+  expect(parseRoles("fk, hk und stv. pdl")).toEqual({ roles: ["PFK", "PHK", "Stv. PDL"], free: "" });
 });
 
 test("parseRoles: kein Kürzel heißt keine Rolle – „s. OB“ ist eine Notiz, kein Freitext", () => {
@@ -47,13 +47,13 @@ test("parseRoles: kein Kürzel heißt keine Rolle – „s. OB“ ist eine Notiz
 });
 
 test("parseRoles: Unbekanntes neben einem Kürzel wird Freitext", () => {
-  expect(parseRoles("FK Verwaltungskraft")).toEqual({ roles: ["FK"], free: "Verwaltungskraft" });
+  expect(parseRoles("FK Verwaltungskraft")).toEqual({ roles: ["PFK"], free: "Verwaltungskraft" });
 });
 
 test("rolesFromTaskName liest die Rollen zwischen „ - “ und „ ab “ – und lässt den Ort weg", () => {
   expect(rolesFromTaskName("MeVita Pflegedienst GmbH - PFK Renningen ab x.9.26 KF (via One)")).toEqual(["PFK"]);
   expect(rolesFromTaskName("Aktiv Dahoam sPDL Kampagne ab 29.07 MH")).toEqual([]);
-  expect(rolesFromTaskName("X - FK/HK ab 03.01.26 KF (via One)")).toEqual(["FK", "HK"]);
+  expect(rolesFromTaskName("X - FK/HK ab 03.01.26 KF (via One)")).toEqual(["PFK", "PHK"]);
 });
 
 // Gekürzt aus der echten Aufgabe 86cbd7afg (Probe vom 2026-09-02).
@@ -94,11 +94,11 @@ test("toBrief bildet die Aufgabe ab: Ordnername getrimmt, Felder geparst, Leeres
 
 test("rolesFromTitles: Kürzel und Labels werden Kürzel, der Rest bleibt Freitext", () => {
   expect(rolesFromTitles(["PA", "Pflegefachkraft", "Praxisanleiter", "pfk", "Pflegehelfer", "Praxisanleiter"])).toEqual({
-    roles: ["PA", "PFK", "PH"],
+    roles: ["PHK", "PFK"],
     free: "Praxisanleiter",
   });
   expect(rolesFromTitles(["Stv. PDL", "Quereinsteiger", "Betreuungskräfte"])).toEqual({
-    roles: ["Stv. PDL", "QE", "BK"],
+    roles: ["Stv. PDL", "MA", "BK"],
     free: "",
   });
   expect(rolesFromTitles([])).toEqual({ roles: [], free: "" });

@@ -94,7 +94,7 @@ export const LICENSE_QUESTION: FormQuestion = {
 
 /** Pflege und Leitung sind verschiedene Berufe – sucht ein Kunde beides, fragt das Formular zuerst, wohin. */
 const MANAGEMENT = new Set(["PDL", "Stv. PDL"]);
-const CARE = new Set(["FK", "HK", "PFK", "PA", "PH", "QE", "BK"]);
+const CARE = new Set(["PFK", "PHK", "MA", "BK"]);
 
 export function roleChoiceQuestion(roles: string[], roleFreeText?: string): FormQuestion | undefined {
   const codes = roles.filter((r) => r.trim());

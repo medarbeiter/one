@@ -28,7 +28,7 @@ test("parseBody nimmt reinen Text und streift Zaun und Anführungszeichen ab", (
 
 test("roleLabels übersetzt Kürzel und hängt den Freitext an", () => {
   expect(roleLabels(["PFK", "PDL"], " Koch ")).toEqual([
-    "Pflegefachkraft",
+    "Pflegefachkräfte",
     "Pflegedienstleitung",
     "Koch",
   ]);

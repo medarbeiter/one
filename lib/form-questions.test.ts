@@ -34,7 +34,7 @@ test("der Voraussetzungen-Block endet an der nächsten Frage der Tabelle", () =>
 
 test("der Prompt nennt Stellen, Voraussetzungen und die festen Fragen", () => {
   const p = questionsPrompt({ roles: ["PFK"], roleFreeText: "Praxisanleiter", onboardingCsv: csv });
-  expect(p).toContain("Pflegefachkraft, Praxisanleiter");
+  expect(p).toContain("Pflegefachkräfte, Praxisanleiter");
   expect(p).toContain("Führerschein Klasse B zwingend");
   expect(p).toContain("3-jährige Ausbildung in der Pflege");
   expect(p).toContain("mit ihrer Dauer");
