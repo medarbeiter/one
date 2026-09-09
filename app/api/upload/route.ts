@@ -73,11 +73,17 @@ export async function POST(request: Request) {
   if (!adAccount)
     return Response.json({ error: "Kein Werbekonto angegeben." }, { status: 400 });
 
-  const isVideo = file.type.startsWith("video/");
-  if (!isVideo && !IMAGE_TYPES.includes(file.type)) {
+  // Bun (1.4) ignoriert den Content-Type des Teils und leitet file.type allein
+  // aus der Dateiendung ab. Ein Video, das ohne Endung heißt ("Louise 4" aus
+  // Drive, oder mit Leerzeichen dahinter), kam so als "" an und wurde als
+  // unbekannter Dateityp abgewiesen. Der Client schickt den Typ deshalb als
+  // eigenes Feld mit; der Browser hat ihn schon geprüft.
+  const type = file.type || String(form.get("type") ?? "");
+  const isVideo = type.startsWith("video/");
+  if (!isVideo && !IMAGE_TYPES.includes(type)) {
     // Der Subtyp ist der Name, unter dem die Person die Datei kennt ("HEIC"),
     // der MIME-Typ ist es nicht.
-    const label = file.type.split("/")[1]?.toUpperCase();
+    const label = type.split("/")[1]?.toUpperCase();
     return Response.json(
       {
         error: label

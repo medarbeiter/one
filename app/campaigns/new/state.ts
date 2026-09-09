@@ -724,6 +724,19 @@ export function detailBlockers(state: WizardState): string[] {
   ];
 }
 
+/**
+ * Der wartende Anlegen-Knopf: solange etwas läuft oder im Eingang liegt, wird
+ * gewartet. Danach wird nur angelegt, wenn nichts scheiterte und nichts offen
+ * ist – sonst abgebrochen, nie halb.
+ */
+export function queuedLaunch(
+  uploads: { running: number; arriving: boolean; failed: number },
+  blocked: boolean,
+): "wait" | "create" | "abort" {
+  if (uploads.running || uploads.arriving) return "wait";
+  return uploads.failed || blocked ? "abort" : "create";
+}
+
 export function reviewStatus(issues: readonly number[]) {
   return {
     ready: issues.filter((count) => count === 0).length,

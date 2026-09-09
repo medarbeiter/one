@@ -9,6 +9,7 @@ import {
   customerBlockers,
   DEFAULT_DAILY_BUDGET,
   detailBlockers,
+  queuedLaunch,
   dissolveAd,
   draftLabel,
   edited,
@@ -580,4 +581,13 @@ test("stateFromSeed without ad sets starts with one empty location", () => {
   const s = stateFromSeed({ ...seed, adSets: [] }, { mode: "copy", adAccount: "", business: "", initials: "" });
   expect(s.adSets).toHaveLength(1);
   expect(s.adSets[0].addressString).toBe("");
+});
+
+test("der wartende Anlegen-Knopf legt erst nach dem letzten Upload an – und bei Fehlern gar nicht", () => {
+  expect(queuedLaunch({ running: 2, arriving: false, failed: 0 }, true)).toBe("wait");
+  // Bei Meta fertig, aber noch nicht im Entwurf: der Stand wäre älter als Metas.
+  expect(queuedLaunch({ running: 0, arriving: true, failed: 0 }, true)).toBe("wait");
+  expect(queuedLaunch({ running: 0, arriving: false, failed: 0 }, false)).toBe("create");
+  expect(queuedLaunch({ running: 0, arriving: false, failed: 1 }, false)).toBe("abort");
+  expect(queuedLaunch({ running: 0, arriving: false, failed: 0 }, true)).toBe("abort");
 });

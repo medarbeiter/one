@@ -213,6 +213,20 @@ export function useUploadVersion(): number {
   return useSyncExternalStore(subscribe, getVersion, () => 0);
 }
 
+/**
+ * Für den wartenden Anlegen-Knopf: läuft noch etwas, scheiterte etwas, liegt
+ * noch etwas im Eingang? `arriving` ist der Moment zwischen "bei Meta fertig"
+ * und "im Entwurf" – wer da schon prüft, sieht einen Standort ohne Anzeigen.
+ * Über alle Anzeigengruppen, im Render neben useUploadVersion() zu lesen.
+ */
+export function uploadStatus() {
+  return {
+    running: jobs.filter((job) => !job.error).length,
+    failed: jobs.filter((job) => job.error).length,
+    arriving: arrived.size > 0,
+  };
+}
+
 // -------------------------------------------------------------------- Eingang
 
 /**
@@ -502,6 +516,9 @@ async function run(id: string, source: Pickable, batch: Batch) {
     patch({ phase: "uploading", progress: 0 });
     const body = new FormData();
     body.set("file", payload);
+    // Bun auf dem Server liest den Typ nur aus der Dateiendung (siehe
+    // app/api/upload/route.ts) – ohne Endung ginge er verloren.
+    body.set("type", payload.type);
     body.set("adAccount", batch.adAccount);
     // Ein kleines Vorschaubild für die Überschrift (lib/headline.ts) – das
     // Original wäre für Mistral Megabytes, die niemand braucht.

@@ -10,6 +10,7 @@ import {
   CollapsibleGroup,
   Divider,
   Heading,
+  Link,
   List,
   ListItem,
   ProgressBar,
@@ -30,6 +31,7 @@ import {
   borrowersOf,
   customerBlockers,
   detailBlockers,
+  queuedLaunch,
   edited,
   emptyAdSet,
   initialState,
@@ -42,7 +44,7 @@ import {
   type WizardAdSet,
 } from "./state";
 import { GhlHinweis } from "./ghl-hinweis";
-import { drainArrived, useUploadVersion } from "./upload-queue";
+import { drainArrived, uploadStatus, useUploadVersion } from "./upload-queue";
 import { Entwuerfe } from "./entwuerfe";
 import { AdSetBlock } from "./ad-set-block";
 import { Infotafel } from "./angaben";
@@ -708,6 +710,8 @@ function WizardSteps({
    * und der zweite Lauf fände einen leeren Eingang vor.
    */
   const uploadVersion = useUploadVersion();
+  // Bei jeder Änderung im Store neu gelesen – useUploadVersion() sorgt für das Rendern.
+  const uploads = uploadStatus();
   useEffect(() => {
     // Vor dem Wiederherstellen des Entwurfs stehen hier andere IDs als die, an
     // die die Uploads adressiert sind – das Abgeholte wäre nicht zuzuordnen.
@@ -792,6 +796,33 @@ function WizardSteps({
     run(input);
   };
 
+  /**
+   * Anlegen, sobald die Uploads durch sind. Der Knopf lässt sich drücken, während
+   * noch Videos laufen – auch wenn ein Standort deshalb noch ohne Anzeigen ist.
+   * Angelegt wird erst, wenn nichts mehr läuft und nichts mehr im Eingang liegt
+   * (sonst wäre der Stand hier älter als der bei Meta), und nur, wenn kein
+   * Upload gescheitert ist und kein Punkt mehr offen steht. Sonst bleibt es beim
+   * Hinweis, und der Knopf ist wieder frei.
+   */
+  const [queued, setQueued] = useState(false);
+  const [queueNotice, setQueueNotice] = useState<string>();
+  const uploading = uploads.running > 0 || uploads.arriving;
+  const verdict = queuedLaunch(uploads, blocked);
+  useEffect(() => {
+    if (!queued || verdict === "wait") return;
+    setQueued(false);
+    if (verdict === "abort") {
+      setQueueNotice(
+        uploads.failed
+          ? `${uploads.failed === 1 ? "Ein Upload ist" : `${uploads.failed} Uploads sind`} fehlgeschlagen — nichts angelegt.`
+          : `Nach dem Upload bleibt etwas offen — nichts angelegt: ${allIssues[0]}`,
+      );
+      return;
+    }
+    onCreate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queued, verdict]);
+
   const onCreate = () =>
     submitWizard({
       // Bearbeiten: dieselbe Nutzlast, nur mit den Meta-IDs und dem Schalter,
@@ -840,7 +871,9 @@ function WizardSteps({
   const lastStep = stepIndex === STEPS.length - 1;
   const offen = lastStep ? allIssues.length : stepIssues[stepIndex];
   const fussHinweis =
-    pending || offen === 0
+    queued
+      ? "Wird erstellt, sobald alle Uploads angekommen sind — nicht, wenn einer fehlschlägt."
+      : pending || offen === 0
       ? undefined
       : lastStep
         ? `${offen === 1 ? "1 offener Punkt" : `${offen} offene Punkte`} — nachzulesen oben.`
@@ -1117,6 +1150,14 @@ function WizardSteps({
 
                 {/* Was Meta ohnehin ablehnen würde – hier kostet es einen Klick,
                     dort einen halb angelegten Kampagnenbaum. */}
+                {queueNotice && (
+                  <Banner
+                    status="error"
+                    title="Nicht erstellt"
+                    description={queueNotice}
+                    endContent={<Button variant="ghost" label="Verstanden" onClick={() => setQueueNotice(undefined)} />}
+                  />
+                )}
                 {blocked && (
                   <Banner
                     status="warning"
@@ -1165,7 +1206,14 @@ function WizardSteps({
                         : "ClickUp-Aufgabe auf „Abnahme Kampagne“"
                     }
                     description={
-                      clickup.error ?? "Kommentar mit Name und Ads-Manager-Link steht an der Aufgabe."
+                      clickup.error ?? (
+                        <>
+                          Umbenannt in „{state.campaignName}“, Kommentar mit Ads-Manager-Link steht dran:{" "}
+                          <Link href={`https://app.clickup.com/t/${taskId}`} target="_blank" rel="noreferrer">
+                            Aufgabe in ClickUp öffnen
+                          </Link>
+                        </>
+                      )
                     }
                   />
                 )}
@@ -1240,18 +1288,35 @@ function WizardSteps({
                   />
                 ) : (
                   <Button
-                    onClick={onCreate}
-                    isLoading={pending}
-                    isDisabled={pending || blocked}
-                    icon={pending ? undefined : <Sign meaning="launch" />}
+                    onClick={
+                      queued
+                        ? () => setQueued(false)
+                        : uploading
+                          ? () => {
+                              setQueueNotice(undefined);
+                              setQueued(true);
+                            }
+                          : onCreate
+                    }
+                    isLoading={pending || queued}
+                    // Ein wartender Knopf bleibt drückbar – der Klick nimmt das Warten zurück.
+                    isInterruptible={queued}
+                    isDisabled={pending || (blocked && !uploading)}
+                    icon={pending || queued ? undefined : <Sign meaning="launch" />}
                     label={
                       pending
                         ? editing
                           ? "Wird geändert…"
                           : "Wird erstellt…"
-                        : editing
-                          ? "Änderungen übernehmen"
-                          : "Erstellen (pausiert)"
+                        : queued
+                          ? `Wartet auf ${uploads.running === 1 ? "1 Upload" : `${uploads.running} Uploads`} — abbrechen`
+                          : uploading
+                            ? editing
+                              ? "Nach dem Upload übernehmen"
+                              : "Nach dem Upload erstellen"
+                            : editing
+                              ? "Änderungen übernehmen"
+                              : "Erstellen (pausiert)"
                     }
                   />
                 )}
