@@ -1,34 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Badge, Banner, Button, DropdownMenu, IconButton, Selector, Text, TextInput } from "@astryxdesign/core";
-import { ArrowDownIcon, ArrowSquareOutIcon, ArrowUpIcon, PlusIcon, SparkleIcon, TrashIcon } from "@phosphor-icons/react";
-import { BRICKS } from "@/lib/form-bricks";
-import {
-  buildFormSpec,
-  formSpecBlockers,
-  gotoOf,
-  moveQuestion,
-  REACHABILITY,
-  removeQuestion,
-  type FormQuestion,
-  type FormSpec,
-  type Goto,
-} from "@/lib/form-spec";
+import { Banner, Button, Text } from "@astryxdesign/core";
+import { ArrowSquareOutIcon, SparkleIcon } from "@phosphor-icons/react";
+import type { FormSpec } from "@/lib/form-spec";
 import { instantFormsUrl } from "@/lib/forms";
-import { suggestFormAction, type FormSuggestInput } from "../actions";
+import type { FormSuggestInput } from "../actions";
+import { FormDialog } from "./form-dialog";
 
 /**
- * Der Editor für ein neues Lead-Formular: die KI schlägt die Fragen vor, der
- * Rest ist Regel (lib/form-spec.ts). Jede Antwort hat ein Ziel – nächste
- * Frage, eine spätere Frage, Formular senden oder Kein Lead – dieselben vier,
- * die Metas Baukasten je Antwort anbietet, damit man hier sieht, was dort
- * entsteht. Fertige Fragen kommen aus den Bausteinen (lib/form-bricks.ts).
- * „In Meta bauen“ reicht die Vorlage an die Erweiterung (extension/), die den
- * Baukasten tippt. Ohne Erweiterung gibt es keinen Editor, nur den Link in den
- * Baukasten: eine Vorlage, die niemand abtippt, wäre bloß Lesestoff.
- * Gespeichert oder veröffentlicht wird nie; zurück hier erkennt newlyAppeared()
- * das neue Formular.
+ * Der Einstieg zum neuen Lead-Formular: ein Knopf, der den Editor als Dialog
+ * öffnet (form-dialog.tsx). „In Meta bauen“ reicht die Vorlage an die
+ * Erweiterung (extension/), die den Baukasten tippt. Ohne Erweiterung gibt es
+ * keinen Editor, nur den Link in den Baukasten: eine Vorlage, die niemand
+ * abtippt, wäre bloß Lesestoff. Gespeichert oder veröffentlicht wird nie;
+ * zurück hier erkennt newlyAppeared() das neue Formular.
  */
 export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"> }) {
   // bridge.js setzt das Attribut bei document_start; erst nach dem Hydrieren
@@ -37,12 +23,7 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
   const [extension, setExtension] = useState<string | null>();
   useEffect(() => setExtension(document.documentElement.dataset.moFormExt ?? null), []);
 
-  const [spec, setSpec] = useState<FormSpec>();
-  const [questions, setQuestions] = useState<FormQuestion[]>([]);
-  const [website, setWebsite] = useState("");
-  const [warnings, setWarnings] = useState<string[]>([]);
-  const [error, setError] = useState<string>();
-  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
   const [opened, setOpened] = useState<{ ok: boolean; error?: string }>();
 
   useEffect(() => {
@@ -72,109 +53,20 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
       </div>
     );
 
-  const suggest = async () => {
-    setBusy(true);
-    setError(undefined);
+  const build = (spec: FormSpec) => {
     setOpened(undefined);
-    const res = await suggestFormAction({ ...input, website });
-    setWarnings(res.warnings);
-    setError(res.error);
-    if (res.spec) {
-      setSpec(res.spec);
-      setQuestions(res.spec.questions);
-      setWebsite(res.spec.website);
-    }
-    setBusy(false);
+    window.postMessage({ type: "mo_form:build", url, spec: JSON.stringify(spec) }, window.location.origin);
+    setOpen(false);
   };
-
-  // Die Vorlage folgt den Feldern – was hier steht, geht so in den Baukasten.
-  const current = spec
-    ? buildFormSpec({
-        business: input.business,
-        roles: input.roles,
-        roleFreeText: input.roleFreeText,
-        version: Number(spec.name.match(/ v(\d+)/)?.[1] ?? 1),
-        initials: input.initials,
-        city: input.city,
-        questions,
-        privacyUrl: spec.privacyUrl,
-        website,
-      })
-    : undefined;
-  // Blocker auf den rohen Fragen: buildFormSpec() lässt unfertige still weg.
-  const blockers = current ? formSpecBlockers({ ...current, questions }) : [];
-
-  const build = () => {
-    if (!current) return;
-    setOpened(undefined);
-    window.postMessage({ type: "mo_form:build", url, spec: JSON.stringify(current) }, window.location.origin);
-  };
-
-  const update = (i: number, patch: Partial<FormQuestion>) =>
-    setQuestions((qs) => qs.map((q, j) => (j === i ? { ...q, ...patch } : q)));
-  const setOption = (i: number, k: number, text: string) => {
-    const q = questions[i];
-    const old = q.options[k];
-    const goto = { ...q.goto };
-    if (old in goto) {
-      const g = goto[old];
-      delete goto[old];
-      goto[text] = g;
-    }
-    update(i, { options: q.options.map((o, m) => (m === k ? text : o)), goto });
-  };
-  const setGoto = (i: number, option: string, value: string) => {
-    const goto = { ...questions[i].goto };
-    if (value === "next") delete goto[option];
-    else goto[option] = /^\d+$/.test(value) ? Number(value) : (value as Goto);
-    update(i, { goto });
-  };
-  const removeOption = (i: number, k: number) => {
-    const q = questions[i];
-    const goto = { ...q.goto };
-    delete goto[q.options[k]];
-    update(i, { options: q.options.filter((_, m) => m !== k), goto });
-  };
-  const addQuestion = (q: FormQuestion = { label: "", options: ["Ja", "Nein"], goto: { Nein: "nolead" } }) =>
-    setQuestions((qs) => [...qs, { ...q, goto: { ...q.goto } }]);
-  const short = (label: string) => (label.length > 40 ? `${label.slice(0, 38)}…` : label);
-  // Die Ziele einer Antwort in Frage i: weiter, jede spätere Frage, senden, Kein Lead.
-  const targets = (i: number) => {
-    const later = questions.slice(i + 1).map((q, k) => ({ value: String(i + k + 2), label: `F${i + k + 2} ${short(q.label) || "(ohne Text)"}` }));
-    const next = i + 1 < questions.length ? `F${i + 2} ${short(questions[i + 1].label) || "(ohne Text)"}` : `F${questions.length + 1} ${REACHABILITY}`;
-    return [
-      { value: "next", label: `Weiter: ${next}` },
-      ...(later.length > 1 ? [{ type: "section" as const, title: "Springe zu", options: later.slice(1) }] : []),
-      { type: "divider" as const },
-      { value: "lead", label: "Formular senden – Lead (E1)" },
-      { value: "nolead", label: "Kein Lead – Formular schließen (E2)" },
-    ];
-  };
-
-  const reachIndex = questions.length + 1;
 
   return (
-    <div className="w-full space-y-3 rounded-md border border-neutral-200 p-3">
+    <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <Button
-          variant="secondary"
-          size="sm"
-          icon={<SparkleIcon size={16} weight="fill" />}
-          label={busy ? "Vorlage entsteht…" : spec ? "Neu vorschlagen" : "Vorlage vorschlagen"}
-          onClick={suggest}
-          isDisabled={busy}
-        />
-        {current && (
-          <Button variant="primary" size="sm" label="In Meta bauen" onClick={build} isDisabled={blockers.length > 0} />
-        )}
+        <Button variant="secondary" size="sm" icon={<SparkleIcon size={16} weight="fill" />} label="Formular erstellen" onClick={() => setOpen(true)} />
         <Text type="supporting" as="span">
-          {current
-            ? `Erweiterung v${extension} öffnet den Baukasten und baut bis zur Prüfung – „Formular erstellen“ klickst du.`
-            : "Die KI schlägt die Qualifizierungsfragen vor, alles andere steht nach Vorlage fest."}
+          Die KI schlägt die Fragen vor, du prüfst den Ablauf, die Erweiterung baut in Meta.
         </Text>
       </div>
-
-      {error && <Banner status="error" title="Vorlage nicht erstellt" description={error} />}
       {opened?.ok && (
         <Banner
           status="info"
@@ -185,136 +77,7 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
       {opened && !opened.ok && (
         <Banner status="error" title="Baukasten nicht geöffnet" description={opened.error ?? "Erweiterung antwortet nicht – neu laden."} />
       )}
-
-      {current && (
-        <>
-          <div className="flex flex-wrap items-center gap-2">
-            <Text type="supporting" as="span">
-              {current.name}
-            </Text>
-            <Text type="supporting" as="span">
-              · {current.intro.title}
-            </Text>
-          </div>
-
-          <ol className="space-y-2">
-            {questions.map((q, i) => (
-              <li key={i} className="space-y-2 rounded-md border border-neutral-200 bg-white p-2">
-                <div className="flex items-center gap-2">
-                  <Badge variant="neutral" label={`F${i + 1}`} />
-                  <div className="min-w-0 flex-1">
-                    <TextInput
-                      label={`Frage ${i + 1}`}
-                      isLabelHidden
-                      value={q.label}
-                      onChange={(v) => update(i, { label: v })}
-                      placeholder="Frage"
-                      size="sm"
-                      width="100%"
-                    />
-                  </div>
-                  <IconButton variant="ghost" size="sm" label="Nach oben" icon={<ArrowUpIcon size={16} />} isDisabled={i === 0} onClick={() => setQuestions((qs) => moveQuestion(qs, i, -1))} />
-                  <IconButton
-                    variant="ghost"
-                    size="sm"
-                    label="Nach unten"
-                    icon={<ArrowDownIcon size={16} />}
-                    isDisabled={i === questions.length - 1}
-                    onClick={() => setQuestions((qs) => moveQuestion(qs, i, 1))}
-                  />
-                  <IconButton
-                    variant="ghost"
-                    size="sm"
-                    label="Frage entfernen"
-                    icon={<TrashIcon size={16} />}
-                    onClick={() => setQuestions((qs) => removeQuestion(qs, i))}
-                  />
-                </div>
-                <ul className="space-y-1 pl-10">
-                  {q.options.map((o, k) => (
-                    <li key={k} className="flex items-center gap-2">
-                      <div className="min-w-0 flex-1">
-                        <TextInput
-                          label={`Antwort ${k + 1}`}
-                          isLabelHidden
-                          value={o}
-                          onChange={(v) => setOption(i, k, v)}
-                          placeholder="Antwort"
-                          size="sm"
-                          width="100%"
-                        />
-                      </div>
-                      <Selector
-                        label={`Ziel von „${o || `Antwort ${k + 1}`}“`}
-                        isLabelHidden
-                        size="sm"
-                        width={260}
-                        options={targets(i)}
-                        value={String(gotoOf(q, o))}
-                        onChange={(v) => setGoto(i, o, v)}
-                        isDisabled={!o.trim()}
-                      />
-                      <IconButton
-                        variant="ghost"
-                        size="sm"
-                        label="Antwort entfernen"
-                        icon={<TrashIcon size={14} />}
-                        isDisabled={q.options.length <= 2}
-                        onClick={() => removeOption(i, k)}
-                      />
-                    </li>
-                  ))}
-                  <li>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      icon={<PlusIcon size={14} />}
-                      label="Antwort"
-                      isDisabled={q.options.length >= 4}
-                      onClick={() => update(i, { options: [...q.options, ""] })}
-                    />
-                  </li>
-                </ul>
-              </li>
-            ))}
-          </ol>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="ghost" size="sm" icon={<PlusIcon size={14} />} label="Eigene Frage" onClick={() => addQuestion()} isDisabled={questions.length >= 6} />
-            <DropdownMenu
-              button={{ label: "Baustein", variant: "ghost", size: "sm", isDisabled: questions.length >= 6 }}
-              items={BRICKS.map((b) => ({
-                label: b.question.label,
-                isDisabled: questions.some((q) => q.label.trim().toLowerCase() === b.question.label.toLowerCase()),
-                onClick: () => addQuestion(b.question),
-              }))}
-            />
-          </div>
-
-          {/* Was fest ist, steht sichtbar – nur nicht editierbar. */}
-          <div className="space-y-1 rounded-md bg-neutral-50 p-2">
-            <Text type="supporting" as="p">
-              F{reachIndex} {current.freeText[0]} · Freitext → Formular senden (E1)
-            </Text>
-            <Text type="supporting" as="p">
-              Kontakt: {current.contact.headline} · Name, Telefon, E-Mail
-            </Text>
-            <Text type="supporting" as="p">
-              Datenschutz: {current.privacyLinkText} → {current.privacyUrl || "–"}
-            </Text>
-            <Text type="supporting" as="p">
-              E1 Lead: {current.endings.lead.title} · E2 Kein Lead: {current.endings.nonLead.title} → Website
-            </Text>
-          </div>
-
-          <TextInput label="Website" value={website} onChange={setWebsite} width="100%" className="max-w-xl" placeholder="https://…" />
-
-          {[...warnings, ...blockers].map((w) => (
-            <Text key={w} type="supporting" as="p">
-              {w}
-            </Text>
-          ))}
-        </>
-      )}
+      <FormDialog isOpen={open} onOpenChange={setOpen} input={input} extension={extension} onBuild={build} />
     </div>
   );
 }

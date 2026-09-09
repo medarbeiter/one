@@ -115,6 +115,8 @@ export type FormSuggestInput = {
   driveFolderId?: string;
   /** Von Hand eingetragen, wenn die Kundenübersicht keine kennt. */
   website?: string;
+  /** Ein Satz des Bearbeiters an die KI – „nur Fachkräfte, Nachtdienst ist Pflicht“. */
+  hint?: string;
 };
 
 export type FormSuggestResult = { spec?: FormSpec; warnings: string[]; error?: string };
