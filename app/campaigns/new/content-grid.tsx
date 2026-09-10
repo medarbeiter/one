@@ -1,5 +1,7 @@
 "use client";
 
+import form from "./campaign-form.module.css";
+
 /**
  * Die Inhaltsfläche einer Anzeigengruppe.
  *
@@ -107,7 +109,7 @@ function MediaFrame({
       aria-label={onCrop ? `${alt} auf ${ratio} zuschneiden` : undefined}
       onClick={onCrop}
       className={`border-line bg-surface group relative h-full shrink-0 overflow-hidden rounded-md border ${RATIO[ratio]} ${
-        onCrop ? "focus-visible:ring-gold-500 cursor-pointer outline-none focus-visible:ring-2" : ""
+        onCrop ? "focus-visible:ring-focus cursor-pointer outline-none focus-visible:ring-2" : ""
       }`}
     >
       {url && !broken ? (
@@ -126,13 +128,13 @@ function MediaFrame({
         // Motiv steht, und ohne die Kachel zu verändern, wenn es soweit ist.
         <Skeleton radius="none" />
       ) : (
-        <span className="text-ink-500 absolute inset-1 grid place-items-center text-center text-[10px] leading-tight break-all">
+        <span className="text-ink-500 absolute inset-1 grid place-items-center text-center text-xs leading-tight break-all">
           {alt}
         </span>
       )}
       {/* Das Format steht am Rahmen und nicht darunter: eine Bildunterschrift je
           Rahmen wäre eine dritte Textzeile in einer Kachel, die zwei hat. */}
-      <span className="bg-ink-900/70 absolute bottom-0.5 left-0.5 rounded px-1 text-[9px] font-medium text-white">
+      <span className="bg-ink-900/70 absolute bottom-0.5 left-0.5 rounded px-1 text-xs font-medium text-white">
         {ratio}
       </span>
       {onCrop && (
@@ -177,7 +179,7 @@ function TileHeader({
   return (
     <div className="flex min-h-7 items-center justify-between gap-1">
       <span
-        className={`truncate rounded-full border px-2 py-0.5 text-[11px] font-semibold ${badgeTone}`}
+        className={`truncate rounded-full border px-2 py-0.5 text-xs font-semibold ${badgeTone}`}
       >
         {badge}
       </span>
@@ -198,7 +200,7 @@ function TileNote({ text, tone = "muted" }: { text: string; tone?: "muted" | "wa
   return (
     <p
       title={text}
-      className={`line-clamp-2 text-[11px] leading-tight ${
+      className={`line-clamp-2 text-xs leading-tight ${
         tone === "warn" ? "text-danger-700" : "text-ink-500"
       }`}
     >
@@ -243,7 +245,7 @@ function Tile({
   return (
     <li
       {...rest}
-      className={`bg-surface flex flex-col gap-2 rounded-xl border p-2 transition-colors ${border}`}
+      className={`bg-surface flex flex-col gap-3 rounded-xl border p-4 transition-colors ${border}`}
     >
       {children}
     </li>
@@ -253,7 +255,7 @@ function Tile({
 /** Statt des Namensfeldes, wo es nichts zu benennen gibt – gleiche Höhe. */
 function TileName({ children }: { children: ReactNode }) {
   return (
-    <p className="flex min-h-10 items-center truncate px-1 text-sm font-medium">{children}</p>
+    <p className="flex min-h-10 items-center px-1 text-sm font-medium break-words">{children}</p>
   );
 }
 
@@ -661,7 +663,7 @@ export function ContentGrid({ children }: { children: ReactNode }) {
   // .scroll-fade ersetzt HeroUIs ScrollShadow (app/globals.css).
   return (
     <div className="scroll-fade max-h-[34rem] px-0.5 py-1">
-      <ul className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3">{children}</ul>
+      <ul className={form.mediaGrid}>{children}</ul>
     </div>
   );
 }

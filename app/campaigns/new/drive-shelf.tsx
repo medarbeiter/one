@@ -1,5 +1,7 @@
 "use client";
 
+import form from "./campaign-form.module.css";
+
 /**
  * Das Drive-Regal: der Kundenordner, schon geöffnet, direkt im Vorschlag.
  * Vorher lag zwischen „Dateien wählen“ und den Videos ein Dialog, eine Suche
@@ -93,7 +95,7 @@ export function DriveShelf({
   const take = (wanted: DriveFile[]) => wanted.length && onFiles(wanted);
 
   return (
-    <div className="bg-surface-secondary border-line space-y-3 rounded-xl border p-4">
+    <div className={form.mediaShelf}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <FolderSimpleIcon size={18} weight="bold" className="text-ink-500 shrink-0" aria-hidden />
@@ -111,7 +113,7 @@ export function DriveShelf({
               rel="noreferrer"
               aria-label="Ordner in Drive öffnen"
               title="In Drive öffnen"
-              className="text-ink-500 hover:text-ink-900 focus-visible:ring-gold-500 shrink-0 rounded focus-visible:ring-2 focus-visible:outline-none"
+              className="text-ink-500 hover:text-ink-900 focus-visible:ring-focus shrink-0 rounded focus-visible:ring-2 focus-visible:outline-none"
             >
               <ArrowSquareOutIcon size={16} weight="bold" aria-hidden />
             </a>
@@ -164,7 +166,7 @@ export function DriveShelf({
                       {video ? <PlayIcon size={28} /> : <ImageIcon size={28} />}
                     </span>
                   )}
-                  <span className="bg-ink-900/70 absolute inset-x-0 bottom-0 truncate px-1.5 py-0.5 text-[11px] text-white">
+                  <span className="bg-ink-900/70 absolute inset-x-0 bottom-0 truncate px-1.5 py-0.5 text-xs text-white">
                     {m.name}
                   </span>
                 </button>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { Banner, Button, IconButton, TextInput } from "@astryxdesign/core";
+import { Banner, Button, Dialog, DialogHeader, IconButton, Layout, LayoutContent, LayoutFooter, TextInput } from "@astryxdesign/core";
 import { ArrowDownIcon, ArrowSquareOutIcon, ArrowUpIcon, PlusIcon, SparkleIcon, TrashIcon } from "@phosphor-icons/react";
 import { Sign } from "@/theme/icons";
 import { BRICKS } from "@/lib/form-bricks";
@@ -26,6 +26,7 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [opened, setOpened] = useState<{ ok: boolean; error?: string }>();
+  const [open, setOpen] = useState(false);
   const [preview, setPreview] = useState(false);
   const [replace, setReplace] = useState(false);
   const [undo, setUndo] = useState<EditorQuestion[]>();
@@ -145,15 +146,37 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
     return index === questions.length ? "Weiter zur Erreichbarkeit" : `Frage ${index + 1}: ${questions[index]?.label || "Ohne Fragetext"}`;
   };
 
+  const onOpenChange = (isOpen: boolean) => {
+    setOpen(isOpen);
+    if (!isOpen) {
+      setPreview(false);
+      setReplace(false);
+      setDragged(undefined);
+      setDropIndex(undefined);
+    }
+  };
+
   return (
-    <div ref={root} className={styles.builder}>
-      <div className={styles.header}>
-        <div>
-          <h3>Lead-Formular gestalten</h3>
-          <p>{current ? `${current.name} · ${input.business}` : "Starte mit einem Vorschlag und passe Fragen und Antwortwege an."}</p>
-        </div>
-        {current && <Button variant="secondary" size="sm" icon={<Sign meaning={preview ? "edit" : "preview"} />} label={preview ? "Weiter bearbeiten" : "Ablauf testen"} onClick={() => setPreview(!preview)} isDisabled={busy || (!preview && blockers.length > 0)} />}
+    <>
+      <div className={styles.launcher}>
+        <Button variant="secondary" size="sm" icon={<Sign meaning="leadForm" />} label={current ? "Formular weiter bearbeiten" : "Formular erstellen"} onClick={() => {
+          setOpen(true);
+          if (!spec && !busy) void suggest();
+        }} />
+        <p>{current ? "Dein Entwurf bleibt beim Schließen erhalten." : "Fragen und Antwortwege in einem eigenen Fenster gestalten."}</p>
       </div>
+      {!open && opened?.ok && <Banner status="info" title="Baukasten geöffnet" description="Prüfe das Formular im Meta-Tab und klicke dort „Formular erstellen“." />}
+      {!open && opened && !opened.ok && <Banner status="error" title="Baukasten nicht geöffnet" description={opened.error ?? "Bitte öffne den Entwurf und versuche es erneut."} />}
+      <Dialog isOpen={open} onOpenChange={onOpenChange} purpose="form" width="min(1040px, calc(100vw - 24px))" maxHeight="calc(100dvh - 24px)" padding={0}>
+        <Layout ref={root} className={styles.builder} padding={0} style={{ height: "min(900px, calc(100dvh - 24px))" }}
+          header={<div className={styles.header}>
+            <DialogHeader title="Lead-Formular gestalten" subtitle={current ? `${current.name} · ${input.business}` : input.business} onOpenChange={onOpenChange} />
+            {current && <div className={styles.toolbar}>
+              <p>Entwurf · Änderungen bleiben bis zum Verlassen dieser Seite erhalten.</p>
+              <Button variant="secondary" size="sm" icon={<Sign meaning={preview ? "edit" : "preview"} />} label={preview ? "Weiter bearbeiten" : "Ablauf testen"} onClick={() => setPreview(!preview)} isDisabled={busy || (!preview && blockers.length > 0)} />
+            </div>}
+          </div>}
+          content={<LayoutContent padding={0}>
       <div className="sr-only" role="status">{announcement}</div>
       {error && <Banner status="error" title="Vorlage nicht erstellt" description={error} />}
       {opened?.ok && <Banner status="info" title="Baukasten geöffnet" description="Die Erweiterung baut im neuen Tab. Prüfe dort und klicke „Formular erstellen“. Zurück hier wird es erkannt." />}
@@ -166,10 +189,10 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
       </div>}
 
       {current && (preview ? <FormPreview spec={current} /> : <fieldset className={styles.editor} disabled={busy} aria-busy={busy}>
-        <div className={styles.intro}>
-          <span className={styles.step}>Start</span>
-          <div><h4>{current.intro.title}</h4><p>{current.intro.description}</p></div>
-        </div>
+        <section className={styles.section} aria-label="Start des Formulars">
+          <div className={styles.sectionTitle}><h4>Start des Formulars</h4><span>Fester Inhalt</span></div>
+          <div className={styles.readOnly}><h4>{current.intro.title}</h4><p>{current.intro.description}</p></div>
+        </section>
         <div className={styles.sectionHeading}>
           <div><h4>Fragen & Antwortwege</h4><p>Fragen am Griff ziehen oder mit den Pfeilen verschieben. Jede Antwort hat ein Ziel.</p></div>
           <span className={styles.count}>{questions.length} / 6 Fragen</span>
@@ -234,23 +257,54 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
             return <button type="button" key={b.question.label} disabled={busy || used || questions.length >= 6} onClick={() => addQuestion(b.question)}><span>{b.question.label}</span><span>{used ? "Hinzugefügt" : "+ Hinzufügen"}</span></button>;
           })}</div>
         </details>
-        <div className={styles.fixed}>
-          <div><span className={styles.step}>Danach</span><h4>Erreichbarkeit & Kontakt</h4><p>{current.freeText[0]}</p><p>{current.contact.headline}</p><p>Name, Telefon und E-Mail · werden bei einem Lead abgefragt.</p></div>
-          <div><span className={styles.step}>Zwei Ausgänge</span><h4>Lead oder kein Lead</h4><p><strong>Lead:</strong> Kontaktdaten erfassen und Bewerbung senden.</p><p><strong>Kein Lead:</strong> Ohne Kontaktdaten beenden und zur Website verweisen.</p></div>
+        <div className={styles.sectionHeading}>
+          <div><h4>Kontakt & Abschluss</h4><p>Diese Inhalte sind vorgegeben. Die Antwortwege bestimmen, wer sie erreicht.</p></div>
         </div>
-        <details className={styles.details}>
-          <summary>Abschluss & Datenschutz ansehen</summary>
-          <div className={styles.endingDetails}><h4>Lead · {current.endings.lead.title}</h4><p>{current.endings.lead.description}</p><h4>Kein Lead · {current.endings.nonLead.title}</h4><p>{current.endings.nonLead.description}</p><h4>{current.privacyLinkText}</h4><p>{current.privacyUrl || "Website unten ergänzen."}</p></div>
-        </details>
-        <div className={styles.website}><TextInput label="Website des Kunden" value={website} onChange={v => { setWebsite(v); setOpened(undefined); }} width="100%" placeholder="https://…" isDisabled={busy} /><p>Ziel des Buttons „Website ansehen“ auf beiden Abschlussseiten.</p></div>
+        <div className={styles.fixed}>
+          <section className={styles.section}>
+            <div className={styles.sectionTitle}><h4>Erreichbarkeit</h4><span>Freitext</span></div>
+            <div className={styles.readOnly}><p>{current.freeText[0]}</p></div>
+            <p className={styles.sectionHelp}>Nach der letzten Frage geht es hier weiter – außer ein Antwortweg führt direkt zum Abschluss.</p>
+          </section>
+          <section className={styles.section}>
+            <div className={styles.sectionTitle}><h4>Kontaktdaten</h4><span>Nur bei Leads</span></div>
+            <div className={styles.readOnly}><p>{current.contact.headline}</p></div>
+            <p className={styles.sectionHelp}>Name, Telefonnummer und E-Mail-Adresse werden vor dem Absenden abgefragt.</p>
+          </section>
+          <section className={styles.section}>
+            <div className={styles.sectionTitle}><h4>Lead</h4><span>Bewerbung gesendet</span></div>
+            <div className={styles.readOnly}><h4>{current.endings.lead.title}</h4><p>{current.endings.lead.description}</p></div>
+            <p className={styles.sectionHelp}>Abschluss mit dem Button „{current.endings.lead.buttonLabel}“.</p>
+          </section>
+          <section className={styles.section}>
+            <div className={styles.sectionTitle}><h4>Kein Lead</h4><span>Ohne Kontaktdaten</span></div>
+            <div className={styles.readOnly}><h4>{current.endings.nonLead.title}</h4><p>{current.endings.nonLead.description}</p></div>
+            <p className={styles.sectionHelp}>Abschluss mit dem Button „{current.endings.nonLead.buttonLabel}“.</p>
+          </section>
+        </div>
+        <section className={styles.section}>
+          <div className={styles.sectionTitle}><h4>Website & Datenschutz</h4><span>Für beide Ausgänge</span></div>
+          <TextInput label="Website des Kunden" value={website} onChange={v => { setWebsite(v); setOpened(undefined); }} width="100%" placeholder="https://…" isDisabled={busy} />
+          <p className={styles.sectionHelp}>Ziel des Buttons „Website ansehen“ auf beiden Abschlussseiten.</p>
+          <div className={styles.privacy}><h4>{current.privacyLinkText}</h4><p>{current.privacyUrl || "Website oben ergänzen."}</p></div>
+        </section>
       </fieldset>)}
       {warnings.length > 0 && <Banner status="warning" title="Hinweise zur Vorlage" description={<ul>{warnings.map(w => <li key={w}>{w}</li>)}</ul>} />}
       {current && blockers.length > 0 && <Banner status="warning" title={`${blockers.length} ${blockers.length === 1 ? "Punkt" : "Punkte"} vor dem Testen und Übertragen klären`} description={<ul>{blockers.map(b => <li key={b}>{b}</li>)}</ul>} />}
-      {current && <div className={styles.footer}>
-        {replace ? <div className={styles.replace}><p>Ein neuer Vorschlag ersetzt deine Fragen und Antwortwege.</p><div className="flex flex-wrap gap-2"><Button variant="secondary" size="sm" label="Fragen ersetzen" onClick={suggest} /><Button variant="ghost" size="sm" label="Behalten" onClick={() => setReplace(false)} /></div></div> : <Button variant="ghost" size="sm" icon={<SparkleIcon size={16} />} label={busy ? "Vorlage wird erstellt…" : "Neu vorschlagen"} onClick={() => setReplace(true)} isDisabled={busy} />}
-        <div className={styles.publish}><p>In Meta prüfen und mit „Formular erstellen“ abschließen.</p><Button variant="primary" label="In Meta bauen" onClick={build} isDisabled={busy || blockers.length > 0} /></div>
-      </div>}
-    </div>
+          </LayoutContent>}
+          footer={<LayoutFooter padding={0}>
+            <div className={styles.footer}>
+              {current && (replace ? <div className={styles.replace}><p>Ein neuer Vorschlag ersetzt deine Fragen und Antwortwege.</p><div className="flex flex-wrap gap-2"><Button variant="secondary" size="sm" label="Fragen ersetzen" onClick={suggest} /><Button variant="ghost" size="sm" label="Behalten" onClick={() => setReplace(false)} /></div></div> : <Button variant="ghost" size="sm" icon={<SparkleIcon size={16} />} label={busy ? "Vorlage wird erstellt…" : "Neu vorschlagen"} onClick={() => setReplace(true)} isDisabled={busy} />)}
+              <div className={styles.publish}>
+                <p>{current ? "In Meta prüfen und mit „Formular erstellen“ abschließen." : busy ? "Dein Vorschlag wird auch bei geschlossenem Fenster weiter vorbereitet." : "Dein Entwurf bleibt beim Schließen erhalten."}</p>
+                <Button variant="secondary" label="Schließen" onClick={() => onOpenChange(false)} />
+                {current && <Button variant="primary" label="In Meta bauen" onClick={build} isDisabled={busy || blockers.length > 0} />}
+              </div>
+            </div>
+          </LayoutFooter>}
+        />
+      </Dialog>
+    </>
   );
 }
 

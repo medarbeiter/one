@@ -5,10 +5,8 @@ import {
   Badge,
   Banner,
   Button,
-  Card,
   Collapsible,
   CollapsibleGroup,
-  Divider,
   Heading,
   Link,
   List,
@@ -51,6 +49,7 @@ import { Infotafel } from "./angaben";
 import { Auftrag, KundeWahl, fuzzySource, type ClientItem, type WizardClient } from "./auftrag";
 import { Optional, VorschlagKopf, type AccountItem, type WizardAccount } from "./vorschlag";
 import { Stepper } from "./stepper";
+import form from "./campaign-form.module.css";
 import { Preview } from "./preview";
 import { ReceiptPanel } from "./receipt";
 import { activitySnapshot, clearActivity, report, useActivity } from "./activity";
@@ -170,7 +169,7 @@ function VorschauSpalte({
   adAccount: string;
 }) {
   return (
-    <section className="flex min-w-0 flex-col gap-3 lg:sticky lg:top-6">
+    <section className={form.reviewPreview}>
       <Text type="large" weight="medium" as="h3">
         Vorschau
       </Text>
@@ -217,13 +216,13 @@ function Step({
   children: ReactNode;
 }) {
   return (
-    <div className="step-enter flex flex-col gap-6 p-6">
+    <div className={`step-enter ${form.step}`}>
       {/* Frage, Satz, Linie – in jedem Schritt dieselbe Kopfzeile. Der
           Haarstrich darunter macht aus der Frage einen Kopf statt des ersten
           Eintrags im Stapel: vorher stand sie im selben 24-px-Abstand zur
           ersten Eingabe wie jedes Feld zum nächsten, und ein Schritt las sich
           als eine lange Reihe gleichrangiger Blöcke. */}
-      <header className="flex flex-col gap-4">
+      <header className={form.stepHeader}>
         <div className="flex flex-col gap-1">
           <Heading level={2}>{frage}</Heading>
           {/* Auf Textbreite gedeckelt: über die volle Karte gezogen bräuchte
@@ -232,7 +231,6 @@ function Step({
             {satz}
           </Text>
         </div>
-        <Divider />
       </header>
       {children}
     </div>
@@ -882,7 +880,7 @@ function WizardSteps({
           : `${offen} offene Punkte — du kannst sie später klären.`;
 
   return (
-    <div className="space-y-4">
+    <div className={form.wizard}>
       {/* Ein wiederhergestellter Entwurf sieht aus wie ein frisch ausgefüllter –
           ohne diesen Hinweis baut jemand auf den Zahlen von gestern weiter. */}
       {restored && (
@@ -916,7 +914,7 @@ function WizardSteps({
       {/* Die Karte legt ihre eigenen 16 px ab: Die Schrittleiste soll bis an
           beide Kanten reichen, und die Abschnitte darunter tragen mit 24 px
           mehr Rand, als eine Karte von sich aus gibt. */}
-      <Card elevation="low" padding={0}>
+      <div className={form.shell}>
         {/* Der Zähler steht am Schirm, nicht erst am Ende: sonst erfährt man
             vom fehlenden Formular nach acht Uploads. Gesperrt, solange kein
             Kunde gewählt ist – siehe `locked`. */}
@@ -1003,12 +1001,12 @@ function WizardSteps({
                       <div key={set.id} id={`pruefung-${set.id}`} className="pruefbereich">
                         <Collapsible
                           value={set.id}
-                          className="border-line bg-surface collapsible-wide-trigger rounded-2xl border px-4"
+                          className={`collapsible-wide-trigger ${form.location}`}
                           trigger={
-                          <span className="flex items-center gap-3 text-left">
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate font-medium">{set.name}</span>
-                              <span className="text-ink-500 block truncate text-xs font-normal">
+                          <span className={form.locationTitle}>
+                            <span className={form.locationName}>
+                              <span>{set.name}</span>
+                              <span>
                                 {locationSummary(set)}
                               </span>
                             </span>
@@ -1075,7 +1073,7 @@ function WizardSteps({
                     einrückt, schiebt weg, was man gerade ansieht; was unten
                     anwächst, lässt es stehen. */}
                 {ready && (
-                  <div className="step-enter flex flex-col gap-10">
+                  <div className={`step-enter ${form.stack}`}>
                     {/* Mit Zeichen: der Knopf steht unter einer Liste von
                         Aufklappern, die alle links ein Element tragen – ohne
                         eigenes Zeichen las er sich als deren Fuß statt als
@@ -1089,13 +1087,9 @@ function WizardSteps({
                       />
                     </div>
 
-                    <Divider />
-
                     <div id="pruefung-kampagne" className="pruefbereich">
                       <VorschlagKopf state={state} setState={setState} warnings={warnings} />
                     </div>
-
-                    <Divider />
 
                     <div id="pruefung-konto" className="pruefbereich">
                       <Optional
@@ -1126,7 +1120,7 @@ function WizardSteps({
             {/* Zwei Spalten, sobald Platz ist: links die Prüfliste, rechts das
                 Telefon. Untereinander ließ die Vorschau die halbe Seite leer –
                 und wer prüft, will Zahlen und Anzeige gleichzeitig sehen. */}
-            <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)]">
+            <div className={form.review}>
               <div className="flex min-w-0 flex-col gap-6">
                 {/* Ein Standort je Zeile, mit demselben Zähler wie im Vorschlag –
                     wer hier eine rote Zahl sieht, weiß, wohin er zurück muss.
@@ -1247,11 +1241,11 @@ function WizardSteps({
             padding={6}
             paddingBlock={4}
             dividers={["top"]}
-            className="wizard-footer"
+            className={form.footer}
           >
             {/* Umbrechend statt starr nebeneinander: auf dem Telefon rutscht der
                 Hinweis über die Knöpfe, statt den Weiter-Knopf zu zerdrücken. */}
-            <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className={form.footerActions}>
               <Button
                 variant="secondary"
                 label="Zurück"
@@ -1260,7 +1254,7 @@ function WizardSteps({
                 onClick={() => setStep(String(stepIndex - 1))}
               />
 
-              <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-3">
+              <div className={form.footerEnd}>
                 {/* Von Hand speichern, ohne auf die automatische Speicherung zu
                     warten – gerade vor dem Schließen des Tabs will man das sicher
                     wissen. aria-live sagt den Wechsel zu „Gespeichert“ an. */}
@@ -1281,6 +1275,7 @@ function WizardSteps({
                 )}
                 {stepIndex < STEPS.length - 1 ? (
                   <Button
+                    variant="primary"
                     isDisabled={locked || (stepIndex === 1 && !ready)}
                     label={`Weiter: ${steps[stepIndex + 1]}`}
                     endContent={<Sign meaning="next" />}
@@ -1288,6 +1283,7 @@ function WizardSteps({
                   />
                 ) : (
                   <Button
+                    variant="primary"
                     onClick={
                       queued
                         ? () => setQueued(false)
@@ -1324,7 +1320,7 @@ function WizardSteps({
             </div>
           </Section>
         )}
-      </Card>
+      </div>
 
       {/* Die Aufgabenliste steht in ihrer eigenen Karte unter der Schrittleiste:
           sie ist keine Eingabe in diesem Formular, sondern die Wahl davor. */}

@@ -26,6 +26,7 @@ import {
 import { getLocalTimeZone, parseDate, today } from "@internationalized/date";
 import { ROLES } from "@/lib/naming";
 import { Angaben, Infotafel } from "./angaben";
+import form from "./campaign-form.module.css";
 import { HinweiseFeld } from "./auftrag";
 import { Herkunft } from "./herkunft";
 import { edited, type SourceField, type WizardState } from "./state";
@@ -65,12 +66,12 @@ export function VorschlagKopf({
   const set = (field: SourceField, patch: Partial<WizardState>) =>
     setState((s) => edited(s, field, patch));
   return (
-    <section className="flex flex-col gap-8">
+    <section className={form.section}>
       {/* Derselbe Kopf wie die Abschnitte der Anzeigengruppe (ad-set-block.tsx,
           FieldsetSection): Titel, ein Satz. Der Abschnitt steht unter den
           Standorten, damit er beim Fertigwerden unten anwächst statt oben
           einzurücken. */}
-      <div className="flex flex-col gap-1.5">
+      <div className={form.stepHeader}>
         <Heading level={3}>Kampagne</Heading>
         <Text type="supporting" color="secondary" as="p" className="max-w-prose">
           Name, Rollen und Tagesbudget für alle Standorte. Der Name baut sich aus Kunde, Rollen, Datum und
@@ -79,10 +80,8 @@ export function VorschlagKopf({
       </div>
       <div className="flex flex-col gap-6">
       {/* Der Name ist ein Ergebnis, keine Eingabe – gerahmt wie ein Wert. */}
-      <div className="border-line bg-surface-secondary flex items-center gap-3 rounded-xl border p-2 ps-3">
-        <Text type="code" className="min-w-0 flex-1 truncate">
-          {state.campaignName || "…"}
-        </Text>
+      <div className={form.name}>
+        <div><span>Kampagnenname</span><p>{state.campaignName || "Wird aus den Angaben erstellt…"}</p></div>
         {state.nameEdited && (
           <Button
             variant="ghost"
@@ -107,8 +106,8 @@ export function VorschlagKopf({
         />
       )}
 
-      <div className="grid max-w-3xl gap-4 sm:grid-cols-2">
-        <div className="space-y-1">
+      <div className={form.fieldGrid}>
+        <div className={form.field}>
           <MultiSelector
             label="Gesuchte Rollen"
             options={ROLES.map((r) => ({ value: r.code, label: r.label }))}
@@ -131,7 +130,7 @@ export function VorschlagKopf({
           description="Für Einzelfälle ohne Kürzel — steht unverändert im Namen."
           width="100%"
         />
-        <div className="space-y-1">
+        <div className={form.field}>
           <NumberInput
             label="Tagesbudget"
             value={state.dailyBudgetEuros}
@@ -190,9 +189,9 @@ export function Optional({
   const set = (field: SourceField, patch: Partial<WizardState>) =>
     setState((s) => edited(s, field, patch));
   return (
-    <Collapsible defaultIsOpen={false} trigger="Optionale Einstellungen">
-      <div className="grid max-w-3xl gap-4 pb-2 sm:grid-cols-2">
-        <div className="space-y-1.5 sm:col-span-2">
+    <Collapsible className={form.options} defaultIsOpen={false} trigger="Optionale Einstellungen">
+      <div className={`${form.fieldGrid} ${form.optionFields}`}>
+        <div className={`${form.field} ${form.fullWidth}`}>
           <Typeahead
             label="Werbekonto (zahlt)"
             placeholder="Werbekonto suchen…"
@@ -231,7 +230,7 @@ export function Optional({
           description="Steht im Kampagnennamen."
           width="100%"
         />
-        <div className="space-y-1">
+        <div className={form.field}>
           <NumberInput
             label="Ausgabenlimit"
             value={state.spendCapEuros ?? null}
@@ -245,7 +244,7 @@ export function Optional({
           />
           <Herkunft source={state.sources.spendCap} />
         </div>
-        <div className="space-y-1">
+        <div className={form.field}>
           <TextInput
             label="Kürzel im Namen"
             value={state.initials}
@@ -263,7 +262,7 @@ export function Optional({
           description={state.nameEdited ? NAME_EDITED_HINT : "Baut sich aus Kunde, Rollen, Datum und Kürzel."}
           width="100%"
         />
-        <div className="sm:col-span-2">
+        <div className={form.fullWidth}>
           <Angaben titel="Feste Einstellungen" rows={fixed} />
         </div>
       </div>

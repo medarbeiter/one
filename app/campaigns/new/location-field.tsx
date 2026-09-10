@@ -1,5 +1,7 @@
 "use client";
 
+import form from "./campaign-form.module.css";
+
 /**
  * Standort einer Anzeigengruppe: entweder ein Ort aus Metas Verzeichnis (Stadt,
  * PLZ, Bezirk) oder eine getippte Adresse mit Umkreis.
@@ -108,7 +110,7 @@ export function LocationField({
 
   return (
     <div className="space-y-4">
-      <div className="grid max-w-3xl gap-4 sm:grid-cols-2">
+      <div className={form.fieldGrid}>
         <Typeahead
           label="Standort"
           isRequired

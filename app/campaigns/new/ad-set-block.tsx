@@ -5,7 +5,6 @@ import {
   Banner,
   Button,
   createStaticSource,
-  Divider,
   Heading,
   DropdownMenu,
   Skeleton,
@@ -20,6 +19,7 @@ import { PlusIcon, SparkleIcon, XIcon } from "@phosphor-icons/react";
 import type { LeadForm } from "@/lib/forms";
 import { matchFormHint, newlyAppeared } from "@/lib/forms";
 import { FormBuilder } from "./form-builder";
+import form from "./campaign-form.module.css";
 import { GhlHinweis } from "./ghl-hinweis";
 import type { Source } from "@/lib/brief";
 import { cleanStem, nextCreativeName } from "@/lib/media";
@@ -235,7 +235,7 @@ function TextListField({
   const remove = (i: number) => onChange(values.filter((_, idx) => idx !== i));
 
   return (
-    <div role="group" aria-label={labelText} className="space-y-4">
+    <div role="group" aria-label={labelText} className={form.copyGroup}>
       {/* Ein Kopf, eine Zeile: Name und Zähler links, rechts leise die zwei
           Handlungen. „Hinzufügen“ steht nur, wenn noch Platz ist – ein
           ausgegrauter Knopf an fünf von fünf Listen war nur ein Kasten mehr. */}
@@ -265,7 +265,7 @@ function TextListField({
           Feldrands. Kein eigener Scrollbereich mehr – fünf Felder in zwei
           Spalten passen, und ein Fenster im Fenster machte den Abschnitt eng. */}
       <div className="px-0.5 py-1">
-        <div className="grid gap-x-6 gap-y-6 sm:grid-cols-2">
+        <div className={form.copyGrid}>
           {values.map((v, i) => (
             // Der Entfernen-Knopf erscheint erst beim Überfahren oder Fokus:
             // fünf X in einer Reihe sind fünf Angebote, etwas wegzuwerfen.
@@ -290,7 +290,7 @@ function TextListField({
                   )}
                 </span>
                 {values.length > 1 && (
-                  <span className="opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 focus-within:opacity-100">
+                  <span className="opacity-100">
                     <Button
                       variant="ghost"
                       size="sm"
@@ -369,11 +369,13 @@ function TextListField({
  * text-base/medium) sind aus fieldset.styles.ts übernommen.
  */
 function FieldsetSection({
+  id,
   legend,
   satz,
   action,
   children,
 }: {
+  id: string;
   legend: ReactNode;
   /** Ein Satz unter dem Titel: was der Abschnitt entscheidet. */
   satz?: ReactNode;
@@ -385,9 +387,9 @@ function FieldsetSection({
     // Der Kopf steht außerhalb der <legend>: die darf nur Fließtext tragen,
     // und der Kopf ist Titel, Satz und Knopf in einer Zeile. Die Legende
     // bleibt für Vorleser da, unsichtbar.
-    <fieldset className="flex flex-col gap-8">
+    <fieldset id={id} className={form.section}>
       <legend className="sr-only">{legend}</legend>
-      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+      <div className={form.sectionHeader}>
         <div className="flex flex-col gap-1.5">
           <Heading level={3}>{legend}</Heading>
           {satz && (
@@ -898,13 +900,18 @@ export function AdSetBlock({
   });
 
   return (
-    // 48 px zwischen den Abschnitten, ein Haarstrich dazwischen: vier
-    // Abschnitte mit je einem Kopf brauchen Luft, sonst liest sich der Block
-    // als eine Spalte gleich schwerer Felder.
-    <div className="flex flex-col gap-12">
+    // Gemeinsame Abschnittsflächen und direkte Sprünge halten den langen Standort übersichtlich.
+    <div className={form.adSet}>
+      {stage === "alles" && <nav className={form.sectionNav} aria-label={`Abschnitte für ${value.name}`}>
+        <a href={`#${value.id}-inhalt`}>Inhalt</a>
+        <a href={`#${value.id}-standort`}>Standort & Umkreis</a>
+        <a href={`#${value.id}-formular`}>Lead-Formular</a>
+        <a href={`#${value.id}-texte`}>Texte</a>
+      </nav>}
       {/* Dieselben offenen Punkte, die die Kopfzeile als Zahl trägt – hier
           ausgeschrieben, damit man nicht raten muss, welche gemeint sind. */}
       <FieldsetSection
+        id={`${value.id}-inhalt`}
         legend="Inhalt"
         // Rein informativ – die Auswahl passiert nicht hier, sondern folgt aus
         // der Seite des Kunden (siehe wizard.tsx). Fehlt das Instagram-Konto,
@@ -1026,8 +1033,7 @@ export function AdSetBlock({
           Einzug eines Schritts, denn genau das ist es: der Rest der Seite
           kommt an. */}
       {stage === "alles" && (
-        <div className="step-enter flex flex-col gap-12">
-      <Divider />
+        <div className={`step-enter ${form.stack}`}>
 
       {/* Dieselben offenen Punkte, die die Kopfzeile als Zahl trägt – hier
           ausgeschrieben. Unter dem Inhalt, nicht darüber: die Meldung kommt
@@ -1047,6 +1053,7 @@ export function AdSetBlock({
       )}
 
       <FieldsetSection
+        id={`${value.id}-standort`}
         legend="Standort und Umkreis"
         satz="Wo die Anzeigen ausgespielt werden — eine Adresse oder ein Ort, dazu der Umkreis."
       >
@@ -1069,12 +1076,12 @@ export function AdSetBlock({
         </div>
       </FieldsetSection>
 
-      <Divider />
 
       {/* Wessen Formulare das sind, steht in der Überschrift – ohne den
           Seitennamen sah die Liste des falschen Kunden genauso aus wie die
           richtige. */}
       <FieldsetSection
+        id={`${value.id}-formular`}
         legend="Lead-Formular"
         satz={`Das Formular der Seite ${pageName || "des Kunden"}, das sich aus der Anzeige öffnet. Ein in Meta neu gebautes wird hier erkannt und gewählt.`}
         action={
@@ -1195,9 +1202,9 @@ export function AdSetBlock({
         </div>
       </FieldsetSection>
 
-      <Divider />
 
       <FieldsetSection
+        id={`${value.id}-texte`}
         legend="Texte"
         satz="Von der KI aus Rollen, Standort und Benefits vorbereitet. Jede Zeile bleibt direkt bearbeitbar."
         action={
@@ -1213,7 +1220,7 @@ export function AdSetBlock({
         {/* Vier Gruppen – Benefits, Primärtexte, Überschriften, Beschreibung –
             mit 40 px dazwischen und 16 px innerhalb: Zusammengehöriges eng,
             Getrenntes weit. Vorher stand alles im selben 16-px-Takt. */}
-        <div className="flex w-full flex-col gap-10">
+        <div className={form.stack}>
           <div className="max-w-2xl space-y-2">
             {/* Etikett und Herkunft in einer Zeile über dem Feld: die Herkunft
                 gehört zum Namen des Werts, nicht unter den Kasten. */}
@@ -1338,7 +1345,6 @@ export function AdSetBlock({
         </div>
       </FieldsetSection>
 
-      <Divider />
 
       {/* Ganz unten und nur als Umriss: das Entfernen ist die seltenste Aktion
           hier und stand vorher als erstes in der Kopfzeile. */}

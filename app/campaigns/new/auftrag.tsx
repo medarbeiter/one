@@ -11,12 +11,8 @@ import { useEffect, useMemo, useState, type RefObject } from "react";
 import {
   Banner,
   Button,
-  Card,
-  Divider,
   Heading,
   Kbd,
-  List,
-  ListItem,
   Section,
   Skeleton,
   Switch,
@@ -34,6 +30,7 @@ import { taskIdFromInput, type Brief } from "@/lib/clickup";
 import { fuzzyCustomerMatch, leadgenTosUrl, type InstagramAccount } from "@/lib/customers";
 import { briefsAction } from "../actions";
 import { Angaben } from "./angaben";
+import form from "./campaign-form.module.css";
 import { Herkunft } from "./herkunft";
 import { Aufbau } from "./werkstatt";
 
@@ -111,140 +108,41 @@ export function Auftrag({
     return direct ? [direct, ...rest] : rest;
   }, [sorted, mineOnly, query, mine, directId]);
 
-  // Während der Vorschlag entsteht, weicht die Liste der Werkstatt: der
-  // gewählte Auftrag als Kopf, darunter die Quellen, wie sie gelesen werden.
-  if (picking)
-    return (
-      <Card elevation="low" padding={0}>
-        <Section padding={6} paddingBlock={4}>
-          <div className="flex flex-col gap-1">
-            <Heading level={2}>Der Vorschlag entsteht</Heading>
-            <Text type="supporting" color="secondary" as="p" className="max-w-prose">
-              Jede Zeile eine Quelle. Was gefunden wird, steht gleich mit Herkunftsetikett am Feld
-              — du prüfst, statt zu tippen.
-            </Text>
-          </div>
-        </Section>
-        <Divider />
-        <Aufbau task={briefs?.find((b) => b.taskId === picking)} taskId={picking} />
-      </Card>
-    );
+  if (picking) return (
+    <section className={form.taskShell}>
+      <header className={form.taskHeader}>
+        <div><Heading level={2}>Der Vorschlag entsteht</Heading><Text type="supporting" color="secondary" as="p">Die Quellen werden gelesen. Gefundene Angaben erscheinen direkt am passenden Feld.</Text></div>
+      </header>
+      <Aufbau task={briefs?.find((b) => b.taskId === picking)} taskId={picking} />
+    </section>
+  );
 
   return (
-    <Card elevation="low" padding={0}>
-      <Section padding={6} paddingBlock={4}>
-        <div className="flex flex-col gap-1">
-          <Heading level={2}>Welche Kampagne ist dran?</Heading>
-          <Text type="supporting" color="secondary" as="p" className="max-w-prose">
-            Die Aufgaben aus ClickUp im Status „Kampagne anlegen“. Ein Klick liest Budget, Rollen,
-            Standort und Benefits zusammen — du korrigierst, statt zu tippen.
-          </Text>
+    <section className={form.taskShell} aria-label="Auftrag wählen">
+      <header className={form.taskHeader}>
+        <div><Heading level={2}>Welche Kampagne ist dran?</Heading><Text type="supporting" color="secondary" as="p" className="max-w-prose">Wähle einen Auftrag aus ClickUp. Budget, Rollen, Standort und Benefits werden als Vorschlag übernommen und bleiben bearbeitbar.</Text></div>
+      </header>
+      {error && <Section padding={6}><Banner status="error" title="ClickUp nicht erreichbar" description={error} /></Section>}
+      {briefs && <div className={form.taskTools}>
+        <div className={form.taskSearch}>
+          <TextInput label="Aufgabe suchen" placeholder="Kunde, Aufgabe oder ClickUp-Link…" value={query} onChange={setQuery} hasClear width="100%" />
+          <Switch label="Nur meine Aufgaben" value={mineOnly} onChange={setMineOnly} />
+          <Text type="supporting" as="p">Auch Aufgaben in anderen Status lassen sich über ihren ClickUp-Link oder ihre ID laden.</Text>
+          <Text type="supporting" as="p" aria-live="polite">{filtered.length + (extraId ? 1 : 0)} {filtered.length + (extraId ? 1 : 0) === 1 ? "Aufgabe" : "Aufgaben"} gefunden</Text>
         </div>
-      </Section>
-      <Divider />
-      {error && (
-        <Section padding={6} paddingBlock={4}>
-          <Banner status="error" title="ClickUp nicht erreichbar" description={error} />
-        </Section>
-      )}
-      {briefs && (
-        <>
-          <Section padding={6} paddingBlock={4}>
-            <div className="flex max-w-xl flex-col gap-2">
-              <TextInput
-                label="Aufgabe suchen"
-                isLabelHidden
-                placeholder="Kunde, Aufgabe oder ClickUp-Link…"
-                value={query}
-                onChange={setQuery}
-                hasClear
-              />
-              <Switch label="Nur meine" value={mineOnly} onChange={setMineOnly} />
-              <Text type="supporting" as="p">
-                Eine Aufgabe in einem anderen Status: ClickUp-Link oder ID einfügen.
-              </Text>
-            </div>
-          </Section>
-          <Divider />
-          <Section padding={6} paddingBlock={4}>
-            <div className="max-w-xl">
-              <HinweiseFeld value={aiNotes} onChange={onAiNotesChange} />
-            </div>
-          </Section>
-          <Divider />
-        </>
-      )}
-      {!briefs ? (
-        <div className="space-y-3 p-6">
-          {[0, 1, 2].map((i) => (
-            <Skeleton key={i} height={44} width="100%" radius={2} index={i} />
-          ))}
-        </div>
-      ) : filtered.length || extraId ? (
-        <List hasDividers density="spacious">
-          {extraId && (
-            <ListItem
-              key={extraId}
-              label="Aufgabe aus ClickUp laden"
-              description={extraId}
-              endContent={
-                <Button
-                  size="sm"
-                  label="Vorschlag erstellen"
-                  isLoading={picking === extraId}
-                  isDisabled={Boolean(picking)}
-                  onClick={() => onPick(extraId)}
-                />
-              }
-            />
-          )}
-          {filtered.map((b) => (
-            <ListItem
-              key={b.taskId}
-              label={b.customer || b.name}
-              description={[
-                b.customer ? b.name : undefined,
-                b.assignees.join(", ") || "niemand zuständig",
-                b.dailyBudgetEuros !== undefined
-                  ? `${money.format(b.dailyBudgetEuros)} / Tag`
-                  : undefined,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-              endContent={
-                <Button
-                  size="sm"
-                  label="Vorschlag erstellen"
-                  isLoading={picking === b.taskId}
-                  isDisabled={Boolean(picking)}
-                  onClick={() => onPick(b.taskId)}
-                />
-              }
-            />
-          ))}
-        </List>
-      ) : (
-        !error && (
-          <Section padding={6} paddingBlock={4}>
-            <Text type="supporting" as="p">
-              {briefs.length
-                ? "Keine Aufgabe passt zur Suche."
-                : "Keine Aufgabe im Status „Kampagne anlegen“."}
-            </Text>
-          </Section>
-        )
-      )}
-      <Divider />
-      <Section variant="muted" padding={6} paddingBlock={3}>
-        <Button
-          variant="ghost"
-          size="sm"
-          label="Ohne Aufgabe beginnen"
-          onClick={onWithout}
-          isDisabled={Boolean(picking)}
-        />
-      </Section>
-    </Card>
+        <HinweiseFeld value={aiNotes} onChange={onAiNotesChange} />
+      </div>}
+      {!briefs ? <div className="space-y-4 p-6">{[0, 1, 2].map(i => <Skeleton key={i} height={72} width="100%" radius={2} index={i} />)}</div> : filtered.length || extraId ? (
+        <ul className={form.taskList}>
+          {extraId && <li className={form.taskRow}><div><h3>Aufgabe aus ClickUp laden</h3><p>{extraId}</p></div><Button variant="secondary" label="Vorschlag erstellen" isDisabled={Boolean(picking)} onClick={() => onPick(extraId)} /></li>}
+          {filtered.map(b => <li key={b.taskId} className={form.taskRow}>
+            <div><h3>{b.customer || b.name}</h3><p>{[b.customer ? b.name : undefined, b.assignees.join(", ") || "niemand zuständig", b.dailyBudgetEuros !== undefined ? `${money.format(b.dailyBudgetEuros)} / Tag` : undefined].filter(Boolean).join(" · ")}</p></div>
+            <Button variant="secondary" label="Vorschlag erstellen" isDisabled={Boolean(picking)} onClick={() => onPick(b.taskId)} />
+          </li>)}
+        </ul>
+      ) : !error && <Section padding={6}><Text as="p">{briefs.length ? "Keine Aufgabe passt zur Suche. Ändere den Suchtext oder den Filter." : "Keine Aufgabe im Status „Kampagne anlegen“. Du kannst auch ohne Aufgabe beginnen."}</Text></Section>}
+      <footer className={form.taskFooter}><Button variant="ghost" label="Ohne Aufgabe beginnen" onClick={onWithout} isDisabled={Boolean(picking)} /></footer>
+    </section>
   );
 }
 
@@ -265,7 +163,6 @@ export function HinweiseFeld({
   return (
     <TextArea
       label="Hinweise für die KI"
-      isOptional
       value={value}
       onChange={onChange}
       rows={3}
@@ -385,7 +282,7 @@ export function KundeWahl({
   onOtherTask?: () => void;
 }) {
   return (
-    <div className="flex flex-col gap-6">
+    <div className={form.stack}>
       {unmatchedName && (
         <Banner
           status="warning"
@@ -396,7 +293,7 @@ export function KundeWahl({
 
       {/* Die Suche ist lokal und sofort; beim Laden der Meta-Liste deckt
           loading.tsx genau diese Fläche mit Skeletons ab. */}
-      <div className="flex max-w-xl flex-col gap-2">
+      <div className={form.section}>
         <div className="flex items-end gap-2">
           {/* Astryx' Typeahead ist selbst das Suchfeld – der Umweg über
               Auslöser, Popover und ein zweites SearchField darin entfällt,
@@ -446,7 +343,7 @@ export function KundeWahl({
           dabei ist, sind drei Antworten – vorher standen sie als ein Satz
           mit Mittelpunkt da und mussten gelesen statt überflogen werden. */}
       {client && (
-        <div className="max-w-xl">
+        <div>
           <Angaben
             titel="Das steckt hinter dieser Wahl"
             rows={[
