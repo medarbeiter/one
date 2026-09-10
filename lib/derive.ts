@@ -8,9 +8,13 @@ import type { AdAccount, Customer, Page } from "./customers";
 /**
  * Der beworbene Kunde wird über seinen Namen gewählt. Kleinschreibung, NFKD,
  * Diakritika weg, ß→ss: „Schröter“ und „Schroeter“ sollen dasselbe treffen.
+ * Unsichtbare Formatzeichen (Zero-Width Space, BOM, weiches Trennzeichen)
+ * fliegen zuerst raus – ClickUp liefert sie beim Einfügen aus Web-Seiten mit,
+ * und ein „\u200bASB Riesa“ traf sonst nie die Seite „ASB Riesa“.
  */
 export const normalise = (s: string) =>
   s
+    .replace(/\p{Cf}/gu, "")
     .trim()
     .toLocaleLowerCase("de")
     .normalize("NFKD")

@@ -139,6 +139,9 @@ test("Der beworbene Kunde wird über seinen Namen aufgelöst", () => {
   // Groß-/Kleinschreibung und Leerraum kommen beim Tippen mit, sind aber
   // nicht gemeint.
   expect(resolveClientByName(list, "  herzhalt pflegedienst ")?.id).toBe("herzhalt");
+  // Ein Zero-Width Space aus ClickUp ist nicht zu sehen und nicht gemeint.
+  expect(resolveClientByName(list, "\u200bHerzhalt Pflegedienst")?.id).toBe("herzhalt");
+  expect(fuzzyCustomerMatch("Herzhalt Pflegedienst", "\u200bherzhalt")).toBeTrue();
   // Freitext für einen Kunden, der nicht in der Config steht: keine Seite.
   expect(resolveClientByName(list, "Irgendein Pflegedienst")).toBeUndefined();
   expect(resolveClientByName(list, "   ")).toBeUndefined();
