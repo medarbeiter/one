@@ -204,9 +204,36 @@ function CopyNotices({ notices, field }: { notices: Notice[]; field: CopyField }
  * nicht wie eine Seite. Jedes Feld trägt seine eigene Nummer – ohne sie hieß in
  * der Vorlesung jedes Feld gleich, nämlich gar nicht.
  */
+/** Ein Kopf für jede Textgruppe: Name, Zähler, ein Satz dazu – rechts die Handlungen. */
+function CopyHeader({
+  title,
+  count,
+  hint,
+  children,
+}: {
+  title: string;
+  count?: string;
+  hint: string;
+  children?: ReactNode;
+}) {
+  return (
+    <div className={form.copyHeader}>
+      <div>
+        <Text type="label" as="div" className={form.copyTitle}>
+          {title}
+          {count && <span className={form.copyCount}>{count}</span>}
+        </Text>
+        <p className={form.copyHint}>{hint}</p>
+      </div>
+      {children && <div className={form.copyActions}>{children}</div>}
+    </div>
+  );
+}
+
 function TextListField({
   label: labelText,
   singular,
+  hint,
   values,
   limit,
   multiline,
@@ -217,6 +244,8 @@ function TextListField({
   label: string;
   /** Wie ein einzelner Eintrag heißt – „Primärtext 3" steht an jedem Feld. */
   singular: string;
+  /** Ein Satz unter dem Namen: wo dieser Text in der Anzeige steht. */
+  hint: string;
   values: string[];
   limit: number;
   multiline?: boolean;
@@ -236,82 +265,64 @@ function TextListField({
 
   return (
     <div role="group" aria-label={labelText} className={form.copyGroup}>
-      {/* Ein Kopf, eine Zeile: Name und Zähler links, rechts leise die zwei
-          Handlungen. „Hinzufügen“ steht nur, wenn noch Platz ist – ein
-          ausgegrauter Knopf an fünf von fünf Listen war nur ein Kasten mehr. */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <Text type="label" as="div">
-          {labelText}{" "}
-          <span className="text-ink-500 font-normal tabular-nums">
-            {values.length}/{MAX_ITEMS}
-          </span>
-        </Text>
-        <div className="flex flex-wrap items-center gap-1">
-          {action}
-          {values.length < MAX_ITEMS && (
-            <Button
-              variant="ghost"
-              size="sm"
-              icon={<PlusIcon size={14} weight="bold" />}
-              label={singular}
-              onClick={add}
-              isDisabled={anyPending}
-            />
-          )}
-        </div>
-      </div>
+      {/* „Hinzufügen“ steht nur, wenn noch Platz ist – ein ausgegrauter Knopf
+          an fünf von fünf Listen war nur ein Kasten mehr. */}
+      <CopyHeader title={labelText} count={`${values.length}/${MAX_ITEMS}`} hint={hint}>
+        {action}
+        {values.length < MAX_ITEMS && (
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<PlusIcon size={14} weight="bold" />}
+            label={singular}
+            onClick={add}
+            isDisabled={anyPending}
+          />
+        )}
+      </CopyHeader>
 
-      {/* Rand statt Vorgabe-Innenpolster: der Fokusring liegt außerhalb des
-          Feldrands. Kein eigener Scrollbereich mehr – fünf Felder in zwei
-          Spalten passen, und ein Fenster im Fenster machte den Abschnitt eng. */}
-      <div className="px-0.5 py-1">
-        <div className={form.copyGrid}>
-          {values.map((v, i) => (
-            // Der Entfernen-Knopf erscheint erst beim Überfahren oder Fokus:
-            // fünf X in einer Reihe sind fünf Angebote, etwas wegzuwerfen.
-            <div key={i} className="group min-w-0 space-y-1.5">
-              <div className="flex h-7 items-center justify-between gap-2">
-                <span className="text-ink-500 text-xs font-medium">
-                  {singular} {i + 1}
-                  {/* TextInput hat keinen eingebauten Zeichenzähler; die
-                      description-Prop wäre hier eine Lösung, aber isLabelHidden
-                      blendet description zusammen mit dem Label auf srOnly aus
-                      (FieldLabel.tsx) — ein Zähler, den niemand sieht, bis das
-                      Feld schon zu lang ist. Deshalb steht der Zähler hier
-                      sichtbar, im selben Muster wie der Gruppenzähler oben. */}
-                  {!multiline && (
-                    <span
-                      className={`ml-1 font-normal tabular-nums ${
-                        v.length > limit ? "text-danger-700" : "text-ink-500"
-                      }`}
-                    >
-                      ({v.length}/{limit})
+      {/* Jede Variante als Karte: Nummer, Zähler und Feld gehören sichtbar
+          zusammen. Der Zähler steht bei beiden Feldarten im Kopf der Karte –
+          TextAreas eingebauter Zähler (maxLength) wäre nur bei den
+          Primärtexten da, TextInputs description verschwindet mit dem Label. */}
+      <div className={form.copyGrid}>
+        {values.map((v, i) => {
+          const name = `${singular} ${i + 1}`;
+          const over = v.length > limit;
+          return (
+            <div key={i} className={form.copyCard}>
+              <div className={form.copyCardHead}>
+                <span className={form.copyCardName}>
+                  <span className={form.copyMark} aria-hidden>{i + 1}</span>
+                  {name}
+                </span>
+                <span className={form.copyCardEnd}>
+                  <span className={form.copyCounter} data-over={over}>
+                    {v.length}/{limit}
+                  </span>
+                  {/* Erst beim Überfahren oder Fokus sichtbar: fünf X in einer
+                      Reihe sind fünf Angebote, etwas wegzuwerfen. */}
+                  {values.length > 1 && (
+                    <span className={form.copyRemove}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        isIconOnly
+                        icon={<XIcon size={14} weight="bold" />}
+                        label={`${name} entfernen`}
+                        onClick={() => remove(i)}
+                        isDisabled={anyPending}
+                      />
                     </span>
                   )}
                 </span>
-                {values.length > 1 && (
-                  <span className="opacity-100">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      isIconOnly
-                      icon={<XIcon size={14} weight="bold" />}
-                      label={`${singular} ${i + 1} entfernen`}
-                      onClick={() => remove(i)}
-                      isDisabled={anyPending}
-                    />
-                  </span>
-                )}
               </div>
               {pending?.[i] ? (
                 // Skeleton misst sich über width/height-Props (StyleX-Vars),
                 // nicht über Tailwind-Klassen – h-4 verlor gegen das
                 // eingebaute height:100% und der Kasten fiel auf 0 zusammen.
                 // index staffelt die Welle über die Slots.
-                <div
-                  className="ki-schimmer space-y-2"
-                  aria-label={`${singular} ${i + 1} wird generiert…`}
-                >
+                <div className="ki-schimmer space-y-2" aria-label={`${name} wird generiert…`}>
                   {multiline ? (
                     <>
                       <Skeleton height={14} width="100%" radius={1} index={i * 3} />
@@ -324,37 +335,33 @@ function TextListField({
                 </div>
               ) : multiline ? (
                 // Vier Zeilen, nicht fünf: erst damit passen die üblichen fünf
-                // Primärtexte in zwei Spalten ohne Scrollen ins Feld. TextArea
-                // zeigt den Zeichenzähler eingebaut über maxLength an — und
-                // anders als TextInputs description bleibt der bei
-                // isLabelHidden sichtbar.
+                // Primärtexte in zwei Spalten ohne Scrollen ins Feld.
                 <TextArea
-                  label={`${singular} ${i + 1}`}
+                  label={name}
                   isLabelHidden
                   value={v}
                   onChange={(nv) => update(i, nv)}
                   rows={4}
-                  maxLength={limit}
                   width="100%"
+                  description={`${v.length}/${limit}`}
+                  status={over ? { type: "error" } : undefined}
                 />
               ) : (
-                // description bleibt zusätzlich gesetzt (sichtbarer Zähler
-                // steht daneben, siehe oben): sie hängt unabhängig von
-                // isLabelHidden per aria-describedby am Input und wird beim
-                // Fokussieren vorgelesen, auch wenn sie selbst unsichtbar ist.
+                // description hängt unabhängig von isLabelHidden per
+                // aria-describedby am Input und wird beim Fokussieren vorgelesen.
                 <TextInput
-                  label={`${singular} ${i + 1}`}
+                  label={name}
                   isLabelHidden
                   value={v}
                   onChange={(nv) => update(i, nv)}
                   width="100%"
                   description={`${v.length}/${limit}`}
-                  status={v.length > limit ? { type: "error" } : undefined}
+                  status={over ? { type: "error" } : undefined}
                 />
               )}
             </div>
-          ))}
-        </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -1247,6 +1254,7 @@ export function AdSetBlock({
           <TextListField
             label="Primärtexte"
             singular="Primärtext"
+            hint="Der Text über dem Bild. Meta spielt die Varianten gegeneinander aus – bis zu fünf."
             values={value.bodies}
             limit={BODY_LIMIT}
             multiline
@@ -1285,6 +1293,7 @@ export function AdSetBlock({
           <TextListField
             label="Überschriften"
             singular="Überschrift"
+            hint="Die fette Zeile unter dem Bild – kurz und konkret, meist nur der Anfang sichtbar."
             values={value.titles}
             limit={TITLE_LIMIT}
             pending={pendingTitles}
@@ -1306,12 +1315,11 @@ export function AdSetBlock({
               Zeilenumbrüchen ("✔ 30 Tage Urlaub …"), keine Schlagzeile. Der
               Zähler kam bei HeroUI manuell in Label — TextArea zeigt ihn über
               maxLength selbst an, der Titel bleibt also schlicht. */}
-          <div role="group" aria-label="Beschreibung" className="max-w-2xl space-y-4">
-            {/* Derselbe Kopf wie an den Listen: Name links, die leise Handlung rechts. */}
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <Text type="label" as="div">
-                Beschreibung
-              </Text>
+          <div role="group" aria-label="Beschreibung" className={form.copyGroup}>
+            <CopyHeader
+              title="Beschreibung"
+              hint="Die Zeile unter der Überschrift. Nicht jede Platzierung zeigt sie an."
+            >
               <Button
                 variant="ghost"
                 size="sm"
@@ -1320,7 +1328,7 @@ export function AdSetBlock({
                 onClick={generateDescription}
                 isDisabled={pendingDescription}
               />
-            </div>
+            </CopyHeader>
             {pendingDescription ? (
               // In Feldhöhe (rows={6}), damit beim Eintreffen nichts springt.
               // width/height als Props, nicht als Klassen – siehe TextListField.

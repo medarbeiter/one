@@ -51,8 +51,25 @@
 .taskRow h3 { font-size: var(--font-size-base); font-weight: 600; overflow-wrap: anywhere; }
 .taskRow p { color: var(--color-text-secondary); line-height: 1.6; margin-top: 6px; overflow-wrap: anywhere; }
 .taskFooter { padding: 20px 28px; background: var(--color-background-body); border-top: 1px solid var(--color-border-emphasized); }
-.copyGroup { padding: 20px 0; border-top: 1px solid var(--color-border); }
-.copyGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.copyGroup { display: grid; gap: 16px; min-width: 0; padding-top: 24px; border-top: 1px solid var(--color-border); }
+.copyHeader { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; }
+.copyHeader > div { display: grid; gap: 4px; min-width: 0; }
+.copyTitle { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.copyCount { padding: 2px 8px; border-radius: 999px; background: var(--color-background-muted); color: var(--color-text-secondary); font-size: var(--font-size-sm); font-weight: 500; font-variant-numeric: tabular-nums; }
+.copyHint { max-width: 60ch; color: var(--color-text-secondary); font-size: var(--font-size-sm); line-height: 1.5; }
+.copyActions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.copyGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.copyCard { display: grid; align-content: start; gap: 10px; min-width: 0; padding: 12px 12px 12px 16px; border: 1px solid var(--color-border-emphasized); border-radius: var(--radius-container); background: var(--color-background-body); }
+.copyCard:focus-within { border-color: var(--color-text-primary); }
+.copyCardHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; }
+.copyCardName { display: flex; align-items: center; gap: 8px; color: var(--color-text-secondary); font-size: var(--font-size-sm); font-weight: 500; }
+.copyMark { display: grid; place-items: center; width: 24px; height: 24px; flex-shrink: 0; border: 1px solid var(--color-border-emphasized); border-radius: 50%; background: var(--color-background-surface); color: var(--color-text-primary); font-size: var(--font-size-xs); font-weight: 600; font-variant-numeric: tabular-nums; }
+.copyCardEnd { display: flex; align-items: center; gap: 4px; }
+.copyCounter { color: var(--color-text-secondary); font-size: var(--font-size-sm); font-variant-numeric: tabular-nums; }
+.copyCounter[data-over="true"] { color: var(--color-text-red); font-weight: 600; }
+.copyRemove { opacity: 0; transition: opacity 120ms ease; }
+.copyCard:hover .copyRemove, .copyCard:focus-within .copyRemove, .copyRemove:focus-within { opacity: 1; }
+@media (hover: none) { .copyRemove { opacity: 1; } }
 .mediaShelf { background: var(--color-background-muted); border-radius: var(--radius-container); padding: 20px; display: grid; gap: 16px; }
 .mediaGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr)); gap: 20px; }
 @container (max-width: 900px) {
