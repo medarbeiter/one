@@ -129,6 +129,28 @@ test("Blocker nennen Website, Fragen und Ort", () => {
   expect(formSpecBlockers(buildFormSpec(base))).toEqual([]);
 });
 
+test("Drag-and-drop über mehrere Positionen erhält explizite Ziele und Grenzen", () => {
+  const qs: FormQuestion[] = [
+    { label: "A", options: ["Ja", "Nein"], goto: { Ja: 3, Nein: "nolead" } },
+    { label: "B", options: ["Ja", "Nein"], goto: {} },
+    { label: "C", options: ["Ja", "Nein"], goto: {} },
+    { label: "D", options: ["Ja", "Nein"], goto: {} },
+  ];
+  const moved = moveQuestion(qs, 3, -2);
+  expect(moved.map(q => q.label)).toEqual(["A", "D", "B", "C"]);
+  expect(moved[0].goto).toEqual({ Ja: 4, Nein: "nolead" });
+  expect(moveQuestion(moved, 1, 2)).toEqual(qs);
+  expect(moveQuestion(qs, -1, 1)).toBe(qs);
+  expect(qs[0].goto.Ja).toBe(3);
+});
+
+test("unerreichbare Fragen können keine weiteren Fragen erreichbar machen", () => {
+  const q: FormQuestion = { label: "Frage", options: ["Ja", "Nein"], goto: {} };
+  expect(questionBlockers([{ ...q, goto: { Ja: "lead", Nein: "nolead" } }, q, q])).toEqual([
+    "F2: Keine Antwort führt hierher.", "F3: Keine Antwort führt hierher.",
+  ]);
+});
+
 test("Blocker je Frage: Text, zwei Antworten, keine Doppelten, nicht jeden aussortieren, Logik irgendwo", () => {
   expect(questionBlockers([{ label: "", options: ["Ja"], goto: {} }])).toEqual([
     "F1: Es fehlt der Fragetext.",

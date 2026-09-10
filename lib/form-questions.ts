@@ -18,8 +18,6 @@ export type QuestionsInput = {
   instructions?: string;
   /** Der CSV-Export der Onboarding-Tabelle – dort stehen die fachlichen Voraussetzungen. */
   onboardingCsv?: string;
-  /** Vom Bearbeiter beim Neu-Vorschlagen mitgegeben – wiegt schwerer als alles andere. */
-  hint?: string;
 };
 
 const LICENSE = /f[üu]hrerschein|fahrerlaubnis|pkw|klasse b/i;
@@ -65,7 +63,7 @@ ${req || "–"}
 
 BENEFITS (nur Kontext, daraus entstehen keine Fragen):
 ${input.benefits?.trim() || "–"}
-${input.hint?.trim() ? `\nANWEISUNG DES BEARBEITERS (hat Vorrang):\n${input.hint.trim()}\n` : ""}
+
 FERTIGE BAUSTEINE (Wortlaut der Agentur – passt einer, nimm ihn per {"brick":"id"} statt ihn umzuschreiben; Ton und Länge sind auch das Maß für eigene Fragen):
 ${bricksForPrompt()}
 

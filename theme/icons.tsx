@@ -1,7 +1,7 @@
 'use client';
 
 import {
-  ArrowClockwise, Calendar, CaretLeft, CaretLineLeft, CaretLineRight,
+  ArrowClockwise, Calendar, CaretLeft, CaretLineLeft, CaretLineRight, DotsSixVertical,
   CaretRight, ChatCircleText, ChartLine, Check, Copy, DotsThree, EnvelopeSimple, Eye, FacebookLogo, Funnel, Gear, GridNine,
   Heart, House, ImageSquare, InstagramLogo, Link as LinkIcon, MagnifyingGlass, MapPin, Megaphone,
   PaperPlaneTilt, Pause, PencilSimple, Play, Plus, Prohibit, Rocket, SignOut, Sun, Trash, Tray,
@@ -30,6 +30,7 @@ import type { ReactNode } from 'react';
 export const MEANINGS = {
   add: { solid: Plus, outline: Plus },
   edit: { solid: PencilSimple, outline: PencilSimple },
+  reorder: { solid: DotsSixVertical, outline: DotsSixVertical },
   remove: { solid: Trash, outline: Trash },
   close: { solid: X, outline: X },
   confirm: { solid: Check, outline: Check },

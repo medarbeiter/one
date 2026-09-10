@@ -28,24 +28,27 @@ export type FormQuestion = {
 export const gotoOf = (q: FormQuestion, option: string): Goto => q.goto[option] ?? "next";
 
 /** Ziele auf eine Fragenummer umschreiben – nach Verschieben oder Löschen einer Frage. */
-export function renumber(questions: FormQuestion[], map: (n: number) => Goto): FormQuestion[] {
+export function renumber<T extends FormQuestion>(questions: T[], map: (n: number) => Goto): T[] {
   return questions.map((q) => ({
     ...q,
     goto: Object.fromEntries(Object.entries(q.goto).map(([o, g]) => [o, typeof g === "number" ? map(g) : g]).filter(([, g]) => g !== "next")),
   }));
 }
 
-/** Frage i eine Stelle nach oben (-1) oder unten (+1); Verweise wandern mit. */
-export function moveQuestion(questions: FormQuestion[], i: number, dir: -1 | 1): FormQuestion[] {
+/** Frage i um dir Positionen verschieben; explizite Verweise wandern mit. */
+export function moveQuestion<T extends FormQuestion>(questions: T[], i: number, dir: number): T[] {
   const j = i + dir;
-  if (j < 0 || j >= questions.length) return questions;
-  const next = [...questions];
-  [next[i], next[j]] = [next[j], next[i]];
-  return renumber(next, (n) => (n === i + 1 ? j + 1 : n === j + 1 ? i + 1 : n));
+  if (!Number.isInteger(i) || !Number.isInteger(j) || i < 0 || i >= questions.length || j < 0 || j >= questions.length || i === j) return questions;
+  const order = questions.map((_, index) => index);
+  order.splice(j, 0, order.splice(i, 1)[0]);
+  return renumber(order.map(index => questions[index]), (n) => {
+    const index = order.indexOf(n - 1);
+    return index < 0 ? n : index + 1;
+  });
 }
 
 /** Frage i entfernen; Verweise darauf werden "next", spätere rücken auf. */
-export function removeQuestion(questions: FormQuestion[], i: number): FormQuestion[] {
+export function removeQuestion<T extends FormQuestion>(questions: T[], i: number): T[] {
   return renumber(
     questions.filter((_, k) => k !== i),
     (n) => (n === i + 1 ? "next" : n > i + 1 ? n - 1 : n),
@@ -283,10 +286,10 @@ export function questionBlockers(questions: FormQuestion[]): string[] {
     if (opts.length && opts.every((o) => gotoOf(q, o) === "nolead")) out.push(`${n}: Jede Antwort führt zur Nicht-Lead-Seite – niemand käme durch.`);
     for (const o of opts) {
       const g = gotoOf(q, o);
-      if (g === "next") reached.add(i + 2);
+      if (g === "next" && reached.has(i + 1)) reached.add(i + 2);
       else if (typeof g === "number") {
         if (g <= i + 1 || g > questions.length) out.push(`${n}: „${o}“ verweist auf F${g} – nur auf eine spätere Frage.`);
-        else reached.add(g);
+        else if (reached.has(i + 1)) reached.add(g);
       }
     }
   });
