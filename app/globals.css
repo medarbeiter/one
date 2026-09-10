@@ -643,3 +643,11 @@
   flex: 1 1 auto;
   min-width: 0;
 }
+
+/* Textfelder, die ganz zu lesen sein müssen – Primärtexte werden Zeile für
+   Zeile geprüft, ein Scrollbalken im Feld versteckt genau die Fehler. rows
+   bleibt die Mindesthöhe, der Inhalt zieht das Feld darüber hinaus. */
+.text-voll textarea {
+  field-sizing: content;
+  resize: none;
+}

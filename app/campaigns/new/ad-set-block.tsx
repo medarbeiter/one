@@ -334,15 +334,17 @@ function TextListField({
                   )}
                 </div>
               ) : multiline ? (
-                // Vier Zeilen, nicht fünf: erst damit passen die üblichen fünf
-                // Primärtexte in zwei Spalten ohne Scrollen ins Feld.
+                // Das Feld wächst mit dem Text (.text-voll): Primärtexte werden
+                // ganz gelesen, ein Scrollbalken im Feld versteckte genau die
+                // Zeile mit dem Fehler. rows ist nur die Mindesthöhe.
                 <TextArea
                   label={name}
                   isLabelHidden
                   value={v}
                   onChange={(nv) => update(i, nv)}
-                  rows={4}
+                  rows={3}
                   width="100%"
+                  className="text-voll"
                   description={`${v.length}/${limit}`}
                   status={over ? { type: "error" } : undefined}
                 />
