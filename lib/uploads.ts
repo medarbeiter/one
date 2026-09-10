@@ -62,16 +62,32 @@ export async function uploadVideo(
   acct = meta.adAccount,
   onProgress?: (progress: number) => void,
 ): Promise<string> {
-  const src = file instanceof File ? fromFile(file) : file;
+  const base = file instanceof File ? fromFile(file) : file;
+  const src = { ...base, name: await withExtension(base) };
   const id = src.size > CHUNKED_ABOVE ? await inChunks(src, acct, onProgress) : await inOnePiece(src, acct);
   onProgress?.(1);
   await waitForVideo(id);
   return id;
 }
 
+/**
+ * Meta liest das Containerformat an der Dateiendung ab, nicht an den Bytes.
+ * Drive-Namen kommen oft ohne („Louise 2", „Lea_PH_Nossen_1"): so hochgeladen
+ * antwortet Graph mit 352/1363024 „Nicht unterstütztes Videoformat" – dieselben
+ * Bytes als „Lea_PH_Nossen_1.mov" sind Sekunden später ready.
+ */
+// ponytail: nur mov/mp4 am ftyp-Brand unterschieden – webm/avi ohne Endung
+// bekämen .mp4. Erst erweitern, wenn so etwas ohne Endung aus Drive kommt.
+async function withExtension(src: VideoSource): Promise<string> {
+  const name = src.name.trim();
+  if (/\.[a-z0-9]{2,4}$/i.test(name)) return name;
+  const head = new TextDecoder("latin1").decode(await (await src.read(0, 12)).arrayBuffer());
+  return `${name}.${head.includes("ftypqt") ? "mov" : "mp4"}`;
+}
+
 async function inOnePiece(src: VideoSource, acct: string): Promise<string> {
   const fd = new FormData();
-  fd.append("source", await src.read(0, src.size), src.name);
+  fd.append("source", await part(src, 0, src.size));
   const { id } = await graph<{ id: string }>(`${acct}/advideos`, {
     method: "POST",
     body: fd,
@@ -106,8 +122,7 @@ async function inChunks(src: VideoSource, acct: string, onProgress?: (progress: 
         upload_session_id: session.upload_session_id,
         start_offset: from,
       },
-      await src.read(Number(from), Number(to)),
-      src.name,
+      await part(src, Number(from), Number(to)),
     );
     // Ohne diese Prüfung liefe ein Offset, der stehen bleibt, endlos – und der
     // Upload sähe von außen nur aus, als hinge er.
@@ -124,15 +139,24 @@ async function inChunks(src: VideoSource, acct: string, onProgress?: (progress: 
   return session.video_id;
 }
 
+/**
+ * Über einen ArrayBuffer, nicht als Blob plus Dateiname: Bun 1.4 hängt an
+ * allem, was aus File.slice stammt, den alten Namen – FormData.append und
+ * new File() ignorieren den neuen. Erst rohe Bytes verlieren ihn.
+ */
+// ponytail: kopiert das Stück einmal (höchstens CHUNKED_ABOVE). Bun-Bug
+// nachprüfen, bevor jemand das wieder wegoptimiert.
+const part = async (src: VideoSource, from: number, to: number) =>
+  new File([await (await src.read(from, to)).arrayBuffer()], src.name);
+
 function phase<T = unknown>(
   acct: string,
   fields: Record<string, string>,
-  chunk?: Blob,
-  name?: string,
+  chunk?: File,
 ): Promise<T> {
   const fd = new FormData();
   for (const [k, v] of Object.entries(fields)) fd.append(k, v);
-  if (chunk) fd.append("video_file_chunk", chunk, name);
+  if (chunk) fd.append("video_file_chunk", chunk);
   return graph<T>(`${acct}/advideos`, { method: "POST", body: fd });
 }
 

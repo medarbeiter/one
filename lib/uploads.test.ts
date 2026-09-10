@@ -82,3 +82,22 @@ test("ein Stück, das nicht vorankommt, bricht ab statt ewig zu laufen", async (
 
   expect(uploadVideo(video(CHUNKED_ABOVE + 1), "act_1")).rejects.toThrow(/kam nicht voran|no progress/i);
 });
+
+test("ein Name ohne Endung bekommt eine – Meta liest das Format daran ab", async () => {
+  // Drive-Namen wie „Louise 2" oder „Lea_PH_Nossen_1" kommen ohne Endung.
+  // Dieselben Bytes: als „Lea_PH_Nossen_1" antwortet Meta mit 352/1363024
+  // „Nicht unterstütztes Videoformat", als „Lea_PH_Nossen_1.mov" mit ready.
+  const named = (bytes: Uint8Array, name: string, type: string) => {
+    const calls = stub(() => ({ id: "V4" }));
+    return uploadVideo(new File([bytes as BlobPart], name, { type }), "act_1").then(
+      () => (calls[0].body.get("source") as File).name,
+    );
+  };
+  const enc = (s: string) => new TextEncoder().encode(s);
+  const qt = new Uint8Array([0, 0, 0, 20, ...enc("ftypqt  "), 0, 0, 0, 0, ...enc("qt  ")]);
+  const mp4 = new Uint8Array([0, 0, 0, 20, ...enc("ftypisom"), 0, 0, 0, 0, ...enc("isom")]);
+
+  expect(await named(qt, "Lea_PH_Nossen_1", "")).toBe("Lea_PH_Nossen_1.mov");
+  expect(await named(mp4, "Louise 2 ", "")).toBe("Louise 2.mp4");
+  expect(await named(qt, "Rundflug.MOV", "video/quicktime")).toBe("Rundflug.MOV");
+});
