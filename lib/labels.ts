@@ -35,3 +35,11 @@ export const label = (value: string): string => LABELS[value] ?? value;
  */
 export const plural = (count: number, one: string, many: string): string =>
   `${count} ${count === 1 ? one : many}`;
+
+/**
+ * Die Kampagne im Ads Manager, direkt im Bearbeiten-Modus – der Link, der in
+ * der ClickUp-Aufgabe und auf der Quittung steht. act= ohne "act_"-Präfix,
+ * edit/standalone öffnet den Editor statt der Kampagnenliste.
+ */
+export const adsManagerUrl = (adAccount: string, campaignId: string) =>
+  `https://adsmanager.facebook.com/adsmanager/manage/campaigns/edit/standalone?act=${adAccount.replace(/^act_/, "")}&selected_campaign_ids=${campaignId}&current_step=0`;

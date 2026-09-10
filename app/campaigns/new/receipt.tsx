@@ -3,14 +3,9 @@
 import { Badge, Banner, Button, Link, List, ListItem } from "@astryxdesign/core";
 import { Infotafel } from "./angaben";
 import { Sign } from "@/theme/icons";
-import { label, plural } from "@/lib/labels";
+import { adsManagerUrl, label, plural } from "@/lib/labels";
 import type { Receipt } from "@/lib/launch";
 import type { LaunchState, WizardSubmission } from "../actions";
-
-// Ads Manager erwartet die Konto-ID ohne "act_"-Präfix als act=-Parameter,
-// selected_campaign_ids markiert die Zeile in der Tabelle vorausgewählt.
-const campaignUrl = (adAccount: string, campaignId: string) =>
-  `https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=${adAccount.replace(/^act_/, "")}&selected_campaign_ids=${campaignId}`;
 
 /**
  * Baut die adSets für einen Retry: nur die Ad Sets mit Fehlern, und darin nur
@@ -80,7 +75,7 @@ export function ReceiptPanel({
 
   const campaignHref =
     submission.adAccount && receipt?.campaignId
-      ? campaignUrl(submission.adAccount, receipt.campaignId)
+      ? adsManagerUrl(submission.adAccount, receipt.campaignId)
       : undefined;
 
   const retry = () => {

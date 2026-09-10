@@ -4,6 +4,7 @@
  */
 import { batch, graph, GraphError } from "./graph";
 import type { Customer } from "./customers";
+export { adsManagerUrl } from "./labels";
 import { uploadImage, uploadVideo, videoThumbnail } from "./uploads";
 
 export type Period = "today" | "last_7d" | "last_30d" | "maximum";
@@ -231,7 +232,3 @@ async function videoStory(file: File, i: LaunchInput) {
     call_to_action: { type: i.callToAction, value: { link: i.link } },
   };
 }
-
-/** Die Kampagne im Ads Manager – der Link, der in der ClickUp-Aufgabe steht. */
-export const adsManagerUrl = (adAccount: string, campaignId: string) =>
-  `https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=${adAccount.replace(/^act_/, "")}&selected_campaign_ids=${campaignId}`;
