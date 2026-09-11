@@ -35,8 +35,17 @@ export function herkunftLabel(source?: Source | Source[]): string | undefined {
  * jedem gefüllten Feld, und wer es liest, soll den Wert prüfen, nicht die
  * Herkunft studieren. Verschwindet, sobald jemand das Feld ändert (edited).
  */
-export function Herkunft({ source }: { source?: Source | Source[] }) {
+export function Herkunft({ source, evidence }: { source?: Source | Source[]; evidence?: string }) {
   const label = herkunftLabel(source);
   if (!label) return null;
-  return <Badge variant="neutral" label={label} className="text-xs" />;
+  const badge = <Badge variant="neutral" label={label} className="text-xs" />;
+  // Der Beleg als Tooltip: was jede Quelle sagte, damit ein falsch gelesener
+  // Wert am Etikett auffällt, ohne dass jemand ClickUp und Tabelle öffnet.
+  return evidence ? (
+    <span title={evidence} tabIndex={0} aria-label={`${label} – ${evidence}`} className="cursor-help">
+      {badge}
+    </span>
+  ) : (
+    badge
+  );
 }

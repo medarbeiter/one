@@ -2,6 +2,10 @@ import { expect, test } from "bun:test";
 import type { AssembledBrief } from "@/lib/brief";
 import {
   applyBrief,
+  duplicateAdSet,
+  firstScreen,
+  hasWork,
+  reapplyBrief,
   syncLinkedAds,
   cityOf,
   textInstructions,
@@ -590,4 +594,52 @@ test("der wartende Anlegen-Knopf legt erst nach dem letzten Upload an – und be
   expect(queuedLaunch({ running: 0, arriving: false, failed: 0 }, false)).toBe("create");
   expect(queuedLaunch({ running: 0, arriving: false, failed: 1 }, false)).toBe("abort");
   expect(queuedLaunch({ running: 0, arriving: false, failed: 0 }, true)).toBe("abort");
+});
+
+// --- Der Brief in zwei Schritten: fester Stand, dann die Auflösung
+
+test("reapplyBrief ersetzt nur, was die Auflösung anders sieht, und behält die IDs der Gruppen", () => {
+  const partial = assembled({ roles: { value: ["PFK"], sources: ["clickup"] }, locations: { value: ["Renningen"], sources: ["clickup"] } });
+  const before = applyBrief(initialState("act_1"), partial);
+  const firstId = before.adSets[0].id;
+  // Nichts anders → nichts neu zu schreiben.
+  const same = reapplyBrief(before, partial, partial);
+  expect(same.textsChanged).toBe(false);
+  expect(same.state.adSets[0].id).toBe(firstId);
+  // Genauere Adresse und andere Rollen → neu schreiben, dieselbe Gruppe.
+  const final = assembled({
+    roles: { value: ["PFK", "PDL"], sources: ["clickup", "onboarding"] },
+    locations: { value: ["Mühlgasse 24, 71272 Renningen"], sources: ["clickup", "onboarding"] },
+  });
+  const out = reapplyBrief(before, partial, final);
+  expect(out.textsChanged).toBe(true);
+  expect(out.state.roles).toEqual(["PFK", "PDL"]);
+  expect(out.state.sources.roles).toEqual(["clickup", "onboarding"]);
+  expect(out.state.adSets[0].id).toBe(firstId);
+  expect(out.state.adSets[0].addressString).toBe("Mühlgasse 24, 71272 Renningen");
+  expect(out.state.sources.location).toEqual(["clickup", "onboarding"]);
+});
+
+test("duplicateAdSet kopiert Texte, Formular und Radius, spiegelt die Anzeigen und lässt die Adresse leer", () => {
+  const src = { ...emptyAdSet(0), addressString: "Renningen", radiusKm: 25, formId: "f1", bodies: ["a", "b"], titles: ["t"], description: "d" };
+  const sets = duplicateAdSet([src], 0);
+  expect(sets).toHaveLength(2);
+  const copy = sets[1];
+  expect(copy.id).not.toBe(src.id);
+  expect(copy.name).toBe(`${src.name} (Kopie)`);
+  expect(copy.addressString).toBe("");
+  expect(copy.radiusKm).toBe(25);
+  expect(copy.formId).toBe("f1");
+  expect(copy.bodies).toEqual(["a", "b"]);
+  expect(copy.mirrorOf).toBe(src.id);
+  expect(duplicateAdSet([src], 3)).toEqual([src]);
+});
+
+test("firstScreen und hasWork", () => {
+  expect(firstScreen({ stepIndex: 0, manual: false, business: "", taskId: undefined })).toBe("list");
+  expect(firstScreen({ stepIndex: 0, manual: true, business: "", taskId: undefined })).toBe("customer");
+  expect(firstScreen({ stepIndex: 0, manual: false, business: "X", taskId: undefined })).toBe("customer");
+  expect(firstScreen({ stepIndex: 1, manual: false, business: "", taskId: undefined })).toBe("other");
+  expect(hasWork(initialState("act_1"))).toBe(false);
+  expect(hasWork(ready({ adSets: [{ ...emptyAdSet(0), bodies: ["Text"] }] }))).toBe(true);
 });

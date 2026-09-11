@@ -595,9 +595,10 @@ test("a whole ad set that fails does not leave its ads hanging in the count", as
   const { g } = fakeGraph((path, n) => path.endsWith("/adsets") && n === 2);
   const seen: LaunchProgress[] = [];
   await launch(two, { graph: g, onProgress: (p) => seen.push(p) });
-  // Die erste Anzeige der zweiten Gruppe zählt schon die drei übersprungenen mit.
-  const fine = seen.find((p) => p.label.includes("Anzeigengruppe „Fine“"))!;
-  expect(fine.done).toBe(3);
+  // Die Gruppen laufen nebeneinander; die Anzeige der zweiten Gruppe zählt die
+  // Kampagne, die zwei übersprungenen Anzeigen der ersten und die zweite Gruppe.
+  const ad = seen.find((p) => p.label.includes("Anzeige „"))!;
+  expect(ad.done).toBe(4);
 });
 
 test("retrying an existing campaign only counts what is left to build", async () => {

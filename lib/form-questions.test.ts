@@ -95,3 +95,10 @@ test("der Prompt macht Schichtfragen zur Ausnahme und erlaubt eine leere Liste",
   expect(p).toContain("- Führerschein für Bad Sulza");
   expect(p).toContain("Welche Arbeitszeiten/Schichten");
 });
+
+test("Führerschein „für Bad Sulza“ gilt nur für Bad Sulza – ohne Ort für alle", () => {
+  expect(licenseRequired({ roles: ["PFK"], onboardingCsv: grid, city: "Bad Sulza" })).toBe(true);
+  expect(licenseRequired({ roles: ["PFK"], onboardingCsv: grid, city: "Gera" })).toBe(false);
+  expect(licenseRequired({ roles: ["PFK"], onboardingCsv: grid })).toBe(true);
+  expect(licenseRequired({ roles: ["PFK"], notes: "Führerschein nötig", city: "Gera" })).toBe(true);
+});

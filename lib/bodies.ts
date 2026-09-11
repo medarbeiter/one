@@ -277,7 +277,7 @@ export async function mistral(
 // steht das Limit auf 0 und keine Drossel hilft (x-ratelimit-limit-req-minute).
 // ponytail: prozessweit, ohne Prioritäten – je Nutzer drosseln, falls mehrere
 // Bediener gleichzeitig arbeiten und sich gegenseitig bremsen.
-const SLOTS = 6;
+const SLOTS = 12;
 const GAP_MS = 100;
 let running = 0;
 let lastStart = 0;

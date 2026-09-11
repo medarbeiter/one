@@ -8,6 +8,7 @@ import type { AssembledBrief, Source } from "@/lib/brief";
 import type { AdInput, AdSetInput, FormatAsset } from "@/lib/launch";
 import type { Orientation } from "@/lib/media";
 import { parseCampaignName } from "@/lib/naming";
+import type { BriefEvidence, Sourced } from "@/lib/brief";
 import type { CampaignSeed, SeedAd } from "@/lib/seed";
 
 // Der Einzelentwurf von früher: ein Stand, im sessionStorage dieses Tabs, weg
@@ -60,6 +61,8 @@ export type WizardState = {
   benefits: string;
   /** Woher ein vorbelegtes Feld stammt. Verschwindet, sobald jemand es ändert (edited). */
   sources: Sources;
+  /** Was jede Quelle zu einem Feld sagte – der Tooltip am Herkunftsetikett. */
+  evidence?: BriefEvidence;
   /**
    * Freie Hinweise der bedienenden Person für die KI („Nur PFK, keine PDL“).
    * Nicht `notes` – das ist die wörtliche ClickUp-Beschreibung. Bleiben im
@@ -206,6 +209,7 @@ export function applyBrief(state: WizardState, brief: AssembledBrief): WizardSta
     formHint: brief.formHint?.value,
     driveFolderId: brief.driveFolderId?.value,
     onboardingSheetId: brief.onboardingSheetId,
+    evidence: brief.evidence ?? state.evidence,
   };
   if (brief.clientName && !state.business.trim()) {
     next.business = brief.clientName.value;
@@ -251,6 +255,107 @@ export function applyBrief(state: WizardState, brief: AssembledBrief): WizardSta
     next.adSets = next.adSets.map((a) => (a.radiusKm === DEFAULT_RADIUS_KM ? { ...a, radiusKm: brief.radiusKm!.value } : a));
   return { ...next, sources };
 }
+
+/**
+ * Der zweite Stand des Briefs über den ersten: der feste Vorschlag (partial)
+ * ist schon angewandt, Texte werden vielleicht schon geschrieben – jetzt kommt
+ * die Auflösung. Ersetzt wird nur, was sie anders sieht; die Anzeigengruppen
+ * behalten ihre IDs (laufende Uploads sind an sie adressiert) und ihre
+ * Anzeigen. Liefert dazu, ob sich etwas geändert hat, woraus Texte entstehen –
+ * dann schreibt der Block sie neu.
+ */
+export function reapplyBrief(
+  state: WizardState,
+  partial: AssembledBrief,
+  final: AssembledBrief,
+): { state: WizardState; textsChanged: boolean } {
+  const same = <T,>(a: Sourced<T> | undefined, b: Sourced<T> | undefined) =>
+    JSON.stringify(a?.value) === JSON.stringify(b?.value);
+  const next: WizardState = { ...state, sources: { ...state.sources }, evidence: final.evidence ?? state.evidence };
+  next.copyInstructions = final.copyInstructions;
+  next.formHint = final.formHint?.value;
+  let textsChanged = false;
+  if (!same(partial.roles, final.roles)) {
+    next.roles = final.roles?.value ?? [];
+    if (final.roles) next.sources.roles = final.roles.sources;
+    else delete next.sources.roles;
+    textsChanged = true;
+  }
+  if (!same(partial.roleFreeText, final.roleFreeText)) {
+    next.roleFreeText = final.roleFreeText?.value ?? "";
+    textsChanged = true;
+  }
+  if (!same(partial.benefits, final.benefits)) {
+    next.benefits = final.benefits?.value ?? "";
+    if (final.benefits) next.sources.benefits = final.benefits.sources;
+    else delete next.sources.benefits;
+    textsChanged = true;
+  }
+  if (!same(partial.dailyBudgetEuros, final.dailyBudgetEuros) && final.dailyBudgetEuros) {
+    next.dailyBudgetEuros = final.dailyBudgetEuros.value;
+    next.sources.dailyBudget = final.dailyBudgetEuros.sources;
+  }
+  if (!same(partial.spendCapEuros, final.spendCapEuros)) {
+    next.spendCapEuros = final.spendCapEuros?.value;
+    if (final.spendCapEuros) next.sources.spendCap = final.spendCapEuros.sources;
+    else delete next.sources.spendCap;
+  }
+  if (!same(partial.locations, final.locations) && final.locations?.value.length) {
+    const [head, ...more] = final.locations.value;
+    const first = state.adSets[0];
+    next.adSets = [
+      { ...first, addressString: head, place: undefined },
+      ...more.map((addressString, i) => ({ ...emptyAdSet(i + 1, cityOf(addressString)), addressString, mirrorOf: first.id })),
+    ];
+    next.sources.location = final.locations.sources;
+    textsChanged = true;
+  }
+  if (!same(partial.radiusKm, final.radiusKm) && final.radiusKm)
+    next.adSets = next.adSets.map((a) => (a.radiusKm === DEFAULT_RADIUS_KM ? { ...a, radiusKm: final.radiusKm!.value } : a));
+  if (!same(partial.copyInstructions ? { value: partial.copyInstructions, sources: [] } : undefined, final.copyInstructions ? { value: final.copyInstructions, sources: [] } : undefined))
+    textsChanged = true;
+  return { state: next, textsChanged };
+}
+
+/**
+ * Ein Standort als Vorlage für den nächsten: Texte, Formular und Radius
+ * kommen mit, die Anzeigen als Spiegel (mirrorOf), die Adresse bleibt leer –
+ * sie ist ja das, was sich unterscheidet.
+ */
+export function duplicateAdSet(sets: WizardAdSet[], i: number): WizardAdSet[] {
+  const src = sets[i];
+  if (!src) return sets;
+  const copy: WizardAdSet = {
+    ...emptyAdSet(sets.length),
+    name: `${src.name} (Kopie)`,
+    radiusKm: src.radiusKm,
+    formId: src.formId,
+    bodies: [...src.bodies],
+    titles: [...src.titles],
+    description: src.description,
+    dailyBudgetCents: src.dailyBudgetCents,
+    mirrorOf: src.mirrorOf ?? src.id,
+  };
+  return syncLinkedAds([...sets.slice(0, i + 1), copy, ...sets.slice(i + 1)]);
+}
+
+/** Hat jemand hier schon etwas getan, das ein Neuanfang wegwerfen würde? */
+export const hasWork = (state: WizardState): boolean =>
+  state.adSets.some(
+    (a) =>
+      a.ads.length > 0 ||
+      a.loose.length > 0 ||
+      a.bodies.some((b) => b.trim()) ||
+      a.titles.some((t) => t.trim()) ||
+      a.description.trim() !== "",
+  );
+
+/**
+ * Was Schirm 1 zeigt: die Aufgabenliste, solange kein Kunde feststeht und
+ * niemand ohne Aufgabe begonnen hat – sonst die Kundenwahl.
+ */
+export const firstScreen = (s: { stepIndex: number; manual: boolean; business: string; taskId?: string }): "list" | "customer" | "other" =>
+  s.stepIndex !== 0 ? "other" : !s.manual && !s.business && !s.taskId ? "list" : "customer";
 
 /**
  * Was jede Textanfrage an Kontext bekommt: was der Kampagnenkontext aus den
@@ -993,6 +1098,18 @@ export function useWizardState(defaults: WizardState) {
   };
 
   /**
+   * Beiseitelegen statt wegwerfen: „Andere Aufgabe“ mitten in der Arbeit.
+   * Steckt schon etwas im Entwurf, wird er gespeichert und bleibt in der
+   * Liste; der Tab beginnt leer. Ohne Arbeit ist es ein discard.
+   */
+  const park = () => {
+    if (!hasWork(state)) return discard();
+    save();
+    detach();
+    setState({ ...defaults, initials: state.initials });
+  };
+
+  /**
    * Der Knopf am Hinweis „Entwurf wiederhergestellt“: wegwerfen und von vorn.
    * Leer wird das Formular auch dann, wenn es (noch) keinen gespeicherten
    * Entwurf dazu gibt – sonst bliebe der Knopf ohne sichtbare Wirkung.
@@ -1038,6 +1155,7 @@ export function useWizardState(defaults: WizardState) {
     resume,
     remove,
     discard,
+    park,
     forget,
   };
 }

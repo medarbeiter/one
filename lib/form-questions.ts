@@ -7,6 +7,8 @@
 import { mistral, roleLabels } from "./bodies";
 import { brick, bricksForPrompt } from "./form-bricks";
 import { assembleQuestions, roleChoiceQuestion, type FormQuestion, type Goto } from "./form-spec";
+import { placeQualifier, sheetSections } from "./sheet";
+export { parseCsv, sheetSection, sheetSections, type SheetSections } from "./sheet";
 
 export type QuestionsInput = {
   roles: string[];
@@ -18,6 +20,8 @@ export type QuestionsInput = {
   instructions?: string;
   /** Der CSV-Export der Onboarding-Tabelle – dort stehen die fachlichen Voraussetzungen. */
   onboardingCsv?: string;
+  /** Der Ort der Anzeigengruppe – Bedingungen „für <Ort>“ gelten nur dort. */
+  city?: string;
 };
 
 const LICENSE = /f[üu]hrerschein|fahrerlaubnis|pkw|klasse b/i;
@@ -26,78 +30,23 @@ const LICENSE = /f[üu]hrerschein|fahrerlaubnis|pkw|klasse b/i;
  * Der Führerschein kommt nur ins Formular, wenn Aufgabe oder Onboarding ihn
  * nennen – im Onboarding zählen die Voraussetzungen und die Spalte
  * „Sonstiges/Zertifikate“ (deren Überschrift selbst „Führerschein“ sagt,
- * darum nur der Inhalt darunter).
+ * darum nur der Inhalt darunter). Eine Zeile „Führerschein für Bad Sulza“
+ * gilt nur für Bad Sulza: ist der Ort der Gruppe bekannt und ein anderer,
+ * zählt sie nicht.
  */
 export function licenseRequired(input: QuestionsInput): boolean {
   const sheet = sheetSections(input.onboardingCsv);
-  return LICENSE.test([input.notes, input.instructions, sheet.requirements, sheet.certificates].filter(Boolean).join("\n"));
-}
-
-/** Minimaler CSV-Leser: Anführungszeichen, doppelte Anführungszeichen, Zeilenumbrüche in Zellen. */
-export function parseCsv(csv: string): string[][] {
-  const rows: string[][] = [[]];
-  let cell = "";
-  let quoted = false;
-  for (let i = 0; i < csv.length; i++) {
-    const c = csv[i];
-    if (quoted) {
-      if (c === '"' && csv[i + 1] === '"') (cell += '"'), i++;
-      else if (c === '"') quoted = false;
-      else cell += c;
-    } else if (c === '"') quoted = true;
-    else if (c === ",") rows[rows.length - 1].push(cell), (cell = "");
-    else if (c === "\n" || c === "\r") {
-      if (c === "\r" && csv[i + 1] === "\n") i++;
-      rows[rows.length - 1].push(cell);
-      cell = "";
-      rows.push([]);
-    } else cell += c;
-  }
-  rows[rows.length - 1].push(cell);
-  return rows.map((r) => r.map((c) => c.trim())).filter((r) => r.some(Boolean));
-}
-
-/**
- * Die Tabelle ist ein Raster aus schwarzen Überschriftszeilen und den
- * Antworten darunter, spaltenweise. Eine Überschrift ist eine Frage („…?“)
- * ohne Aufzählungsstrich; eine Überschriftszeile besteht nur aus solchen
- * (oder hat mindestens zwei). Ein Abschnitt ist alles unter seiner
- * Überschrift, in ihrer Spaltenbreite (bis zur nächsten Überschrift derselben
- * Zeile), bis zur nächsten Überschriftszeile.
- */
-const isHeading = (cell: string) => /\?\s*$/.test(cell) && !/^[-–•*]/.test(cell);
-const isHeadingRow = (row: string[]) => {
-  const filled = row.filter(Boolean);
-  const headings = filled.filter(isHeading).length;
-  return headings > 0 && (headings >= 2 || headings === filled.length);
-};
-
-export function sheetSection(grid: string[][], heading: RegExp): string {
-  for (let r = 0; r < grid.length; r++) {
-    if (!isHeadingRow(grid[r])) continue;
-    const c = grid[r].findIndex((cell) => isHeading(cell) && heading.test(cell));
-    if (c < 0) continue;
-    let end = grid[r].findIndex((cell, k) => k > c && Boolean(cell));
-    if (end < 0) end = Number.MAX_SAFE_INTEGER;
-    const lines: string[] = [];
-    for (let k = r + 1; k < grid.length && !isHeadingRow(grid[k]) && lines.length < 60; k++)
-      for (const cell of grid[k].slice(c, end)) if (cell) lines.push(cell);
-    return lines.join("\n").trim();
-  }
-  return "";
-}
-
-export type SheetSections = { requirements: string; certificates: string; conditions: string };
-
-/** Die drei Abschnitte der Onboarding-Tabelle, aus denen Qualifizierungsfragen entstehen dürfen. */
-export function sheetSections(csv?: string): SheetSections {
-  if (!csv?.trim()) return { requirements: "", certificates: "", conditions: "" };
-  const grid = parseCsv(csv);
-  return {
-    requirements: sheetSection(grid, /vor+aus+etzung/i),
-    certificates: sheetSection(grid, /zertifikat|f[üu]hrerschein|sonstige/i),
-    conditions: sheetSection(grid, /arbeitsbedingung/i),
-  };
+  const lines = [input.notes, input.instructions, sheet.requirements, sheet.certificates]
+    .filter(Boolean)
+    .join("\n")
+    .split("\n")
+    .filter((l) => LICENSE.test(l));
+  const city = input.city?.trim().toLowerCase();
+  return lines.some((l) => {
+    const place = placeQualifier(l);
+    if (!place || !city) return true;
+    return place.toLowerCase().includes(city) || city.includes(place.toLowerCase());
+  });
 }
 
 /** Aus der Onboarding-Tabelle nur den Block „Welche fachlichen Voraussetzungen muss der Kandidat erfüllen?“. */

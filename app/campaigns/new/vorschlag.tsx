@@ -148,7 +148,7 @@ export function VorschlagKopf({
             description="Die Kürzel landen im Namen und in den Texten."
             width="100%"
           />
-          <Herkunft source={state.sources.roles} />
+          <Herkunft source={state.sources.roles} evidence={state.evidence?.roles} />
         </div>
         <TextInput
           label="Weitere Rolle"
@@ -170,7 +170,7 @@ export function VorschlagKopf({
             description="Gilt für die ganze Kampagne."
             width="100%"
           />
-          <Herkunft source={state.sources.dailyBudget} />
+          <Herkunft source={state.sources.dailyBudget} evidence={state.evidence?.dailyBudget} />
         </div>
       </div>
 
@@ -271,7 +271,7 @@ export function Optional({
             description="Leer heißt keins; sonst mindestens 100 €."
             width="100%"
           />
-          <Herkunft source={state.sources.spendCap} />
+          <Herkunft source={state.sources.spendCap} evidence={state.evidence?.spendCap} />
         </div>
         <div className={form.field}>
           <TextInput

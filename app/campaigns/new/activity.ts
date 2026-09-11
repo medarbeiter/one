@@ -36,7 +36,26 @@ export type Activity = {
 let entries: Activity[] = [];
 const listeners = new Set<() => void>();
 
+// Das Protokoll überlebt den Reload: die Etiketten am Feld sagen, woher ein
+// Wert kam – das Protokoll sagt, was dabei gelesen wurde. Derselbe Speicher
+// wie der Entwurf-Zeiger (sessionStorage), damit beides zusammen verfällt.
+const ACTIVITY_KEY = "medarbeiter:new-campaign:activity";
+if (typeof window !== "undefined") {
+  try {
+    const stored = JSON.parse(sessionStorage.getItem(ACTIVITY_KEY) ?? "[]") as Activity[];
+    // Was beim Reload noch lief, ist abgerissen – nicht ewig „läuft“.
+    entries = stored.map((e) => (e.status === "running" || e.status === "queued" ? { ...e, status: "failed", detail: "beim Neuladen abgebrochen" } : e));
+  } catch {
+    // Ein kaputter Eintrag darf die Seite nicht abschießen.
+  }
+}
+
 const notify = () => {
+  try {
+    sessionStorage.setItem(ACTIVITY_KEY, JSON.stringify(entries));
+  } catch {
+    // Voller oder gesperrter sessionStorage ist kein Grund, nicht zu melden.
+  }
   for (const listener of listeners) listener();
 };
 

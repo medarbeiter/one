@@ -440,6 +440,11 @@ async function run(id: string, source: Pickable, batch: Batch) {
   const check = () => {
     if (signal.aborted) throw new Cancelled();
   };
+  const guarded = async <T,>(p: Promise<T>): Promise<T> => {
+    const v = await p;
+    check();
+    return v;
+  };
   const patch = (u: Partial<UploadJob>) => {
     jobs = jobs.map((job) => (job.id === id ? { ...job, ...u } : job));
     changed(batch.adSetId);
@@ -494,8 +499,7 @@ async function run(id: string, source: Pickable, batch: Batch) {
         patch({ note: `Über den Browser: ${result.fallback}` });
       }
       patch({ phase: "preparing", progress: undefined });
-      const { files, failed } = await fetchDriveFiles([source]);
-      check();
+      const { files, failed } = await guarded(fetchDriveFiles([source]));
       if (!files[0]) throw new Error(`Nicht aus Drive geladen: ${failed[0] ?? source.name}`);
       file = files[0];
     } else file = source;
@@ -539,8 +543,7 @@ async function run(id: string, source: Pickable, batch: Batch) {
     // selbst. Der Encoder-Platz ist da längst zurückgegeben: während dieser
     // Schwung hochlädt, wandelt der nächste schon um.
     joined = true;
-    await batch.convoy.join(() => patch({ phase: "bundling", progress: undefined }));
-    check();
+    await guarded(batch.convoy.join(() => patch({ phase: "bundling", progress: undefined })));
 
     patch({ phase: "uploading", progress: 0 });
     const body = new FormData();
@@ -555,11 +558,12 @@ async function run(id: string, source: Pickable, batch: Batch) {
       const preview = await previewOf(file);
       if (preview) body.set("preview", preview, "preview.jpg");
     }
-    const json = await postFile(body, signal, (progress) =>
-      // Ist der Body durch, hängt es nur noch an Metas Verarbeitung.
-      patch(progress < 1 ? { progress } : { phase: "processing", progress: undefined }),
+    const json = await guarded(
+      postFile(body, signal, (progress) =>
+        // Ist der Body durch, hängt es nur noch an Metas Verarbeitung.
+        patch(progress < 1 ? { progress } : { phase: "processing", progress: undefined }),
+      ),
     );
-    check();
     if (json.error) throw new Error(json.error);
 
     finish(

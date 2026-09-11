@@ -558,6 +558,13 @@ export function LooseTile({
 }
 
 const percent = (p?: number) => (p === undefined ? "" : ` · ${Math.round(p * 100)}%`);
+/** „184 MB“ / „2,3 MB“ – die Größe, damit ein Fortschritt einzuordnen ist. */
+export const sizeLabel = (bytes: number): string =>
+  bytes >= 1024 * 1024
+    ? `${new Intl.NumberFormat("de-DE", { maximumFractionDigits: bytes >= 100 * 1024 * 1024 ? 0 : 1 }).format(bytes / 1024 / 1024)} MB`
+    : bytes >= 1024
+      ? `${Math.round(bytes / 1024)} KB`
+      : "";
 
 export const phaseLabel = (u: UploadJob) =>
   u.error
@@ -657,7 +664,12 @@ export function UploadTile({ upload, onCancel }: { upload: UploadJob; onCancel: 
 
       <TileName>{cleanStem(upload.name)}</TileName>
       <TileNote
-        text={upload.error ?? (upload.note ? `${phaseLabel(upload)} · unkonvertiert` : phaseLabel(upload))}
+        text={
+          upload.error ??
+          [phaseLabel(upload), upload.note ? "unkonvertiert" : "", sizeLabel(Number(upload.remote?.size ?? upload.file.size))]
+            .filter(Boolean)
+            .join(" · ")
+        }
         tone={upload.error ? "warn" : "muted"}
       />
     </Tile>

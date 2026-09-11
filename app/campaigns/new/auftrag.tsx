@@ -13,6 +13,7 @@ import {
   Button,
   Heading,
   Kbd,
+  Link,
   Section,
   Skeleton,
   Switch,
@@ -137,7 +138,12 @@ export function Auftrag({
           {extraId && <li className={form.taskRow}><div><h3>Aufgabe aus ClickUp laden</h3><p>{extraId}</p></div><Button variant="secondary" label="Vorschlag erstellen" isDisabled={Boolean(picking)} onClick={() => onPick(extraId)} /></li>}
           {filtered.map(b => <li key={b.taskId} className={form.taskRow}>
             <div><h3>{b.customer || b.name}</h3><p>{[b.customer ? b.name : undefined, b.assignees.join(", ") || "niemand zuständig", b.dailyBudgetEuros !== undefined ? `${money.format(b.dailyBudgetEuros)} / Tag` : undefined].filter(Boolean).join(" · ")}</p></div>
-            <Button variant="secondary" label="Vorschlag erstellen" isDisabled={Boolean(picking)} onClick={() => onPick(b.taskId)} />
+            <span className={form.taskActions}>
+              {/* Zum Nachlesen, ohne die Aufgabe zu wählen: ClickUp, und der Drive-Ordner, wenn die Aufgabe ihn kennt. */}
+              <Link href={`https://app.clickup.com/t/${b.taskId}`} target="_blank" rel="noreferrer">ClickUp</Link>
+              {b.driveUrl && <Link href={b.driveUrl} target="_blank" rel="noreferrer">Drive</Link>}
+              <Button variant="secondary" label="Vorschlag erstellen" isDisabled={Boolean(picking)} onClick={() => onPick(b.taskId)} />
+            </span>
           </li>)}
         </ul>
       ) : !error && <Section padding={6}><Text as="p">{briefs.length ? "Keine Aufgabe passt zur Suche. Ändere den Suchtext oder den Filter." : "Keine Aufgabe im Status „Kampagne anlegen“. Du kannst auch ohne Aufgabe beginnen."}</Text></Section>}

@@ -59,6 +59,7 @@ export function announceBriefPlan(): void {
 }
 
 export function reportBriefEvent(event: BriefEvent): void {
+  if (event.type !== "step") return;
   const { label, doing, source } = BRIEF_LABEL[event.step];
   report({
     id: event.step,

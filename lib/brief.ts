@@ -48,6 +48,7 @@ import {
   type DriveFile,
 } from "./drive";
 import { ROLES } from "./naming";
+import { isStale, sheetSections } from "./sheet";
 
 export type Source = "clickup" | "onboarding" | "previous" | "session" | "user" | "campaign";
 export type Sourced<T> = { value: T; sources: Source[] };
@@ -61,14 +62,21 @@ const SOURCES: readonly Source[] = ["clickup", "onboarding", "previous", "sessio
  * pro Tag · Rollen FK“) – es ist die Herkunft, bevor sie am Feld steht.
  */
 export type BriefStep = "task" | "description" | "drive" | "onboarding" | "overview" | "context";
-export type BriefEvent = {
-  type: "step";
-  step: BriefStep;
-  status: "running" | "done" | "skipped" | "failed";
-  detail?: string;
-  /** Welche Quellen in den Schritt eingingen – der Kontext hat mehrere. */
-  sources?: Source[];
-};
+export type BriefEvent =
+  | {
+      type: "step";
+      step: BriefStep;
+      status: "running" | "done" | "skipped" | "failed";
+      detail?: string;
+      /** Welche Quellen in den Schritt eingingen – der Kontext hat mehrere. */
+      sources?: Source[];
+    }
+  /**
+   * Der feste Stand vor der Auflösung – Aufgabe vor Onboarding vor
+   * Kundenübersicht. Der Assistent darf damit schon Texte schreiben lassen;
+   * das Ergebnis danach ersetzt nur, was die Auflösung anders sieht.
+   */
+  | { type: "partial"; brief: AssembledBrief };
 export type OnBriefEvent = (event: BriefEvent) => void;
 
 const money = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" });
@@ -98,8 +106,12 @@ export type AssembledBrief = {
   assigneeName?: string;
   /** Stil-, Ton- und Ausschlusswünsche aus den Hinweisen, für jede Textanfrage. */
   copyInstructions: string;
+  /** Was jede Quelle zu einem Feld sagte – ein Satz je Feld, fürs Etikett am Feld. */
+  evidence?: BriefEvidence;
   warnings: string[];
 };
+
+export type BriefEvidence = Partial<Record<"location" | "roles" | "benefits" | "dailyBudget" | "spendCap", string>>;
 
 /** Was die Leser fanden, bevor jemand entscheidet – Belege, keine Auswahl. */
 export type CampaignEvidence = {
@@ -347,9 +359,24 @@ BESCHREIBUNG:
 ${description}`;
 }
 
+/**
+ * Nur die Abschnitte, die der Prompt braucht – dieselben, die auch der
+ * Fragen-Vorschlag liest (lib/sheet.ts). Erkennt der Leser das Raster nicht
+ * (andere Vorlage), geht das ganze CSV, wie früher.
+ */
+export function onboardingExcerpt(csv: string): string {
+  const s = sheetSections(csv);
+  if (!s.offer && !s.requirements && !s.patients) return csv;
+  return [
+    `„Wie gestaltet sich Ihr Jobangebot?“\n${s.offer || "–"}`,
+    `„Welche fachlichen Voraussetzungen muss der Kandidat erfüllen?“\n${s.requirements || "–"}`,
+    `„Wo befinden sich die Patienten?“\n${s.patients || "–"}`,
+  ].join("\n\n");
+}
+
 function onboardingPrompt(csv: string): string {
   const codes = ROLES.map((r) => `${r.code} = ${r.label}`).join(", ");
-  return `Das ist der CSV-Export der Onboarding-Tabelle eines Pflege-Arbeitgebers.
+  return `Das sind die maßgeblichen Abschnitte der Onboarding-Tabelle eines Pflege-Arbeitgebers, je mit ihrer Überschrift.
 
 Lies heraus:
 1. Benefits: AUSSCHLIESSLICH aus dem Block „Wie gestaltet sich Ihr Jobangebot?“, und dort nur die Zeilen unter „Besteht aktuell“. Zeilen unter „Weitere Vorschläge“ oder einer ähnlichen Überschrift NIEMALS übernehmen – auch nicht, wenn sie stärker klingen. Jede Zeile wörtlich, ohne führendes „- “.
@@ -359,8 +386,8 @@ Lies heraus:
 
 Antworte ausschließlich mit JSON: {"benefits": ["…"], "stellen": ["FK", "Praxisanleiter"], "standort": "…" oder null, "umkreis_km": Zahl oder null, "je_standort": [{"ort": "39218 Schönebeck", "datum": "31.08.26" oder null, "stellen": ["HK", "PFK"]}]}
 
-CSV:
-${csv}`;
+TABELLE (CSV-Auszug):
+${onboardingExcerpt(csv)}`;
 }
 
 const today = () => new Date().toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
@@ -422,8 +449,8 @@ Stellen:
 ${list(e.onboarding.jobs)}
 Standort der Patienten: ${opt(e.onboarding.location)}
 Umkreis km: ${opt(e.onboarding.radiusKm)}
-Stellen je Standort (Datum der Notiz):
-${list(e.onboarding.perLocation.map((l) => `${l.place}${l.date ? ` (${l.date})` : ""}: ${l.jobs.join(", ") || "keine Stellen genannt"}`))}
+Stellen je Standort (Datum der Notiz; „veraltet“ = älter als ein Jahr, zählt nur, wenn die Aufgabe den Ort nennt):
+${list(e.onboarding.perLocation.map((l) => `${l.place}${l.date ? ` (${l.date}${isStale(l.date) ? ", veraltet" : ""})` : ""}: ${l.jobs.join(", ") || "keine Stellen genannt"}`))}
 
 HINWEISE (user):
 ${e.aiNotes.trim() || "keine"}`;
@@ -671,6 +698,10 @@ export async function assembleBrief(
     overview,
     aiNotes,
   };
+  out.evidence = evidenceLines(evidence);
+  // Der feste Stand geht sofort raus – der Assistent kann damit Texte
+  // schreiben lassen, während die Auflösung noch läuft.
+  emit({ type: "partial", brief: structuredClone(out) });
   // Nur die Aufgabe als Beleg – kein Onboarding, keine Kundenübersicht, kein
   // Hinweis: da gibt es nichts zu verbinden, und ein Aufruf könnte den Stand
   // der Aufgabe nur verfälschen. Also keiner.
@@ -704,6 +735,30 @@ export async function assembleBrief(
     emit({ type: "step", step: "context", status: "failed", detail: (e as Error).message });
   }
 
+  return out;
+}
+
+/** Ein Satz je Feld: was jede Quelle dazu sagte – fürs Etikett am Feld. */
+export function evidenceLines(e: CampaignEvidence): BriefEvidence {
+  const join = (parts: (string | undefined)[]) => parts.filter(Boolean).join(" · ") || undefined;
+  const out: BriefEvidence = {};
+  const location = join([
+    e.task.locations.length ? `Aufgabe: ${e.task.locations.join(", ")}` : undefined,
+    e.onboarding.location ? `Onboarding: ${e.onboarding.location}` : undefined,
+    e.overview.address ? `Kundenübersicht: ${e.overview.address}` : undefined,
+  ]);
+  if (location) out.location = location;
+  const roles = join([
+    e.task.rolesText ? `Feld „gesuchte Stellen“: ${e.task.rolesText}` : undefined,
+    e.task.jobs.length ? `Beschreibung: ${e.task.jobs.join(", ")}` : undefined,
+    e.onboarding.jobs.length ? `Onboarding: ${e.onboarding.jobs.join(", ")}` : undefined,
+    e.overview.rolesText ? `Kundenübersicht: ${e.overview.rolesText}` : undefined,
+  ]);
+  if (roles) out.roles = roles;
+  if (e.onboarding.benefits.length)
+    out.benefits = `Onboarding „Besteht aktuell“: ${e.onboarding.benefits.length} Zeilen`;
+  if (e.task.dailyBudgetEuros) out.dailyBudget = `Aufgabe: ${money.format(e.task.dailyBudgetEuros)} pro Tag`;
+  if (e.task.spendCapEuros) out.spendCap = `Aufgabe: Limit ${money.format(e.task.spendCapEuros)}`;
   return out;
 }
 

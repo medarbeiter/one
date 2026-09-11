@@ -19,9 +19,8 @@ import {
 } from "@astryxdesign/core";
 import { useRouter } from "next/navigation";
 import { Sign } from "@/theme/icons";
-import { campaignName } from "@/lib/naming";
 import { label, plural } from "@/lib/labels";
-import { duplicateLocations, locationSummary, placeTextValue } from "@/lib/geo";
+import { duplicateLocations, locationSummary } from "@/lib/geo";
 import {
   DEFAULT_RADIUS_KM,
   adSetBlockers,
@@ -40,9 +39,13 @@ import {
   toAdInput,
   useWizardState,
   withArrivedAssets,
+  duplicateAdSet,
+  firstScreen,
+  reapplyBrief,
   type WizardAdSet,
   type WizardState,
 } from "./state";
+import { useCampaignNameSync, useClickupCloseout, useLeadgenTos, usePrefill } from "./wizard-hooks";
 import { GhlHinweis } from "./ghl-hinweis";
 import { drainArrived, uploadStatus, useUploadVersion } from "./upload-queue";
 import { Entwuerfe } from "./entwuerfe";
@@ -60,38 +63,10 @@ import type { BriefStreamEvent } from "@/app/api/brief/route";
 import type { AssembledBrief } from "@/lib/brief";
 import type { CampaignSeed } from "@/lib/seed";
 import { readNdjson } from "@/lib/ndjson";
-import {
-  closeBriefAction,
-  fitRadiusAction,
-  leadgenTosAcceptedAction,
-  prefillAction,
-  refreshAssetsAction,
-  type WizardSubmission,
-} from "../actions";
+import { fitRadiusAction, refreshAssetsAction, type WizardSubmission } from "../actions";
 import { useLaunch } from "./use-launch";
 import { fuzzyCustomerMatch, instagramAccountLabel, resolveClientByName } from "@/lib/customers";
 import type { LaunchProgress } from "@/lib/launch";
-import type { Prefill } from "@/lib/prefill";
-
-// Vorbelegung greift nur, solange niemand das jeweilige Feld angefasst hat –
-// "angefasst" heißt hier: noch auf dem Ausgangswert aus emptyAdSet(). Das ist
-// gröber als ein echtes touched-Flag pro Feld, aber genau das reicht: sobald
-// jemand tippt, weicht der Wert vom Default ab und wird nie wieder überschrieben.
-function untouchedPrefillPatch(current: WizardAdSet, prefill: Prefill): Partial<WizardAdSet> {
-  const patch: Partial<WizardAdSet> = {};
-  if (current.addressString === "" && prefill.addressString)
-    patch.addressString = prefill.addressString;
-  // Zielte die letzte Kampagne auf eine Stadt, kommt sie als Ort zurück. Der
-  // Name daran ist nur die Beschriftung – gebucht wird über den Schlüssel, und
-  // den liefert Meta beim Lesen mit.
-  if (current.addressString === "" && !current.place && prefill.place) {
-    patch.place = prefill.place;
-    patch.addressString = placeTextValue(prefill.place);
-  }
-  if (current.radiusKm === DEFAULT_RADIUS_KM && prefill.radiusKm !== undefined)
-    patch.radiusKm = prefill.radiusKm;
-  return patch;
-}
 
 // Die festen Werte der Kampagne. Sie stehen nicht zur Wahl, aber jemand muss
 // sie nachschlagen können – als Paare statt als acht Sätze untereinander.
@@ -300,7 +275,7 @@ function WizardSteps({
   email,
   seed,
 }: WizardProps) {
-  const { state, setState, loaded, restored, others, save, start, resume, remove, discard, forget } =
+  const { state, setState, loaded, restored, others, save, start, resume, remove, discard, park, forget } =
     useWizardState(initialState(defaultAccount, defaultBusiness, initials));
   // Kurz „Gespeichert“ zeigen, dann zurück – ein Knopf ohne Reaktion sieht
   // kaputt aus, ein Toast wäre für diese eine Bestätigung zu viel Apparat.
@@ -375,7 +350,13 @@ function WizardSteps({
     clearActivity();
     announceBriefPlan();
     let brief: AssembledBrief | undefined;
+    let partial: AssembledBrief | undefined;
     let error: string | undefined;
+    // Sobald der feste Stand da ist (vor der Auflösung), wird er angewandt und
+    // der Vorschlag geöffnet: die Texte fangen dann schon an, während der
+    // Kontext-Aufruf noch läuft. Das Ergebnis danach ersetzt nur, was die
+    // Auflösung anders sieht (reapplyBrief) – und lässt neu schreiben, wenn
+    // sich die Grundlage der Texte geändert hat.
     try {
       // POST mit JSON: die Hinweise gehören nicht in URL, Verlauf oder Log.
       const res = await fetch("/api/brief", {
@@ -386,7 +367,13 @@ function WizardSteps({
       if (!res.ok || !res.body) throw new Error(`Der Server antwortete mit ${res.status}.`);
       for await (const event of readNdjson<BriefStreamEvent>(res.body)) {
         if (event.type === "step") reportBriefEvent(event);
-        else {
+        else if (event.type === "partial") {
+          partial = event.brief;
+          const match = matchClient(partial);
+          const early = partial;
+          setState((s) => (match ? { ...applyBrief(s, early), business: match.name } : applyBrief(s, early)));
+          if (match) setStep("1");
+        } else {
           brief = event.brief;
           error = event.error;
         }
@@ -399,10 +386,46 @@ function WizardSteps({
       return setBriefError(error ?? "Der Auftrag konnte nicht gelesen werden.");
     }
     setWarnings(brief.warnings);
-    // Der Kunde aus ClickUp heißt selten exakt wie die Meta-Seite. Exakt,
-    // sonst der eine unscharfe Treffer, sonst bleibt der Name stehen und die
-    // Kundenwahl zeigt ihn als nicht zugeordnet. Ohne Treffer bleibt die
-    // Person auf dem Kundenfeld stehen, wo das Warnbanner das erklärt.
+    const match = matchClient(brief);
+    const locs = brief.locations?.value ?? [];
+    report({
+      id: "adsets",
+      label: "Anzeigengruppen",
+      status: locs.length ? "done" : "skipped",
+      detail:
+        locs.length > 1
+          ? `${locs.length} Standorte → ${locs.length} Anzeigengruppen: ${locs.map(cityOf).join(", ")}. Videos und Bilder werden geteilt.`
+          : locs.length
+            ? `eine Anzeigengruppe: ${cityOf(locs[0])}`
+            : "kein Standort gefunden – bitte eintragen",
+    });
+    const assembled = brief;
+    const early = partial;
+    if (early) {
+      // Der feste Stand ist schon drin – nur die Unterschiede der Auflösung.
+      setState((s) => {
+        const { state: next, textsChanged } = reapplyBrief(s, early, assembled);
+        if (textsChanged) setRegenerate((n) => n + 1);
+        return match ? { ...next, business: match.name } : next;
+      });
+      setStep(match ? "1" : "0");
+      setPicking(undefined);
+      return;
+    }
+    setRevealed(false);
+    // Der letzte Haken soll gesehen werden, bevor der Schirm wechselt: ein
+    // Bogen (700 ms), dann öffnet sich der Vorschlag.
+    await new Promise((r) => setTimeout(r, 700));
+    setState((s) => (match ? { ...applyBrief(s, assembled), business: match.name } : applyBrief(s, assembled)));
+    setStep(match ? "1" : "0");
+    setPicking(undefined);
+  };
+
+  // Der Kunde aus ClickUp heißt selten exakt wie die Meta-Seite. Exakt,
+  // sonst der eine unscharfe Treffer, sonst bleibt der Name stehen und die
+  // Kundenwahl zeigt ihn als nicht zugeordnet. Ohne Treffer bleibt die
+  // Person auf dem Kundenfeld stehen, wo das Warnbanner das erklärt.
+  const matchClient = (brief: AssembledBrief): WizardClient | undefined => {
     const name = brief.clientName?.value ?? "";
     report({ id: "match", label: "Meta-Kundenliste", status: "running", detail: "sucht die Seite des Kunden…" });
     const exact = resolveClientByName(clients, name);
@@ -418,34 +441,20 @@ function WizardSteps({
           ? `„${name}“ steht nicht in der Meta-Liste – bitte gleich wählen`
           : "die Aufgabe nennt keinen Kunden",
     });
-    const locs = brief.locations?.value ?? [];
-    report({
-      id: "adsets",
-      label: "Anzeigengruppen",
-      status: locs.length ? "done" : "skipped",
-      detail:
-        locs.length > 1
-          ? `${locs.length} Standorte → ${locs.length} Anzeigengruppen: ${locs.map(cityOf).join(", ")}. Videos und Bilder werden geteilt.`
-          : locs.length
-            ? `eine Anzeigengruppe: ${cityOf(locs[0])}`
-            : "kein Standort gefunden – bitte eintragen",
-    });
-    setRevealed(false);
-    // Der letzte Haken soll gesehen werden, bevor der Schirm wechselt: ein
-    // Bogen (700 ms), dann öffnet sich der Vorschlag.
-    await new Promise((r) => setTimeout(r, 700));
-    const assembled = brief;
-    setState((s) => (match ? { ...applyBrief(s, assembled), business: match.name } : applyBrief(s, assembled)));
-    setStep(match ? "1" : "0");
-    setPicking(undefined);
+    return match;
   };
+  // Zählt hoch, wenn die Auflösung die Grundlage der Texte geändert hat – die
+  // Blöcke schreiben dann neu (AdSetBlock, regenerateToken).
+  const [regenerate, setRegenerate] = useState(0);
 
   // Ein neuer Anfang leert auch das Protokoll – sonst stünde die Werkstatt
-  // des alten Auftrags über dem neuen.
+  // des alten Auftrags über dem neuen. Was schon Arbeit war, bleibt als
+  // Entwurf in der Liste (park) – ein Klick auf „Andere Aufgabe“ wirft
+  // keine Texte und Uploads weg.
   const reset = () => {
     clearActivity();
     setRevealed(false);
-    discard();
+    park();
   };
 
   // Solange der Assistent liest und schreibt, zeigt der Vorschlag nur den
@@ -509,15 +518,8 @@ function WizardSteps({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignId]);
 
-  // Angelegt heißt auch: Aufgabe weiter. Einmal je campaignId – forget() lässt
-  // den State stehen, die taskId ist danach also noch da.
-  const [clickup, setClickup] = useState<{ error?: string }>();
+  const clickup = useClickupCloseout(campaignId, state);
   const taskId = state.taskId;
-  useEffect(() => {
-    if (!campaignId || !taskId) return;
-    closeBriefAction(taskId, state.campaignName, state.adAccount, campaignId).then(setClickup);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [campaignId]);
 
   const account = accounts.find((a) => a.id === state.adAccount);
 
@@ -596,25 +598,7 @@ function WizardSteps({
       await refreshAssetsAction();
       router.refresh();
     });
-  const needsTos = client?.needsLeadgenTos ?? false;
-  const tosPageId = client?.pageId;
-  useEffect(() => {
-    if (!needsTos || !tosPageId) return;
-    // Ein Graph-Aufruf je Tick, nicht das ganze Portfolio: Tag-Wurf und
-    // router.refresh() erst, wenn die Annahme wirklich da ist – vorher warf
-    // jeder Tick den 5-Minuten-Cache für alle weg.
-    const check = async () => {
-      if (!(await leadgenTosAcceptedAction(tosPageId))) return;
-      await refreshAssetsAction();
-      router.refresh();
-    };
-    const id = setInterval(check, 30_000);
-    window.addEventListener("focus", check);
-    return () => {
-      clearInterval(id);
-      window.removeEventListener("focus", check);
-    };
-  }, [needsTos, tosPageId, router]);
+  useLeadgenTos(client, router);
 
   // Das Instagram-Konto hängt an der Seite des beworbenen Kunden, nicht am
   // zahlenden Konto. Es kommt mit der Kundenoption vom Server und ist deshalb
@@ -622,75 +606,9 @@ function WizardSteps({
   const instagram = client?.instagram;
   const instagramLabel = instagramAccountLabel(instagram);
 
-  // Der Name folgt Business/Rollen/Datum/Initialen, solange niemand ihn von
-  // Hand angefasst hat – siehe nameEdited in state.ts.
-  const composed = campaignName({
-    business: state.business,
-    roles: state.roles,
-    roleFreeText: state.roleFreeText,
-    start: new Date(state.startDate),
-    initials: state.initials,
-  });
-  useEffect(() => {
-    if (!state.nameEdited) setState((s) => ({ ...s, campaignName: composed }));
-  }, [composed, state.nameEdited, setState]);
-
-  // Adresse, Radius und Texte aus der letzten Kampagne des Kunden übernehmen –
-  // aber nur ins erste Ad Set und nur die Felder, die noch am Ausgangswert
-  // stehen (untouchedPrefillPatch). Alle Kampagnen laufen über dasselbe
-  // Zahlerkonto, der Kunde steckt in der Seite: ohne Seite ist die "letzte
-  // Kampagne des Kontos" die eines anderen Kunden – also erst suchen, wenn der
-  // Kunde feststeht. Das ist auch nach dem Auftrag, sodass eine Adresse aus
-  // ClickUp schon steht und Vorrang hat. Das Lead-Formular bleibt bewusst außen vor, siehe state.ts/prefill.ts.
-  // Der Zustand ist sichtbar, weil die Vorbelegung Felder ändert, während man
-  // hinschaut: ohne Hinweis springt die Adresse aus dem Nichts auf einen Wert,
-  // den niemand getippt hat.
-  const [prefill, setPrefill] = useState<"loading" | "applied" | "none">("none");
+  useCampaignNameSync(state, setState);
   const pageId = client?.pageId;
-  useEffect(() => {
-    const adAccount = state.adAccount;
-    if (!adAccount || !pageId) return;
-    let cancelled = false;
-    setPrefill("loading");
-    const label = "Letzte Kampagne des Kunden";
-    report({ id: "previous", label, status: "running", detail: "sucht Standort und Radius der letzten Kampagne…" });
-    prefillAction(adAccount, pageId).then((prefill) => {
-      if (cancelled) return;
-      if (!prefill) {
-        report({ id: "previous", label, status: "skipped", detail: "keine frühere Kampagne für diese Seite" });
-        return setPrefill("none");
-      }
-      let applied = false;
-      setState((s) => {
-        const first = s.adSets[0];
-        if (!first) return s;
-        const patch = untouchedPrefillPatch(first, prefill);
-        if (!Object.keys(patch).length) return s;
-        applied = true;
-        return {
-          ...s,
-          sources: { ...s.sources, location: ["previous"] },
-          adSets: s.adSets.map((set, i) => (i === 0 ? { ...set, ...patch } : set)),
-        };
-      });
-      setPrefill(applied ? "applied" : "none");
-      report({
-        id: "previous",
-        label,
-        status: applied ? "done" : "skipped",
-        detail: applied
-          ? [prefill.addressString ?? prefill.place?.name, prefill.radiusKm ? `${prefill.radiusKm} km` : undefined]
-              .filter(Boolean)
-              .join(" · ")
-          : "Standort stand schon – nichts zu übernehmen",
-        source: applied ? "previous" : undefined,
-      });
-    });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.adAccount, pageId]);
+  const prefill = usePrefill(state, setState, pageId);
 
   // Jede Änderung an den Anzeigengruppen läuft durch syncLinkedAds: geliehene
   // Anzeigen holen sich ihren Inhalt aus der Quelle, und verschwindet die
@@ -727,6 +645,13 @@ function WizardSteps({
     });
 
   const removeAdSet = (i: number) => updateAdSets((sets) => sets.filter((_, idx) => idx !== i));
+  // Die Kopie ist der Standort, an dem jetzt gearbeitet wird – sie klappt auf.
+  const duplicate = (i: number) =>
+    setState((s) => {
+      const adSets = duplicateAdSet(s.adSets, i);
+      setOpenSets([adSets[i + 1].id]);
+      return { ...s, adSets };
+    });
 
   /**
    * Fertig hochgeladene Dateien abholen. Hier und nicht im Block, denn der Block
@@ -789,8 +714,26 @@ function WizardSteps({
       ],
       details: detailBlockers(state),
       adSets: perSet.flatMap(({ set, blockers }) => blockers.map((b) => `„${set.name}“: ${b}`)),
+      // Jeder Punkt weiß, wohin er gehört – die Meldung springt dorthin.
+      items: [
+        ...perSet.flatMap(({ set, blockers }) => blockers.map((b) => ({ text: `„${set.name}“: ${b}`, area: `pruefung-${set.id}`, setId: set.id }))),
+        ...detailBlockers(state).map((text) => ({ text, area: "pruefung-kampagne" })),
+        ...customerBlockers(state).map((text) => ({ text, area: "pruefung-konto" })),
+      ],
     };
   }, [state, client]);
+  // Zum offenen Punkt springen: Aufklapper öffnen, hinscrollen, erstes leeres Feld fokussieren.
+  const jumpTo = (item: { area: string; setId?: string }) => {
+    if (item.setId) setOpenSets((open) => (open.includes(item.setId!) ? open : [...open, item.setId!]));
+    requestAnimationFrame(() => {
+      const el = document.getElementById(item.area);
+      el?.scrollIntoView({ behavior: "smooth", block: "start" });
+      // Das erste leere Feld im Bereich – bei React-Feldern steht der Wert in
+      // der Eigenschaft, nicht im Attribut, also nicht per Selektor.
+      const fields = Array.from(el?.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input:not([type=hidden]), textarea") ?? []);
+      (fields.find((f) => !f.value.trim()) ?? fields[0])?.focus({ preventScroll: true });
+    });
+  };
 
   // Der Vorschlag trägt beides: die Anzeigengruppen und die Felder darum.
   const stepIssues = [issues.customer.length, issues.adSets.length + issues.details.length, 0];
@@ -890,7 +833,7 @@ function WizardSteps({
   // auf Schirm 1 die Aufgabenliste – in ihrer eigenen Karte unter dieser hier,
   // ohne Frage-Kopf und ohne Fußzeile: es gibt nichts zu speichern und nichts,
   // wohin man weiterginge.
-  const showsList = stepIndex === 0 && !manual && !state.business && !state.taskId;
+  const showsList = firstScreen({ stepIndex, manual, business: state.business, taskId: state.taskId }) === "list";
 
   // Der Satz neben der Hauptaktion. In den Schirmen davor hält nichts auf – ein
   // offener Punkt darf liegen bleiben, und genau das muss dastehen, sonst liest
@@ -1084,6 +1027,9 @@ function WizardSteps({
                           taskId={state.taskId}
                           notes={state.notes}
                           locationSource={i === 0 ? state.sources.location : undefined}
+                          locationEvidence={i === 0 ? state.evidence?.location : undefined}
+                          benefitsEvidence={state.evidence?.benefits}
+                          regenerateToken={regenerate}
                           blockers={blockers}
                           otherAdSets={state.adSets
                             .filter((other) => other.id !== set.id)
@@ -1091,6 +1037,7 @@ function WizardSteps({
                           borrowersOfAd={(adId) => borrowersOf(state.adSets, set.id, adId)}
                           onChange={(patch) => updateAdSet(i, patch)}
                           onRemove={() => removeAdSet(i)}
+                          onDuplicate={() => duplicate(i)}
                           canRemove={state.adSets.length > 1}
                           />
                         </Collapsible>
@@ -1191,9 +1138,18 @@ function WizardSteps({
                     title="Noch nicht bereit zum Erstellen"
                     description={
                       <ul className="list-disc space-y-1 pl-5">
-                        {allIssues.map((b) => (
-                          <li key={b}>{b}</li>
+                        {issues.items.map((item) => (
+                          <li key={item.text}>
+                            <button type="button" className="text-left underline-offset-2 hover:underline" onClick={() => jumpTo(item)}>
+                              {item.text}
+                            </button>
+                          </li>
                         ))}
+                        {allIssues
+                          .filter((b) => !issues.items.some((i) => i.text === b))
+                          .map((b) => (
+                            <li key={b}>{b}</li>
+                          ))}
                       </ul>
                     }
                   />

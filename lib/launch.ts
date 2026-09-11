@@ -336,7 +336,13 @@ export type Receipt = {
  * gegen Metas Server – ohne diese Meldungen steht dort eine Minute lang nur
  * "Creating…" und niemand kann ein Hängen von normalem Arbeiten unterscheiden.
  */
-export type LaunchProgress = { label: string; done: number; total: number };
+export type LaunchProgress = {
+  label: string;
+  done: number;
+  total: number;
+  /** Die Quittung bis hierher – reißt der Strom ab, weiß der Client trotzdem, was schon steht. */
+  receipt?: Receipt;
+};
 
 
 export type LaunchDeps = {
@@ -630,7 +636,7 @@ export async function launch(
   let done = 0;
   // Vor dem Aufruf melden, nicht danach: die Meldung soll benennen, worauf
   // gerade gewartet wird.
-  const step = (label: string) => deps.onProgress?.({ label, done, total });
+  const step = (label: string) => deps.onProgress?.({ label, done, total, receipt: structuredClone(receipt) });
   const stepDone = () => {
     done++;
   };
@@ -686,13 +692,20 @@ export async function launch(
     stepDone();
   }
 
-  const jobs: AdJob[] = [];
+  // Je Anzeigengruppe ihre Anzeigen-Jobs – erst am Ende in Eingabereihenfolge
+  // zusammengelegt, denn die Gruppen laufen nebeneinander und enden versetzt.
+  const perSetJobs: AdJob[][] = input.adSets.map(() => []);
   const submittedAdSetIds = new Set<string>();
   const submittedAdIds = new Set<string>();
+  // Die Quittung trägt die Gruppen in Eingabereihenfolge, egal wann sie fertig werden.
+  const entries: Receipt["adSets"] = input.adSets.map((set, index) => ({ index, name: set.name, adIds: [] }));
+  receipt.adSets.push(...entries);
 
-  for (const [adSetIndex, set] of input.adSets.entries()) {
-    const entry: Receipt["adSets"][number] = { index: adSetIndex, name: set.name, adIds: [] };
-    receipt.adSets.push(entry);
+  // Anzeigengruppen nebeneinander: jede ist ein eigener Aufruf gegen Meta,
+  // und drei Standorte hintereinander waren dreimal die Wartezeit eines.
+  await Promise.all(input.adSets.map(async (set, adSetIndex) => {
+    const entry = entries[adSetIndex];
+    const jobs = perSetJobs[adSetIndex];
 
     if (set.existingAdSetId) {
       submittedAdSetIds.add(set.existingAdSetId);
@@ -727,7 +740,7 @@ export async function launch(
             });
           }
           done += set.ads.length;
-          continue;
+          return;
         }
       }
     } else {
@@ -771,7 +784,7 @@ export async function launch(
         // Übersprungen, nicht offen: sonst bliebe die Anzeige bei 6 von 10
         // stehen, während längst die nächste Gruppe läuft.
         done += set.ads.length;
-        continue;
+        return;
       }
     }
 
@@ -842,7 +855,8 @@ export async function launch(
         jobs.push({ set, entry, ad, adSetIndex });
       }
     }
-  }
+  }));
+  const jobs = perSetJobs.flat();
 
   if (jobs.length >= BATCH_THRESHOLD) await batchAds(ctx, jobs);
   else await poolAds(ctx, jobs);

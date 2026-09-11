@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { assembleBrief, parseCampaignContext, parseLocationHint, parseOnboarding, type BriefDeps } from "./brief";
+import { assembleBrief, evidenceLines, onboardingExcerpt, parseCampaignContext, parseLocationHint, parseOnboarding, type BriefDeps } from "./brief";
 import { overviewFacts, type Brief } from "./clickup";
 
 test("parseLocationHint nimmt Adresse, Ort und Formular-Hinweis aus dem JSON", () => {
@@ -387,7 +387,9 @@ test("assembleBrief: mehrere Standorte in der Beschreibung → alle, in Reihenfo
 
 test("assembleBrief meldet jede Quelle beim Start und beim Ende, mit dem Gefundenen", async () => {
   const events: string[] = [];
-  const b = await assembleBrief("t1", "", deps(), (e) => events.push(`${e.step}:${e.status}${e.detail ? ` ${e.detail}` : ""}`));
+  const b = await assembleBrief("t1", "", deps(), (e) => {
+    if (e.type === "step") events.push(`${e.step}:${e.status}${e.detail ? ` ${e.detail}` : ""}`);
+  });
   expect(b.benefits?.value).toBeDefined();
   // Jede Quelle genau einmal „running“ und einmal abgeschlossen (done/skipped/failed).
   for (const step of ["task", "description", "drive", "onboarding", "context"] as const) {
@@ -508,7 +510,7 @@ test("Kampagnenkontext: scheitert die Auflösung, gilt die alte Rangfolge – Au
         },
       }),
     }),
-    (e) => events.push(`${e.step}:${e.status}`),
+    (e) => e.type === "step" && events.push(`${e.step}:${e.status}`),
   );
   expect(out.roles).toEqual({ value: ["PFK"], sources: ["clickup"] });
   expect(out.benefits).toEqual({ value: "Jobrad", sources: ["onboarding"] });
@@ -584,7 +586,7 @@ test("Kampagnenkontext: nur die Aufgabe als Beleg – kein Aufruf, Zeile übersp
         return routed({ location: '{"standorte":["Renningen"],"formular":null}' })(c, opts);
       },
     }),
-    (e) => events.push(`${e.step}:${e.status}`),
+    (e) => e.type === "step" && events.push(`${e.step}:${e.status}`),
   );
   expect(contextCalls).toBe(0);
   expect(events).toContain("context:skipped");
@@ -632,4 +634,47 @@ test("parseCampaignContext verwirft unbekannte Quellen, leere Rollen, unpositive
   expect(out.copyInstructions).toBe("Keine Emojis.");
   expect(out.sources).toEqual({ roles: ["clickup", "user"], locations: ["onboarding"], spendCapEuros: ["clickup"] });
   expect(() => parseCampaignContext("nix")).toThrow();
+});
+
+test("assembleBrief meldet den festen Stand vor der Auflösung als partial – mit Belegen je Feld", async () => {
+  const partials: string[] = [];
+  const out = await assembleBrief(
+    "t1",
+    "",
+    deps({ getBrief: async () => ({ ...brief, folderId: "f1" }), customerOverview: async () => ({ address: "Firmensitz 1, 70173 Stuttgart" }) }),
+    (e) => {
+      if (e.type === "partial") partials.push(e.brief.locations?.value[0] ?? "");
+    },
+  );
+  expect(partials).toEqual(["Mühlgasse 24, 71272 Renningen"]);
+  expect(out.evidence?.location).toContain("Aufgabe: Mühlgasse 24, 71272 Renningen");
+  expect(out.evidence?.location).toContain("Kundenübersicht: Firmensitz 1, 70173 Stuttgart");
+  expect(out.evidence?.benefits).toContain("2 Zeilen");
+  expect(out.evidence?.dailyBudget).toContain("17,05");
+});
+
+test("evidenceLines lässt leere Quellen weg", () => {
+  const e = evidenceLines({
+    task: { id: "t", name: "n", description: "", locations: [], jobs: [] },
+    onboarding: { benefits: [], jobs: [], perLocation: [] },
+    overview: {},
+    aiNotes: "",
+  });
+  expect(e).toEqual({});
+});
+
+test("onboardingExcerpt: nur die drei Abschnitte, sonst das ganze CSV", () => {
+  const grid = [
+    '"Wie gestaltet sich Ihr Jobangebot?","","Welche fachlichen Vorraussetzungen muss der Kandidat erfüllen?"',
+    '"Besteht aktuell:","","- PFK"',
+    '"- Jobrad","",""',
+    '"Wo befinden sich die Patienten?","","Wie läuft das Bewerbungsgespräch ab?"',
+    '"- Standort/Radius: Bad Sulza","","Telefonisch"',
+  ].join("\n");
+  const x = onboardingExcerpt(grid);
+  expect(x).toContain("- Jobrad");
+  expect(x).toContain("- PFK");
+  expect(x).toContain("Standort/Radius: Bad Sulza");
+  expect(x).not.toContain("Telefonisch");
+  expect(onboardingExcerpt("a,b\nc,d")).toBe("a,b\nc,d");
 });

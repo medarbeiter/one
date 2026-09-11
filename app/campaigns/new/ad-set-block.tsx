@@ -239,6 +239,7 @@ function TextListField({
   multiline,
   action,
   pending,
+  onRegenerate,
   onChange,
 }: {
   label: string;
@@ -255,6 +256,8 @@ function TextListField({
    *  und kein Hinzufügen/Entfernen, solange irgendwo eins läuft, sonst
    *  schrieben die per Index eintreffenden Antworten in den falschen Slot. */
   pending?: boolean[];
+  /** Nur diesen einen Eintrag neu schreiben lassen – die anderen bleiben. */
+  onRegenerate?: (i: number) => void;
   onChange: (values: string[]) => void;
 }) {
   const anyPending = pending?.some(Boolean) ?? false;
@@ -300,6 +303,19 @@ function TextListField({
                   <span className={form.copyCounter} data-over={over}>
                     {v.length}/{limit}
                   </span>
+                  {onRegenerate && (
+                    <span className={form.copyRemove}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        isIconOnly
+                        icon={<SparkleIcon size={14} weight="bold" />}
+                        label={`${name} neu schreiben`}
+                        onClick={() => onRegenerate(i)}
+                        isDisabled={anyPending}
+                      />
+                    </span>
+                  )}
                   {/* Erst beim Überfahren oder Fokus sichtbar: fünf X in einer
                       Reihe sind fünf Angebote, etwas wegzuwerfen. */}
                   {values.length > 1 && (
@@ -440,8 +456,12 @@ export function AdSetBlock({
   initials,
   taskId,
   notes,
+  regenerateToken = 0,
+  locationEvidence,
+  benefitsEvidence,
   onChange,
   onRemove,
+  onDuplicate,
   canRemove,
 }: {
   value: WizardAdSet;
@@ -472,6 +492,12 @@ export function AdSetBlock({
   instructions?: string;
   /** Beim ersten Anzeigen mit leeren Texten sofort generieren – der Vorschlag ist ein Vorschlag. */
   autoGenerate: boolean;
+  /**
+   * Zählt hoch, wenn sich nach dem ersten Schreiben die Grundlage geändert hat
+   * (die Auflösung des Briefs sah Rollen, Benefits oder Ort anders) – dann
+   * werden die Texte neu geschrieben, auch wenn schon welche dastehen.
+   */
+  regenerateToken?: number;
   /** Die erste Anzeigengruppe: sie allein meldet die Formularliste ins Protokoll. */
   primary: boolean;
   /**
@@ -490,9 +516,13 @@ export function AdSetBlock({
   notes?: string;
   /** Herkunft des vorbelegten Standorts – Etikett unter dem Standortfeld (nur erste Anzeigengruppe). */
   locationSource?: Source[];
+  locationEvidence?: string;
+  benefitsEvidence?: string;
   /** Als Funktion, wenn der Patch auf dem aktuellen Stand aufbauen muss – siehe addAssets. */
   onChange: (patch: Partial<WizardAdSet> | ((set: WizardAdSet) => Partial<WizardAdSet>)) => void;
   onRemove: () => void;
+  /** Diesen Standort als Vorlage für den nächsten nehmen. */
+  onDuplicate: () => void;
   canRemove: boolean;
 }) {
   const [forms, setForms] = useState<LeadForm[]>([]);
@@ -608,6 +638,24 @@ export function AdSetBlock({
     );
   };
 
+  /** Einen einzelnen Primärtext neu – die anderen vier bleiben, wie sie sind. */
+  const generateBody = async (i: number) => {
+    const myRun = ++bodiesRun.current;
+    setGenErrors([]);
+    setPendingBodies((p) => value.bodies.map((_, j) => j === i || Boolean(p[j])));
+    const label = named(`Primärtext ${i + 1}`);
+    report({ id: aid(`text-${i}`), label, status: "running", detail: `Mistral schreibt Primärtext ${i + 1} neu aus ${textBasis()}…` });
+    const res = await generateBodyAction(textInput(), i);
+    if (bodiesRun.current !== myRun) return;
+    if (res.body) {
+      const body = res.body;
+      onChange((set) => ({ bodies: set.bodies.map((b, j) => (j === i ? body : b)) }));
+    }
+    if (res.error) setGenErrors((e) => [...e, `Primärtext ${i + 1}: ${res.error}`]);
+    setPendingBodies((p) => p.map((v, j) => (j === i ? false : v)));
+    report({ id: aid(`text-${i}`), label, status: res.error ? "failed" : "done", detail: res.error ?? `Primärtext ${i + 1} neu aus ${textBasis()}` });
+  };
+
   const generateDescription = async () => {
     const myRun = ++descriptionRun.current;
     setPendingDescription(true);
@@ -646,6 +694,15 @@ export function AdSetBlock({
     generateAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoGenerate]);
+  // Die Grundlage hat sich geändert, nachdem schon geschrieben wurde – neu.
+  // Nicht beim ersten Rendern: da läuft der Effekt oben.
+  const seenToken = useRef(regenerateToken);
+  useEffect(() => {
+    if (seenToken.current === regenerateToken) return;
+    seenToken.current = regenerateToken;
+    if (autoGenerate) generateAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [regenerateToken]);
 
   const uploads = useUploads(value.id);
   // Was schon da ist, darf das Regal nicht ein zweites Mal laden: Dateinamen
@@ -1086,7 +1143,7 @@ export function AdSetBlock({
             onChange={onChange}
             adAccount={adAccount}
           />
-          <Herkunft source={locationSource} />
+          <Herkunft source={locationSource} evidence={locationEvidence} />
         </div>
       </FieldsetSection>
 
@@ -1242,7 +1299,7 @@ export function AdSetBlock({
               <Text type="label" as="div">
                 Benefits des Arbeitgebers
               </Text>
-              <Herkunft source={benefitsSource} />
+              <Herkunft source={benefitsSource} evidence={benefitsEvidence} />
             </div>
             <TextArea
               label="Benefits des Arbeitgebers"
@@ -1266,6 +1323,7 @@ export function AdSetBlock({
             limit={BODY_LIMIT}
             multiline
             pending={pendingBodies}
+            onRegenerate={generateBody}
             action={
               <Button
                 variant="ghost"
@@ -1366,7 +1424,10 @@ export function AdSetBlock({
       <Toolbar
         label="Anzeigengruppe"
         startContent={
-          <Button variant="secondary" label="Standort entfernen" onClick={onRemove} isDisabled={!canRemove} />
+          <>
+            <Button variant="secondary" label="Standort duplizieren" onClick={onDuplicate} />
+            <Button variant="secondary" label="Standort entfernen" onClick={onRemove} isDisabled={!canRemove} />
+          </>
         }
       />
         </div>
