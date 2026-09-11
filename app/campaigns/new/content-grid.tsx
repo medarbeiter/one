@@ -22,7 +22,7 @@ import form from "./campaign-form.module.css";
  */
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { AlertDialog, DropdownMenu, Skeleton, Spinner, TextInput } from "@astryxdesign/core";
+import { AlertDialog, Button, DropdownMenu, Skeleton, Spinner, TextInput } from "@astryxdesign/core";
 import { Sign } from "@/theme/icons";
 import { ProgressRing } from "@/app/shell/progress-ring";
 import { cleanStem, imagePreviewUrl, type Orientation } from "@/lib/media";
@@ -608,7 +608,7 @@ function useLocalPreview(file: File): string | undefined {
  * steht. Videos zeigen den Rahmen, den sie später füllen; Bilder zeigen sich
  * selbst, gedimmt unter dem Ring.
  */
-export function UploadTile({ upload }: { upload: UploadJob }) {
+export function UploadTile({ upload, onCancel }: { upload: UploadJob; onCancel: () => void }) {
   const local = useLocalPreview(upload.file);
   const isImage = upload.file.type.startsWith("image/");
   // Ein fehlgeschlagener Upload wartet auf nichts mehr – ein schimmernder
@@ -620,7 +620,18 @@ export function UploadTile({ upload }: { upload: UploadJob }) {
       <TileHeader
         badge={upload.error ? "Fehlgeschlagen" : "Wird hochgeladen"}
         tone={upload.error ? "error" : "busy"}
-      />
+      >
+        {pending && (
+          <Button
+            variant="ghost"
+            size="sm"
+            isIconOnly
+            icon={<Sign meaning="close" size={14} />}
+            label={`Upload von ${cleanStem(upload.name)} abbrechen`}
+            onClick={onCancel}
+          />
+        )}
+      </TileHeader>
 
       <Stage
         overlay={

@@ -7,6 +7,7 @@ import {
   Button,
   Collapsible,
   CollapsibleGroup,
+  DropdownMenu,
   Heading,
   Link,
   List,
@@ -40,6 +41,7 @@ import {
   useWizardState,
   withArrivedAssets,
   type WizardAdSet,
+  type WizardState,
 } from "./state";
 import { GhlHinweis } from "./ghl-hinweis";
 import { drainArrived, uploadStatus, useUploadVersion } from "./upload-queue";
@@ -206,13 +208,39 @@ function VorschauSpalte({
  * zwischen ihren Blöcken (24 px) – vorher waren es je nach Schritt 16, 24 oder
  * 32 px, und beim Weiterklicken verschob sich alles um ein paar Pixel.
  */
+/**
+ * Die Quellen des Vorschlags, zum Nachlesen: Aufgabe, Onboarding-Tabelle,
+ * Drive-Ordner – nur die, die es gibt. Ohne Aufgabe (manueller Start) keiner.
+ */
+function QuellenMenu({ state }: { state: WizardState }) {
+  const links = [
+    state.taskId && { label: "Aufgabe in ClickUp", url: `https://app.clickup.com/t/${state.taskId}` },
+    state.onboardingSheetId && {
+      label: "Onboarding-Tabelle",
+      url: `https://docs.google.com/spreadsheets/d/${state.onboardingSheetId}`,
+    },
+    state.driveFolderId && { label: "Drive-Ordner", url: `https://drive.google.com/drive/folders/${state.driveFolderId}` },
+  ].filter((l): l is { label: string; url: string } => Boolean(l));
+  if (!links.length) return null;
+  return (
+    <DropdownMenu
+      button={{ label: "Quellen öffnen", variant: "ghost", size: "sm" }}
+      hasChevron
+      items={links.map((l) => ({ label: l.label, onClick: () => window.open(l.url, "_blank", "noopener") }))}
+    />
+  );
+}
+
 function Step({
   frage,
   satz,
+  aside,
   children,
 }: {
   frage: string;
   satz: ReactNode;
+  /** Rechts neben der Frage – der Quellen-Knopf. */
+  aside?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -223,13 +251,16 @@ function Step({
           ersten Eingabe wie jedes Feld zum nächsten, und ein Schritt las sich
           als eine lange Reihe gleichrangiger Blöcke. */}
       <header className={form.stepHeader}>
-        <div className="flex flex-col gap-1">
-          <Heading level={2}>{frage}</Heading>
-          {/* Auf Textbreite gedeckelt: über die volle Karte gezogen bräuchte
-              dieser eine Satz zwei Sprünge des Auges statt eines. */}
-          <Text type="supporting" color="secondary" as="p" className="max-w-prose">
-            {satz}
-          </Text>
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-1">
+            <Heading level={2}>{frage}</Heading>
+            {/* Auf Textbreite gedeckelt: über die volle Karte gezogen bräuchte
+                dieser eine Satz zwei Sprünge des Auges statt eines. */}
+            <Text type="supporting" color="secondary" as="p" className="max-w-prose">
+              {satz}
+            </Text>
+          </div>
+          {aside && <div className="shrink-0">{aside}</div>}
         </div>
       </header>
       {children}
@@ -963,6 +994,7 @@ function WizardSteps({
         {/* -------------------------------------------- Schirm 2: Vorschlag */}
         {stepIndex === 1 && (
           <Step
+            aside={<QuellenMenu state={state} />}
             frage={ready ? "Prüfe den KI-Vorschlag" : "Welche Videos und Bilder?"}
             satz={
               ready
@@ -1110,6 +1142,7 @@ function WizardSteps({
         {/* ---------------------------------------------- Schirm 3: Anlegen */}
         {stepIndex === 2 && (
           <Step
+            aside={<QuellenMenu state={state} />}
             frage="Passt alles?"
             satz={
               editing

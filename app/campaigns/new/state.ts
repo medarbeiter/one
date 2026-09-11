@@ -76,6 +76,8 @@ export type WizardState = {
   formHint?: string;
   /** Der Kundenordner in Drive, wenn bekannt – das Regal startet dann dort. */
   driveFolderId?: string;
+  /** Die Onboarding-Tabelle darin – für den Quellen-Knopf. */
+  onboardingSheetId?: string;
   /**
    * Gesetzt, wenn dieser Entwurf eine bestehende Kampagne ändert statt eine neue
    * anzulegen: Anzeigengruppen und Anzeigen tragen dann ihre Meta-IDs
@@ -203,6 +205,7 @@ export function applyBrief(state: WizardState, brief: AssembledBrief): WizardSta
     copyInstructions: brief.copyInstructions,
     formHint: brief.formHint?.value,
     driveFolderId: brief.driveFolderId?.value,
+    onboardingSheetId: brief.onboardingSheetId,
   };
   if (brief.clientName && !state.business.trim()) {
     next.business = brief.clientName.value;

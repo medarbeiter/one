@@ -13,10 +13,11 @@
  *   ClickUp-Kundenübersicht Standort, Rollen – Fallback per Regex, nie über Mistral
  *   (Doc im Kundenordner)
  *
- * Standort-Priorität: Beschreibung (Mistral) → Onboarding („Wo befinden sich
- * die Patienten?“) → Kundenübersicht (Regex) → letzte Kampagne (lebt im
- * Wizard-Prefill, nicht hier). Die Kundenübersicht wird nur angefragt, wenn
- * weder Beschreibung noch Tabelle einen Ort liefern.
+ * Standort: alle drei Quellen werden immer gelesen und dem Kontext-Prompt
+ * vorgelegt – er wählt die wahrscheinlichste Adresse (Aufgabe vor Tabelle vor
+ * Kundenübersicht, aber eine volle Straßenadresse vor einem bloßen Ort, wenn
+ * beide denselben Ort meinen). Fällt der Prompt aus, gilt dieselbe Reihenfolge
+ * fest. Die letzte Kampagne lebt im Wizard-Prefill, nicht hier.
  *
  * Sind die Leser fertig, löst ein letzter Mistral-Aufruf (contextPrompt) die
  * Belege aller Quellen und die freien Hinweise der bedienenden Person zu einem
@@ -87,6 +88,8 @@ export type AssembledBrief = {
   dailyBudgetEuros?: Sourced<number>;
   spendCapEuros?: Sourced<number>;
   driveFolderId?: Sourced<string>;
+  /** Die Onboarding-Tabelle im Kundenordner – zum Öffnen aus dem Assistenten. */
+  onboardingSheetId?: string;
   /** Die Beschreibung der Aufgabe, wörtlich – Anweisungen für Menschen. */
   notes?: string;
   /** Die freien Hinweise, mit denen dieser Brief gebaut wurde – für den Entwurf. */
@@ -382,7 +385,8 @@ Regeln:
 1. Die Hinweise haben bei einem ausdrücklichen Widerspruch Vorrang vor allem anderen.
 2. Die Aufgabe beschreibt den Umfang DIESER Kampagne. Das Onboarding erklärt und ergänzt ihn – es ersetzt ihn nicht blind durch alle Stellen, die der Kunde grundsätzlich sucht. Nennt die Aufgabe keine Stellen, gelten die aus dem Onboarding – bei mehreren Standorten im Onboarding nur die Stellen des Standorts, um den es laut Aufgabe geht.
 3. Vereinbare Angaben dürfen zusammengeführt werden. Widersprüchliche Angaben werden nicht als Vereinigung ausgegeben – dann entscheiden Regel 1 und 2.
-9. Standorte in dieser Rangfolge: erst die der Aufgabe (Name, Beschreibung, „Standorte laut Beschreibung“). Nennt die Aufgabe keinen, der Standort der Patienten aus dem Onboarding. Erst wenn auch der fehlt, die Adresse der Kundenübersicht. Die Orte aus „Stellen je Standort“ sind KEINE Liste von Kampagnen-Standorten – sie sagen nur, welche Stellen wo gesucht werden. Nur wenn die Aufgabe ausdrücklich mehrere Standorte will, mehrere ausgeben.
+9. Standort: Wäge ALLE Quellen ab – Aufgabe (Name, Beschreibung, „Standorte laut Beschreibung“), Standort der Patienten aus dem Onboarding, Adresse der Kundenübersicht – und gib die wahrscheinlichste Adresse aus. Meinen mehrere Quellen denselben Ort, nimm die genaueste Fassung (Straße, PLZ, Ort vor bloßem Ortsnamen), egal aus welcher Quelle, und nenne alle zutreffenden Quellen. Widersprechen sie sich, gilt die Aufgabe, dann das Onboarding, dann die Kundenübersicht – die Kundenübersicht nennt oft den Firmensitz, nicht den Einsatzort. Die Orte aus „Stellen je Standort“ sind KEINE Liste von Kampagnen-Standorten – sie sagen nur, welche Stellen wo gesucht werden. Nur wenn die Aufgabe ausdrücklich mehrere Standorte will, mehrere ausgeben.
+11. Formular: Nennt die Aufgabe einen Hinweis, welches Lead-Formular zu wählen ist, gilt der. Sonst der Ortsname des gewählten Standorts (ohne Straße und PLZ) – Formulare sind nach Ort oder Stelle benannt, der Ort ist die beste Vermutung; Quelle ist dann die des Standorts.
 10. Das Onboarding wächst über Jahre: Einträge tragen oft das Datum ihrer Notiz. Ein Eintrag, dessen Anlass erkennbar vorbei ist (Datum lange her und die Aufgabe nennt weder Ort noch Stellen daraus, „erledigt“, „nicht mehr“, „gestrichen“), zählt nicht. Unter mehreren Einträgen zu demselben Ort gilt der jüngste.
 4. Tagesbudget und Ausgabenlimit bleiben die der Aufgabe, außer die Hinweise nennen ausdrücklich einen Betrag als Tagesbudget oder als Ausgabenlimit.
 5. Erfinde nichts. Jeder ausgegebene Wert nennt unter "quellen" mindestens eine Quelle, aus der er tatsächlich stammt. Was keine Quelle hergibt, bleibt leer bzw. null.
@@ -430,7 +434,7 @@ async function readOnboarding(
   deps: BriefDeps,
   warnings: string[],
   emit: OnBriefEvent,
-): Promise<{ folderId?: string } & ParsedOnboarding> {
+): Promise<{ folderId?: string; sheetId?: string } & ParsedOnboarding> {
   const none: ParsedOnboarding = { benefits: [], roles: [], roleFreeText: "", perLocation: [] };
   emit({ type: "step", step: "drive", status: "running" });
   let folderId = brief.driveUrl ? deps.folderIdFromUrl(brief.driveUrl) : undefined;
@@ -467,7 +471,14 @@ async function readOnboarding(
       emit({ type: "step", step: "onboarding", status: "failed", detail: "keine Tabelle im Ordner" });
       return { folderId, ...none };
     }
-    const parsed = parseOnboarding(await deps.mistral(onboardingPrompt(await deps.exportCsv(sheet.id)), { temperature: 0 }));
+    let parsed: ParsedOnboarding;
+    try {
+      parsed = parseOnboarding(await deps.mistral(onboardingPrompt(await deps.exportCsv(sheet.id)), { temperature: 0 }));
+    } catch (e) {
+      warnings.push(`Onboarding-Tabelle nicht gelesen: ${(e as Error).message}`);
+      emit({ type: "step", step: "onboarding", status: "failed", detail: (e as Error).message });
+      return { folderId, sheetId: sheet.id, ...none };
+    }
     emit({
       type: "step",
       step: "onboarding",
@@ -480,7 +491,7 @@ async function readOnboarding(
         .filter(Boolean)
         .join(" · "),
     });
-    return { folderId, ...parsed };
+    return { folderId, sheetId: sheet.id, ...parsed };
   } catch (e) {
     warnings.push(`Onboarding-Tabelle nicht gelesen: ${(e as Error).message}`);
     emit({ type: "step", step: "onboarding", status: "failed", detail: (e as Error).message });
@@ -564,7 +575,38 @@ export async function assembleBrief(
     }
   };
 
-  const [hint, sheet] = await Promise.all([readDescription(), readOnboarding(brief, deps, warnings, emit)]);
+  // Die Kundenübersicht immer lesen, wenn es einen Kundenordner gibt – der
+  // Kontext-Prompt soll alle Adressen sehen und die wahrscheinlichste wählen.
+  const readOverview = async (): Promise<CampaignEvidence["overview"]> => {
+    if (!brief.folderId) {
+      emit({ type: "step", step: "overview", status: "skipped", detail: "kein Kundenordner an der Aufgabe" });
+      return {};
+    }
+    emit({ type: "step", step: "overview", status: "running" });
+    try {
+      const overview = await deps.customerOverview(brief.folderId);
+      const roles = overview.rolesText ? parseRoles(overview.rolesText).roles : [];
+      emit({
+        type: "step",
+        step: "overview",
+        status: "done",
+        detail:
+          [overview.address, roles.length ? `Rollen ${roles.join(", ")}` : undefined].filter(Boolean).join(" · ") ||
+          "keine Adresse im Doc",
+      });
+      return overview;
+    } catch (e) {
+      warnings.push(`Kundenübersicht nicht gelesen: ${(e as Error).message}`);
+      emit({ type: "step", step: "overview", status: "failed", detail: (e as Error).message });
+      return {};
+    }
+  };
+
+  const [hint, sheet, overview] = await Promise.all([
+    readDescription(),
+    readOnboarding(brief, deps, warnings, emit),
+    readOverview(),
+  ]);
 
   if (hint.locations?.length) out.locations = { value: hint.locations, sources: ["clickup"] };
   if (hint.formHint) out.formHint = { value: hint.formHint, sources: ["clickup"] };
@@ -581,6 +623,7 @@ export async function assembleBrief(
   }
 
   if (sheet.folderId) out.driveFolderId = { value: sheet.folderId, sources: ["clickup"] };
+  if (sheet.sheetId) out.onboardingSheetId = sheet.sheetId;
   if (sheet.benefits.length) out.benefits = { value: sheet.benefits.join("\n"), sources: ["onboarding"] };
   if (!hasRoles()) {
     if (sheet.roles.length) out.roles = { value: sheet.roles, sources: ["onboarding"] };
@@ -592,41 +635,14 @@ export async function assembleBrief(
   if (!out.locations && sheet.location) out.locations = { value: [sheet.location], sources: ["onboarding"] };
   if (!out.radiusKm && sheet.radiusKm) out.radiusKm = { value: sheet.radiusKm, sources: ["onboarding"] };
 
-  // Fallback, nur wenn weder Beschreibung noch Tabelle einen Ort hergaben –
-  // ein Aufruf weniger gegen ClickUp, und die Beschreibung ist ohnehin die
-  // genauere Quelle (Adresse statt nur Ort im Kundenordner).
-  let overview: CampaignEvidence["overview"] = {};
-  if (!out.locations && brief.folderId) {
-    emit({ type: "step", step: "overview", status: "running" });
-    try {
-      overview = await deps.customerOverview(brief.folderId);
-      if (overview.address) out.locations = { value: [overview.address], sources: ["clickup"] };
-      if (overview.radiusKm && !out.radiusKm) out.radiusKm = { value: overview.radiusKm, sources: ["clickup"] };
-      const roles = overview.rolesText ? parseRoles(overview.rolesText).roles : [];
-      if (!hasRoles() && roles.length) out.roles = { value: roles, sources: ["clickup"] };
-      emit({
-        type: "step",
-        step: "overview",
-        status: "done",
-        detail:
-          [overview.address, roles.length ? `Rollen ${roles.join(", ")}` : undefined].filter(Boolean).join(" · ") ||
-          "keine Adresse im Doc",
-      });
-    } catch (e) {
-      warnings.push(`Kundenübersicht nicht gelesen: ${(e as Error).message}`);
-      emit({ type: "step", step: "overview", status: "failed", detail: (e as Error).message });
-    }
-  } else {
-    emit({
-      type: "step",
-      step: "overview",
-      status: "skipped",
-      detail: out.locations
-        ? out.locations.sources.includes("onboarding")
-          ? "Standort steht in der Onboarding-Tabelle"
-          : "Standort steht schon in der Aufgabe"
-        : "kein Kundenordner an der Aufgabe",
-    });
+  // Fester Fallback hinter Aufgabe und Tabelle – die Kundenübersicht nennt
+  // oft den Firmensitz, nicht den Einsatzort. Der Kontext-Prompt unten sieht
+  // alle drei und darf die genauere Fassung wählen.
+  if (!out.locations && overview.address) out.locations = { value: [overview.address], sources: ["clickup"] };
+  if (!out.radiusKm && overview.radiusKm) out.radiusKm = { value: overview.radiusKm, sources: ["clickup"] };
+  if (!hasRoles() && overview.rolesText) {
+    const roles = parseRoles(overview.rolesText).roles;
+    if (roles.length) out.roles = { value: roles, sources: ["clickup"] };
   }
 
   // Bis hierher steht der deterministische Vorschlag: Aufgabe vor Onboarding.

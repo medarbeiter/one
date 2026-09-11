@@ -136,6 +136,9 @@ type Batch = {
 
 let jobs: UploadJob[] = [];
 const batches = new Map<string, Batch>();
+/** Je laufendem Job sein Abbruch – nicht am Job selbst, der ist reiner Anzeigestand. */
+const controllers = new Map<string, AbortController>();
+class Cancelled extends Error {}
 
 // ---------------------------------------------------------------- Abonnenten
 
@@ -337,6 +340,18 @@ export function retryUploads(adSetId: string): void {
 }
 
 /**
+ * Bricht ab, was für diese Anzeigengruppe läuft – eine Datei oder alle. Der
+ * Job verschwindet ohne Fehlerkarte; der Schwung zählt ihn nicht mehr mit.
+ * Was Meta bis dahin schon hat, bleibt dort liegen – ungenutzt, harmlos.
+ */
+export function cancelUploads(adSetId: string, jobId?: string): void {
+  for (const job of jobs) {
+    if (job.adSetId !== adSetId || job.error || (jobId && job.id !== jobId)) continue;
+    controllers.get(job.id)?.abort();
+  }
+}
+
+/**
  * Was der Upload annimmt – dieselbe Liste wie im Route Handler, nur früher:
  * eine HEIC vom iPhone soll nicht erst über die Leitung, um dann abgelehnt zu
  * werden. Videos werden vorher umgewandelt, deshalb reicht dort der Obertyp.
@@ -418,6 +433,13 @@ function start(files: Pickable[], target: Target, clearFailed: boolean): void {
 }
 
 async function run(id: string, source: Pickable, batch: Batch) {
+  const abort = new AbortController();
+  controllers.set(id, abort);
+  const { signal } = abort;
+  // Nach jedem Warten: ein abgebrochener Job macht keinen nächsten Schritt.
+  const check = () => {
+    if (signal.aborted) throw new Cancelled();
+  };
   const patch = (u: Partial<UploadJob>) => {
     jobs = jobs.map((job) => (job.id === id ? { ...job, ...u } : job));
     changed(batch.adSetId);
@@ -445,10 +467,12 @@ async function run(id: string, source: Pickable, batch: Batch) {
         await direktLanes.acquire(() => patch({ phase: "queued" }));
         let result: Awaited<ReturnType<typeof direct>>;
         try {
-          result = await direct(source, batch.adAccount, (progress) =>
+          check();
+          result = await direct(source, batch.adAccount, signal, (progress) =>
             patch(progress < 1 ? { phase: "uploading", progress } : { phase: "processing", progress: undefined }),
           );
         } catch (e) {
+          if (signal.aborted) throw new Cancelled();
           // Auch ein Scheitern bei Meta (ProRes, kaputte Datei) ist nur ein
           // Grund für den Browserweg – der wandelt um, was der Server nicht kann.
           result = { fallback: (e as Error).message };
@@ -471,6 +495,7 @@ async function run(id: string, source: Pickable, batch: Batch) {
       }
       patch({ phase: "preparing", progress: undefined });
       const { files, failed } = await fetchDriveFiles([source]);
+      check();
       if (!files[0]) throw new Error(`Nicht aus Drive geladen: ${failed[0] ?? source.name}`);
       file = files[0];
     } else file = source;
@@ -498,8 +523,11 @@ async function run(id: string, source: Pickable, batch: Batch) {
           async () => {
             await encoder.acquire(() => patch({ phase: "queued", progress: undefined }));
             held = true;
+            check();
           },
+          signal,
         );
+        check();
         if (ready.note) patch({ note: ready.note });
         payload = ready.file;
       } finally {
@@ -512,6 +540,7 @@ async function run(id: string, source: Pickable, batch: Batch) {
     // Schwung hochlädt, wandelt der nächste schon um.
     joined = true;
     await batch.convoy.join(() => patch({ phase: "bundling", progress: undefined }));
+    check();
 
     patch({ phase: "uploading", progress: 0 });
     const body = new FormData();
@@ -526,10 +555,11 @@ async function run(id: string, source: Pickable, batch: Batch) {
       const preview = await previewOf(file);
       if (preview) body.set("preview", preview, "preview.jpg");
     }
-    const json = await postFile(body, (progress) =>
+    const json = await postFile(body, signal, (progress) =>
       // Ist der Body durch, hängt es nur noch an Metas Verarbeitung.
       patch(progress < 1 ? { progress } : { phase: "processing", progress: undefined }),
     );
+    check();
     if (json.error) throw new Error(json.error);
 
     finish(
@@ -553,12 +583,21 @@ async function run(id: string, source: Pickable, batch: Batch) {
           },
     );
   } catch (e) {
-    batch.failed.push(source.name);
-    patch({ error: (e as Error).message });
+    if (e instanceof Cancelled || signal.aborted) {
+      // Abgebrochen: keine Fehlerkarte, kein Zähler – als wäre die Datei nie
+      // gewählt worden. Ein nicht angekommener Mitfahrer meldet sich ab.
+      batch.total--;
+      jobs = jobs.filter((job) => job.id !== id);
+      changed(batch.adSetId);
+    } else {
+      batch.failed.push(source.name);
+      patch({ error: (e as Error).message });
+    }
     // Wer es nicht bis zum Sammelpunkt schafft, meldet sich ab: sonst warten die
     // schon Fertigen auf einen Mitfahrer, der nie kommt.
     if (!joined) batch.convoy.drop();
   } finally {
+    controllers.delete(id);
     settle(batch);
   }
 }
@@ -568,6 +607,11 @@ function settle(batch: Batch) {
   if (batch.done + batch.failed.length < batch.total) return;
   batches.delete(batch.id);
   batch.dismiss?.();
+  // Alles abgebrochen: nichts zu melden.
+  if (!batch.total) {
+    changed();
+    return;
+  }
 
   // Astryx' Toast kennt nur "info" und "error" – kein eigenes "warning" oder
   // "success" (siehe Bericht). Nur der reine Erfolg bekommt "info" mit
@@ -657,12 +701,13 @@ function BatchToast({ batchId }: { batchId: string }) {
 async function direct(
   remote: DriveFile,
   adAccount: string,
+  signal: AbortSignal,
   onProgress: (p: number) => void,
 ): Promise<{ id: string; thumbnail: string; width?: number; height?: number } | { fallback: string }> {
   const body = new FormData();
   body.set("driveId", remote.id);
   body.set("adAccount", adAccount);
-  const res = await fetch("/api/upload", { method: "POST", body });
+  const res = await fetch("/api/upload", { method: "POST", body, signal });
   if (!res.ok || !res.body) {
     const json = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(json.error ?? `Upload fehlgeschlagen (${res.status})`);
@@ -681,10 +726,12 @@ async function direct(
  * ist genau der die Antwort auf "was passiert gerade?". Sobald der Body durch
  * ist, wartet nur noch Meta.
  */
-function postFile(body: FormData, onProgress: (p: number) => void) {
+function postFile(body: FormData, signal: AbortSignal, onProgress: (p: number) => void) {
   return new Promise<Record<string, string>>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/upload");
+    signal.addEventListener("abort", () => xhr.abort(), { once: true });
+    xhr.onabort = () => reject(new Cancelled());
     xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
     xhr.onload = () => {
       try {

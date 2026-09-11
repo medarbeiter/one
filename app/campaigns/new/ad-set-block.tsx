@@ -31,7 +31,7 @@ import { BODY_TEMPLATE_COUNT, TITLE_COUNT } from "@/lib/bodies";
 import { plural } from "@/lib/labels";
 import { LocationField } from "./location-field";
 import { checkCopy, type CopyField, type Notice } from "@/lib/copy";
-import { enqueue, retryUploads, useUploads, type Pickable } from "./upload-queue";
+import { cancelUploads, enqueue, retryUploads, useUploads, type Pickable } from "./upload-queue";
 import { AdTile, ContentGrid, LooseTile, UploadTile } from "./content-grid";
 import {
   applyCrop,
@@ -961,15 +961,20 @@ export function AdSetBlock({
             ihr Ring lief. */}
         {(value.ads.length > 0 || uploads.length > 0 || value.loose.length > 0) && (
           <div className="space-y-2">
-            <p className="text-ink-500 text-xs tabular-nums">
-              {[
-                plural(value.ads.length, "Anzeige", "Anzeigen"),
-                uploads.length > 0 && `${uploads.length} im Upload`,
-                value.loose.length > 0 && `${value.loose.length} ohne Anzeige`,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-ink-500 text-xs tabular-nums">
+                {[
+                  plural(value.ads.length, "Anzeige", "Anzeigen"),
+                  uploads.length > 0 && `${uploads.length} im Upload`,
+                  value.loose.length > 0 && `${value.loose.length} ohne Anzeige`,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+              {uploads.some((u) => !u.error) && (
+                <Button size="sm" variant="ghost" label="Uploads abbrechen" onClick={() => cancelUploads(value.id)} />
+              )}
+            </div>
             <ContentGrid>
               {value.ads.map((ad) => (
                 <AdTile
@@ -986,7 +991,7 @@ export function AdSetBlock({
                 />
               ))}
               {uploads.map((u) => (
-                <UploadTile key={u.id} upload={u} />
+                <UploadTile key={u.id} upload={u} onCancel={() => cancelUploads(value.id, u.id)} />
               ))}
               {value.loose.map((asset) => (
                 <LooseTile

@@ -64,7 +64,7 @@ test("parseOnboarding liest Standort der Patienten, Umkreis und Stellen je Ort m
   ]);
 });
 
-test("assembleBrief: keine Adresse in der Aufgabe → Standort der Patienten aus der Tabelle, Kundenübersicht bleibt ungefragt", async () => {
+test("assembleBrief: keine Adresse in der Aufgabe → Standort der Patienten aus der Tabelle vor der Kundenübersicht", async () => {
   let overviewCalls = 0;
   const prompts: string[] = [];
   const out = await assembleBrief(
@@ -87,7 +87,7 @@ test("assembleBrief: keine Adresse in der Aufgabe → Standort der Patienten aus
     }),
   );
   expect(out.locations).toEqual({ value: ["Bad Sulza"], sources: ["onboarding"] });
-  expect(overviewCalls).toBe(0);
+  expect(overviewCalls).toBe(1);
   const context = prompts.find((p) => p.includes("Kampagnenkontext"))!;
   expect(context).toContain("Standort der Patienten: Bad Sulza");
   expect(context).toContain("39218 Schönebeck (31.08.26): HK");
@@ -166,21 +166,44 @@ test("assembleBrief: keine Adresse in der Aufgabe → Standort aus der Kundenüb
   expect(out.locations).toEqual({ value: ["Am Illgenberg 2, 76530 Baden-Baden"], sources: ["clickup"] });
 });
 
-test("assembleBrief: Adresse schon aus der Beschreibung → Kundenübersicht wird nicht angefragt", async () => {
+test("assembleBrief: Adresse aus der Beschreibung bleibt der feste Stand – die Kundenübersicht wird trotzdem gelesen und dem Kontext vorgelegt", async () => {
   let calls = 0;
+  const prompts: string[] = [];
   const out = await assembleBrief(
     "t1",
     "",
     deps({
       getBrief: async () => ({ ...brief, folderId: "f1" }),
+      mistral: async (c, opts) => {
+        prompts.push(typeof c === "string" ? c : "");
+        return deps().mistral(c, opts);
+      },
       customerOverview: async () => {
         calls++;
-        return { address: "sollte nie ankommen" };
+        return { address: "Firmensitz 1, 70173 Stuttgart" };
       },
     }),
   );
   expect(out.locations).toEqual({ value: ["Mühlgasse 24, 71272 Renningen"], sources: ["clickup"] });
-  expect(calls).toBe(0);
+  expect(calls).toBe(1);
+  expect(prompts.find((p) => p.includes("Kampagnenkontext"))).toContain("Adresse: Firmensitz 1, 70173 Stuttgart");
+});
+
+test("Kampagnenkontext: der Prompt darf die genauere Adresse einer anderen Quelle wählen", async () => {
+  const out = await assembleBrief(
+    "t1",
+    "",
+    deps({
+      getBrief: async () => ({ ...brief, folderId: "f1", description: "Standort: Renningen" }),
+      mistral: routed({
+        location: '{"standorte":["Renningen"],"formular":null}',
+        context: '{"standorte":["Mühlgasse 24, 71272 Renningen"],"formular":"Renningen","quellen":{"standorte":["clickup","onboarding"],"formular":["clickup"]}}',
+      }),
+      customerOverview: async () => ({ address: "Mühlgasse 24, 71272 Renningen" }),
+    }),
+  );
+  expect(out.locations).toEqual({ value: ["Mühlgasse 24, 71272 Renningen"], sources: ["clickup", "onboarding"] });
+  expect(out.formHint).toEqual({ value: "Renningen", sources: ["clickup"] });
 });
 
 test("assembleBrief: Kundenübersicht nicht lesbar → Warnung, kein Standort", async () => {
@@ -371,7 +394,7 @@ test("assembleBrief meldet jede Quelle beim Start und beim Ende, mit dem Gefunde
     expect(events.filter((e) => e.startsWith(`${step}:running`))).toHaveLength(1);
     expect(events.filter((e) => e.startsWith(`${step}:done`))).toHaveLength(1);
   }
-  // Die Kundenübersicht wird nicht gefragt, wenn die Beschreibung den Ort hergab – aber gemeldet.
+  // Ohne Kundenordner an der Aufgabe gibt es keine Kundenübersicht – aber gemeldet.
   expect(events.filter((e) => e.startsWith("overview:skipped"))).toHaveLength(1);
   expect(events.find((e) => e.startsWith("task:done"))).toContain("17,05");
   expect(events.find((e) => e.startsWith("description:done"))).toContain("Renningen");

@@ -133,6 +133,7 @@ export async function toMetaReady(
   file: File,
   onProgress?: (progress: number) => void,
   beforeWork?: () => Promise<void> | void,
+  signal?: AbortSignal,
 ): Promise<Converted> {
   const mb = await import("mediabunny");
   const input = new mb.Input({ formats: mb.ALL_FORMATS, source: new mb.BlobSource(file) });
@@ -224,7 +225,10 @@ export async function toMetaReady(
     throw new Error(`cannot be converted – ${reason ?? "no usable video track remained"}`);
   }
   if (onProgress) conversion.onProgress = (progress) => onProgress(progress);
+  // Ein Abbruch stoppt den Encoder sofort statt erst nach dem letzten Frame.
+  signal?.addEventListener("abort", () => void conversion.cancel(), { once: true });
   await conversion.execute();
+  if (signal?.aborted) throw new Error("abgebrochen");
 
   const buffer = output.target.buffer;
   if (!buffer) throw new Error("conversion produced no data");

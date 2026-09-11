@@ -22,44 +22,111 @@ export type QuestionsInput = {
 
 const LICENSE = /f[üu]hrerschein|fahrerlaubnis|pkw|klasse b/i;
 
-/** Der Führerschein kommt nur ins Formular, wenn Aufgabe oder Onboarding ihn nennen – im Onboarding zählt nur der Block der Voraussetzungen. */
+/**
+ * Der Führerschein kommt nur ins Formular, wenn Aufgabe oder Onboarding ihn
+ * nennen – im Onboarding zählen die Voraussetzungen und die Spalte
+ * „Sonstiges/Zertifikate“ (deren Überschrift selbst „Führerschein“ sagt,
+ * darum nur der Inhalt darunter).
+ */
 export function licenseRequired(input: QuestionsInput): boolean {
-  return LICENSE.test([input.notes, input.instructions, requirementsBlock(input.onboardingCsv)].filter(Boolean).join("\n"));
+  const sheet = sheetSections(input.onboardingCsv);
+  return LICENSE.test([input.notes, input.instructions, sheet.requirements, sheet.certificates].filter(Boolean).join("\n"));
 }
 
-/** Aus der Onboarding-Tabelle nur den Block „Welche fachlichen Voraussetzungen muss der Kandidat erfüllen?“ – bis zur nächsten Frage-Überschrift. */
-export function requirementsBlock(csv?: string): string {
-  if (!csv) return "";
-  const lines = csv.split("\n");
-  const start = lines.findIndex((l) => /voraussetzung/i.test(l));
-  if (start < 0) return "";
-  const out = [lines[start]];
-  for (const l of lines.slice(start + 1)) {
-    if (/^"?[^",]*\?/.test(l) && out.length > 1) break; // die nächste Frage der Tabelle
-    out.push(l);
-    if (out.length > 40) break;
+/** Minimaler CSV-Leser: Anführungszeichen, doppelte Anführungszeichen, Zeilenumbrüche in Zellen. */
+export function parseCsv(csv: string): string[][] {
+  const rows: string[][] = [[]];
+  let cell = "";
+  let quoted = false;
+  for (let i = 0; i < csv.length; i++) {
+    const c = csv[i];
+    if (quoted) {
+      if (c === '"' && csv[i + 1] === '"') (cell += '"'), i++;
+      else if (c === '"') quoted = false;
+      else cell += c;
+    } else if (c === '"') quoted = true;
+    else if (c === ",") rows[rows.length - 1].push(cell), (cell = "");
+    else if (c === "\n" || c === "\r") {
+      if (c === "\r" && csv[i + 1] === "\n") i++;
+      rows[rows.length - 1].push(cell);
+      cell = "";
+      rows.push([]);
+    } else cell += c;
   }
-  return out.join("\n").trim();
+  rows[rows.length - 1].push(cell);
+  return rows.map((r) => r.map((c) => c.trim())).filter((r) => r.some(Boolean));
 }
+
+/**
+ * Die Tabelle ist ein Raster aus schwarzen Überschriftszeilen und den
+ * Antworten darunter, spaltenweise. Eine Überschrift ist eine Frage („…?“)
+ * ohne Aufzählungsstrich; eine Überschriftszeile besteht nur aus solchen
+ * (oder hat mindestens zwei). Ein Abschnitt ist alles unter seiner
+ * Überschrift, in ihrer Spaltenbreite (bis zur nächsten Überschrift derselben
+ * Zeile), bis zur nächsten Überschriftszeile.
+ */
+const isHeading = (cell: string) => /\?\s*$/.test(cell) && !/^[-–•*]/.test(cell);
+const isHeadingRow = (row: string[]) => {
+  const filled = row.filter(Boolean);
+  const headings = filled.filter(isHeading).length;
+  return headings > 0 && (headings >= 2 || headings === filled.length);
+};
+
+export function sheetSection(grid: string[][], heading: RegExp): string {
+  for (let r = 0; r < grid.length; r++) {
+    if (!isHeadingRow(grid[r])) continue;
+    const c = grid[r].findIndex((cell) => isHeading(cell) && heading.test(cell));
+    if (c < 0) continue;
+    let end = grid[r].findIndex((cell, k) => k > c && Boolean(cell));
+    if (end < 0) end = Number.MAX_SAFE_INTEGER;
+    const lines: string[] = [];
+    for (let k = r + 1; k < grid.length && !isHeadingRow(grid[k]) && lines.length < 60; k++)
+      for (const cell of grid[k].slice(c, end)) if (cell) lines.push(cell);
+    return lines.join("\n").trim();
+  }
+  return "";
+}
+
+export type SheetSections = { requirements: string; certificates: string; conditions: string };
+
+/** Die drei Abschnitte der Onboarding-Tabelle, aus denen Qualifizierungsfragen entstehen dürfen. */
+export function sheetSections(csv?: string): SheetSections {
+  if (!csv?.trim()) return { requirements: "", certificates: "", conditions: "" };
+  const grid = parseCsv(csv);
+  return {
+    requirements: sheetSection(grid, /vor+aus+etzung/i),
+    certificates: sheetSection(grid, /zertifikat|f[üu]hrerschein|sonstige/i),
+    conditions: sheetSection(grid, /arbeitsbedingung/i),
+  };
+}
+
+/** Aus der Onboarding-Tabelle nur den Block „Welche fachlichen Voraussetzungen muss der Kandidat erfüllen?“. */
+export const requirementsBlock = (csv?: string): string => sheetSections(csv).requirements;
 
 export function questionsPrompt(input: QuestionsInput): string {
   const roles = roleLabels(input.roles, input.roleFreeText).join(", ") || "Pflegekräfte";
-  const req = requirementsBlock(input.onboardingCsv);
+  const sheet = sheetSections(input.onboardingCsv);
   const fixed = [
     input.roles.includes("PFK") ? "„Hast du eine abgeschlossene 3-jährige Ausbildung in der Pflege?“ (Ja/Nein)" : "",
     roleChoiceQuestion(input.roles, input.roleFreeText) ? "„Für welche Stelle interessierst du dich?“" : "",
     "die Führerschein-Frage (kommt automatisch, falls verlangt)",
     "„Wann bist du am besten erreichbar?“ und die Kontaktfelder",
   ].filter(Boolean);
-  return `Du entwirfst die Qualifizierungsfragen für ein Meta-Lead-Formular einer Pflege-Stellenanzeige (Bewerbung per Handy, Du-Ansprache). Das Formular ist ein Filter: zu viel Reibung kostet Bewerber, zu wenig lässt jeden durch. Finde die Balance – frag nur, was für diesen Kunden wirklich entscheidet.
+  return `Du entwirfst die Qualifizierungsfragen für ein Meta-Lead-Formular einer Pflege-Stellenanzeige (Bewerbung per Handy, Du-Ansprache). Das Formular ist ein Filter: Es soll die aussortieren, die der Kunde sicher nicht nimmt – und sonst niemanden aufhalten. Jede Frage kostet Bewerber. Eine Frage lohnt sich nur, wenn ein nennenswerter Teil der Bewerber an ihr scheitern würde UND der Kunde genau diese Bewerber nicht will.
 
 GESUCHTE STELLEN: ${roles}
 
-AUFGABE (Beschreibung und Hinweise der Agentur):
+AUFGABE (Beschreibung und Hinweise der Agentur – hat Vorrang vor der Tabelle):
 ${[input.notes, input.instructions].filter((t) => t?.trim()).join("\n\n") || "–"}
 
-FACHLICHE VORAUSSETZUNGEN AUS DER ONBOARDING-TABELLE DES KUNDEN (maßgeblich – hier steht, wen er wirklich nimmt):
-${req || "–"}
+ONBOARDING-TABELLE DES KUNDEN – „Welche fachlichen Voraussetzungen muss der Kandidat erfüllen?“ (maßgeblich – hier steht, wen er wirklich nimmt; oft nach Ort und mit Datum gegliedert, dann zählt der Eintrag zu den gesuchten Stellen):
+${sheet.requirements || "–"}
+
+ONBOARDING-TABELLE – „Sonstiges / Zertifikate wie z. B. Führerschein?“:
+${sheet.certificates || "–"}
+
+ONBOARDING-TABELLE – „Wie gestalten sich die Arbeitsbedingungen?“ (Frage-Antwort-Paare; eine leere „Antwort:“ heißt: keine Angabe, also keine Frage daraus):
+${sheet.conditions || "–"}
 
 BENEFITS (nur Kontext, daraus entstehen keine Fragen):
 ${input.benefits?.trim() || "–"}
@@ -68,15 +135,17 @@ FERTIGE BAUSTEINE (Wortlaut der Agentur – passt einer, nimm ihn per {"brick":"
 ${bricksForPrompt()}
 
 REGELN:
-- 1 bis 3 Multiple-Choice-Fragen. Jede Frage muss sich aus den Stellen, der Aufgabe oder den Voraussetzungen begründen – keine allgemeinen Fragen.
+- 0 bis 3 Multiple-Choice-Fragen. Jede Frage muss sich aus den Stellen, der Aufgabe oder der Tabelle belegen lassen – nenne dir vor jeder Frage den Satz aus den Quellen, der sie verlangt. Gibt es keinen, gibt es die Frage nicht. Eine leere Liste ist eine gute Antwort, wenn die festen Fragen schon alles Entscheidende abdecken.
+- Schichten, Wochenende, Früh-/Spätdienst sind in der Pflege normal – fast jeder Bewerber sagt Ja, die Frage filtert nichts und kostet nur. Danach fragen NUR, wenn der Kunde etwas Unübliches ausdrücklich als Bedingung nennt (Nachtdienst Pflicht, 12h-Dienste, 24h-Betreuung, jedes Wochenende, geteilte Dienste). „Früh- und Spätdienst“ allein ist nie ein Grund.
+- Was tatsächlich aussortiert: fehlende Ausbildung oder Schein, fehlende Erfahrung, wo der Kunde sie verlangt, ausdrücklich verlangte Zusatzqualifikationen (Beatmungsschein, Intensiv, LG1, Praxisanleiter-Weiterbildung), Deutsch, wenn der Kunde es nennt, Führerschein (kommt fest dazu), ein verlangtes Arbeitszeitmodell (Vollzeit-Pflicht, nur Minijob).
 - Ausbildungen immer mit ihrer Dauer nennen: 3-jährige Ausbildung zur Pflegefachkraft, 1-jährige Ausbildung zur Pflegehilfskraft, LG1-Schein. Nie nur „Ja, als Fachkraft“.
-- Verlangt der Kunde etwas ausdrücklich (bestimmte Ausbildung, Schichten, Wochenende, Nachtdienst, Erfahrung, Sprache), frag genau danach und gib den Antworten, die ihn nicht erfüllen, das Ziel "nolead". Wünsche ohne Muss werden gefragt, aber nicht ausgeschlossen.
+- Verlangt der Kunde etwas ausdrücklich als Muss, gib den Antworten, die es nicht erfüllen, das Ziel "nolead". Wünsche ohne Muss („gern“, „wäre schön“, „bevorzugt“) werden nicht gefragt.
 - "goto" nennt je Antwort das Ziel; fehlt eine Antwort, geht es zur nächsten Frage. Ziele: "nolead" (Kein Lead), "lead" (Formular sofort senden), oder eine Zahl = Nummer einer späteren Frage in deiner Liste (Sprung, z. B. Fachkraft überspringt die Hilfskraft-Frage).
 - Antworten kurz (höchstens 6 Wörter), 2 bis 4 je Frage, ohne Erklärsätze.
 - Nicht fragen (kommt fest dazu oder ist tabu): ${fixed.join("; ")}. Kein Gehalt, Alter, Herkunft, Gesundheit, Familie.
 - Keine Frage nach Ausbildung, wenn ausdrücklich Quereinsteiger ohne Ausbildung gesucht sind.
 
-Antworte NUR mit JSON, ohne Erklärung:
+Antworte NUR mit JSON, ohne Erklärung – auch [] ist eine Antwort:
 [{"brick":"id"},{"label":"…","options":["…","…"],"goto":{"…":"nolead"}}]`;
 }
 
