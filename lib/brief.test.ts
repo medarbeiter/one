@@ -32,17 +32,66 @@ test("parseLocationHint wirft bei Unlesbarem", () => {
 test("parseOnboarding liefert Benefits als Zeilen; Stellen als Kürzel, Unbekanntes als Freitext", () => {
   expect(
     parseOnboarding('{"benefits":["jedes 2. Wochenende bleibt frei","33 Urlaubstage"],"rollen":["FK","XYZ","pdl"]}'),
-  ).toEqual({ benefits: ["jedes 2. Wochenende bleibt frei", "33 Urlaubstage"], roles: ["PFK", "PDL"], roleFreeText: "XYZ" });
+  ).toEqual({
+    benefits: ["jedes 2. Wochenende bleibt frei", "33 Urlaubstage"],
+    roles: ["PFK", "PDL"],
+    roleFreeText: "XYZ",
+    perLocation: [],
+  });
   // Die Tabelle aus der Probe vom 2026-09-04: PA, FK, Praxisanleiter.
   expect(parseOnboarding('{"benefits":[],"stellen":["PA","FK","Praxisanleiter","Pflegefachkraft"]}')).toEqual({
     benefits: [],
     roles: ["PHK", "PFK"],
     roleFreeText: "Praxisanleiter",
+    perLocation: [],
   });
 });
 
 test("parseOnboarding: leere oder fehlende Listen sind leer, kein Fehler", () => {
-  expect(parseOnboarding("{}")).toEqual({ benefits: [], roles: [], roleFreeText: "" });
+  expect(parseOnboarding("{}")).toEqual({ benefits: [], roles: [], roleFreeText: "", perLocation: [] });
+});
+
+test("parseOnboarding liest Standort der Patienten, Umkreis und Stellen je Ort mit Datum", () => {
+  // Die Tabelle aus der Probe vom 2026-09-11: fünf „Für <Ort>:“-Blöcke, Patienten in Bad Sulza.
+  const out = parseOnboarding(
+    '{"benefits":[],"stellen":["HK","PFK"],"standort":"Bad Sulza","umkreis_km":"30","je_standort":[{"ort":"39218 Schönebeck","datum":"31.08.26","stellen":["HK","PFK"]},{"ort":"Bad Sulza","datum":null,"stellen":["FK"]},{"ort":"","stellen":[]}]}',
+  );
+  expect(out.location).toBe("Bad Sulza");
+  expect(out.radiusKm).toBe(30);
+  expect(out.perLocation).toEqual([
+    { place: "39218 Schönebeck", date: "31.08.26", jobs: ["HK", "PFK"] },
+    { place: "Bad Sulza", jobs: ["FK"] },
+  ]);
+});
+
+test("assembleBrief: keine Adresse in der Aufgabe → Standort der Patienten aus der Tabelle, Kundenübersicht bleibt ungefragt", async () => {
+  let overviewCalls = 0;
+  const prompts: string[] = [];
+  const out = await assembleBrief(
+    "t1",
+    "",
+    deps({
+      getBrief: async () => ({ ...brief, folderId: "f1" }),
+      mistral: async (c) => {
+        const text = typeof c === "string" ? c : "";
+        prompts.push(text);
+        if (text.includes("Kampagnenkontext")) return "{}";
+        if (text.includes("CSV"))
+          return '{"benefits":[],"stellen":[],"standort":"Bad Sulza","umkreis_km":null,"je_standort":[{"ort":"39218 Schönebeck","datum":"31.08.26","stellen":["HK"]}]}';
+        return '{"standorte":[],"formular":null}';
+      },
+      customerOverview: async () => {
+        overviewCalls++;
+        return { address: "Am Illgenberg 2, 76530 Baden-Baden" };
+      },
+    }),
+  );
+  expect(out.locations).toEqual({ value: ["Bad Sulza"], sources: ["onboarding"] });
+  expect(overviewCalls).toBe(0);
+  const context = prompts.find((p) => p.includes("Kampagnenkontext"))!;
+  expect(context).toContain("Standort der Patienten: Bad Sulza");
+  expect(context).toContain("39218 Schönebeck (31.08.26): HK");
+  expect(context).toMatch(/Heute ist der \d{2}\.\d{2}\.\d{4}\./);
 });
 
 test("parseLocationHint nimmt die Stellen aus der Beschreibung mit", () => {

@@ -8,14 +8,15 @@
  *   ClickUp-Aufgabe         Kunde, Budget, Limit, Rollen, Drive-Link, Beschreibung
  *   Mistral über die        Standort (Adresse oder Ort), Hinweis aufs Formular
  *   Beschreibung
- *   Onboarding-Tabelle      Benefits („Besteht aktuell“), Rollen
- *   (Drive, über Mistral)
+ *   Onboarding-Tabelle      Benefits („Besteht aktuell“), Rollen, Standort der
+ *   (Drive, über Mistral)   Patienten, Umkreis, Stellen je Standort (mit Datum)
  *   ClickUp-Kundenübersicht Standort, Rollen – Fallback per Regex, nie über Mistral
  *   (Doc im Kundenordner)
  *
- * Standort-Priorität: Beschreibung (Mistral) → Kundenübersicht (Regex) →
- * letzte Kampagne (lebt im Wizard-Prefill, nicht hier). Die Kundenübersicht
- * wird nur angefragt, wenn die Beschreibung keinen Ort liefert.
+ * Standort-Priorität: Beschreibung (Mistral) → Onboarding („Wo befinden sich
+ * die Patienten?“) → Kundenübersicht (Regex) → letzte Kampagne (lebt im
+ * Wizard-Prefill, nicht hier). Die Kundenübersicht wird nur angefragt, wenn
+ * weder Beschreibung noch Tabelle einen Ort liefern.
  *
  * Sind die Leser fertig, löst ein letzter Mistral-Aufruf (contextPrompt) die
  * Belege aller Quellen und die freien Hinweise der bedienenden Person zu einem
@@ -112,7 +113,15 @@ export type CampaignEvidence = {
     radiusKm?: number;
     jobs: string[];
   };
-  onboarding: { benefits: string[]; jobs: string[] };
+  onboarding: {
+    benefits: string[];
+    jobs: string[];
+    /** „Wo befinden sich die Patienten?“ → Standort/Radius. */
+    location?: string;
+    radiusKm?: number;
+    /** Die „Für <Ort>:“-Blöcke der Voraussetzungen – je Ort seine Stellen, mit Datum der Notiz. */
+    perLocation: OnboardingLocation[];
+  };
   /** Nur die erlaubten Fakten (overviewFacts) – nie das Doc selbst. */
   overview: { address?: string; rolesText?: string; radiusKm?: number };
   aiNotes: string;
@@ -217,21 +226,59 @@ function positive(v: unknown): number | undefined {
 
 const stripBullet = (b: string) => b.replace(/^[-–•*]\s*/, "");
 
+export type OnboardingLocation = { place: string; jobs: string[]; date?: string };
+export type ParsedOnboarding = {
+  benefits: string[];
+  roles: string[];
+  roleFreeText: string;
+  location?: string;
+  radiusKm?: number;
+  perLocation: OnboardingLocation[];
+};
+
 /**
  * Antwort auf onboardingPrompt(). Die Stellen kommen, wie sie in der Tabelle
  * stehen; `rolesFromTitles` macht Kürzel daraus, wo eins passt, und lässt den
  * Rest als Freitext („Praxisanleiter“). Der alte Schlüssel `rollen` (nur
- * Kürzel) wird weiter verstanden.
+ * Kürzel) wird weiter verstanden. Standort, Umkreis und die Stellen je Ort
+ * bleiben roh – der Kontext-Prompt wägt sie gegen die Aufgabe ab.
  */
-export function parseOnboarding(content: string): { benefits: string[]; roles: string[]; roleFreeText: string } {
-  let data: { benefits?: unknown; rollen?: unknown; stellen?: unknown };
+export function parseOnboarding(content: string): ParsedOnboarding {
+  let data: {
+    benefits?: unknown;
+    rollen?: unknown;
+    stellen?: unknown;
+    standort?: unknown;
+    umkreis_km?: unknown;
+    je_standort?: unknown;
+  };
   try {
     data = JSON.parse(unfence(content));
   } catch {
     throw new Error("Mistral hat kein lesbares JSON geliefert.");
   }
   const { roles, free } = rolesFromTitles([...strings(data.stellen), ...strings(data.rollen)]);
-  return { benefits: strings(data.benefits).map(stripBullet), roles, roleFreeText: free };
+  const out: ParsedOnboarding = {
+    benefits: strings(data.benefits).map(stripBullet),
+    roles,
+    roleFreeText: free,
+    perLocation: (Array.isArray(data.je_standort) ? data.je_standort : [])
+      .map((e) => {
+        const o = (e && typeof e === "object" ? e : {}) as Record<string, unknown>;
+        const place = str(o.ort);
+        if (!place) return undefined;
+        const entry: OnboardingLocation = { place, jobs: strings(o.stellen) };
+        const date = str(o.datum);
+        if (date) entry.date = date;
+        return entry;
+      })
+      .filter((e): e is OnboardingLocation => Boolean(e)),
+  };
+  const location = str(data.standort);
+  if (location) out.location = location;
+  const radiusKm = positive(data.umkreis_km);
+  if (radiusKm) out.radiusKm = Math.round(radiusKm);
+  return out;
 }
 
 // Die JSON-Schlüssel des Kontext-Prompts, je Feld des Ergebnisses.
@@ -304,13 +351,16 @@ function onboardingPrompt(csv: string): string {
 Lies heraus:
 1. Benefits: AUSSCHLIESSLICH aus dem Block „Wie gestaltet sich Ihr Jobangebot?“, und dort nur die Zeilen unter „Besteht aktuell“. Zeilen unter „Weitere Vorschläge“ oder einer ähnlichen Überschrift NIEMALS übernehmen – auch nicht, wenn sie stärker klingen. Jede Zeile wörtlich, ohne führendes „- “.
 2. Stellen: AUSSCHLIESSLICH aus dem Block „Welche fachlichen Voraussetzungen muss der Kandidat erfüllen?“. Dort steht, wen der Arbeitgeber sucht – oft mit Datum und Bedingungen („1.9.26: - 12h-Dienste als PA“, „- FK – aktuell nur mit FKs BGs vereinbaren“, „- Praxisanleiter (2 Tage arbeiten, 2 Tage frei)“). Je gesuchter Stelle ein Eintrag, als kurze Berufsbezeichnung ohne die Bedingungen. Wo eins dieser Kürzel klar passt, das Kürzel: ${codes}. Sonst die Bezeichnung, wie sie dasteht (z. B. „Praxisanleiter“). Gehalt, Dienstzeiten, Auszeichnungen sind keine Stellen.
+3. Standort: AUSSCHLIESSLICH aus dem Block „Wo befinden sich die Patienten?“, Zeile „Standort/Radius“ – der Ort oder die Adresse, wie sie dasteht, ohne den Radius. Leer → null. Ein Umkreis in Kilometern aus derselben Zeile in "umkreis_km", sonst null – nie schätzen.
+4. Stellen je Standort: Derselbe Block wie unter 2 ist oft nach Orten gegliedert („Für 39218 Schönebeck, 31.08.26:“, „Für Bad Sulza:“). Je Ort ein Eintrag mit dem Ort wie er dasteht (mit PLZ, falls genannt), dem Datum der Notiz, falls eins dasteht (sonst null), und den dort genannten Stellen wie unter 2. Ohne solche Gliederung eine leere Liste.
 
-Antworte ausschließlich mit JSON: {"benefits": ["…"], "stellen": ["FK", "Praxisanleiter"]}
+Antworte ausschließlich mit JSON: {"benefits": ["…"], "stellen": ["FK", "Praxisanleiter"], "standort": "…" oder null, "umkreis_km": Zahl oder null, "je_standort": [{"ort": "39218 Schönebeck", "datum": "31.08.26" oder null, "stellen": ["HK", "PFK"]}]}
 
 CSV:
 ${csv}`;
 }
 
+const today = () => new Date().toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
 const list = (xs: string[]) => (xs.length ? xs.map((x) => `- ${x}`).join("\n") : "- keine");
 const opt = (v: string | number | undefined) => (v === undefined || v === "" ? "keine Angabe" : String(v));
 
@@ -326,10 +376,14 @@ function contextPrompt(e: CampaignEvidence): string {
 
 Die Quellen heißen "clickup" (die ausgewählte ClickUp-Aufgabe samt Kundenübersicht), "onboarding" (die Onboarding-Tabelle des Kunden) und "user" (freie Hinweise der bedienenden Person).
 
+Heute ist der ${today()}.
+
 Regeln:
 1. Die Hinweise haben bei einem ausdrücklichen Widerspruch Vorrang vor allem anderen.
-2. Die Aufgabe beschreibt den Umfang DIESER Kampagne. Das Onboarding erklärt und ergänzt ihn – es ersetzt ihn nicht blind durch alle Stellen, die der Kunde grundsätzlich sucht. Nennt die Aufgabe keine Stellen, gelten die aus dem Onboarding.
+2. Die Aufgabe beschreibt den Umfang DIESER Kampagne. Das Onboarding erklärt und ergänzt ihn – es ersetzt ihn nicht blind durch alle Stellen, die der Kunde grundsätzlich sucht. Nennt die Aufgabe keine Stellen, gelten die aus dem Onboarding – bei mehreren Standorten im Onboarding nur die Stellen des Standorts, um den es laut Aufgabe geht.
 3. Vereinbare Angaben dürfen zusammengeführt werden. Widersprüchliche Angaben werden nicht als Vereinigung ausgegeben – dann entscheiden Regel 1 und 2.
+9. Standorte in dieser Rangfolge: erst die der Aufgabe (Name, Beschreibung, „Standorte laut Beschreibung“). Nennt die Aufgabe keinen, der Standort der Patienten aus dem Onboarding. Erst wenn auch der fehlt, die Adresse der Kundenübersicht. Die Orte aus „Stellen je Standort“ sind KEINE Liste von Kampagnen-Standorten – sie sagen nur, welche Stellen wo gesucht werden. Nur wenn die Aufgabe ausdrücklich mehrere Standorte will, mehrere ausgeben.
+10. Das Onboarding wächst über Jahre: Einträge tragen oft das Datum ihrer Notiz. Ein Eintrag, dessen Anlass erkennbar vorbei ist (Datum lange her und die Aufgabe nennt weder Ort noch Stellen daraus, „erledigt“, „nicht mehr“, „gestrichen“), zählt nicht. Unter mehreren Einträgen zu demselben Ort gilt der jüngste.
 4. Tagesbudget und Ausgabenlimit bleiben die der Aufgabe, außer die Hinweise nennen ausdrücklich einen Betrag als Tagesbudget oder als Ausgabenlimit.
 5. Erfinde nichts. Jeder ausgegebene Wert nennt unter "quellen" mindestens eine Quelle, aus der er tatsächlich stammt. Was keine Quelle hergibt, bleibt leer bzw. null.
 6. Stellen als Kürzel, wo eins klar passt (${codes}), sonst die Bezeichnung, wie sie dasteht.
@@ -362,6 +416,10 @@ Benefits:
 ${list(e.onboarding.benefits)}
 Stellen:
 ${list(e.onboarding.jobs)}
+Standort der Patienten: ${opt(e.onboarding.location)}
+Umkreis km: ${opt(e.onboarding.radiusKm)}
+Stellen je Standort (Datum der Notiz):
+${list(e.onboarding.perLocation.map((l) => `${l.place}${l.date ? ` (${l.date})` : ""}: ${l.jobs.join(", ") || "keine Stellen genannt"}`))}
 
 HINWEISE (user):
 ${e.aiNotes.trim() || "keine"}`;
@@ -372,8 +430,8 @@ async function readOnboarding(
   deps: BriefDeps,
   warnings: string[],
   emit: OnBriefEvent,
-): Promise<{ folderId?: string; benefits: string[]; roles: string[]; roleFreeText: string }> {
-  const none = { benefits: [], roles: [], roleFreeText: "" };
+): Promise<{ folderId?: string } & ParsedOnboarding> {
+  const none: ParsedOnboarding = { benefits: [], roles: [], roleFreeText: "", perLocation: [] };
   emit({ type: "step", step: "drive", status: "running" });
   let folderId = brief.driveUrl ? deps.folderIdFromUrl(brief.driveUrl) : undefined;
   if (folderId) emit({ type: "step", step: "drive", status: "done", detail: "Drive-Link aus der Aufgabe" });
@@ -417,6 +475,7 @@ async function readOnboarding(
       detail: [
         `${parsed.benefits.length} Benefits aus „Besteht aktuell“`,
         rolesLine(parsed.roles, parsed.roleFreeText),
+        parsed.location ? `Patienten in ${parsed.location}` : undefined,
       ]
         .filter(Boolean)
         .join(" · "),
@@ -527,10 +586,15 @@ export async function assembleBrief(
     if (sheet.roles.length) out.roles = { value: sheet.roles, sources: ["onboarding"] };
     if (sheet.roleFreeText) out.roleFreeText = { value: sheet.roleFreeText, sources: ["onboarding"] };
   }
+  // Standort: Aufgabe vor Tabelle vor Kundenübersicht. Aus der Tabelle zählt
+  // nur „Wo befinden sich die Patienten?“ – die „Für <Ort>:“-Blöcke der
+  // Voraussetzungen sind Stellen je Ort, keine Kampagnen-Standorte.
+  if (!out.locations && sheet.location) out.locations = { value: [sheet.location], sources: ["onboarding"] };
+  if (!out.radiusKm && sheet.radiusKm) out.radiusKm = { value: sheet.radiusKm, sources: ["onboarding"] };
 
-  // Fallback, nur wenn die Beschreibung keinen Ort hergab – ein Aufruf
-  // weniger gegen ClickUp, und die Beschreibung ist ohnehin die genauere
-  // Quelle (Adresse statt nur Ort im Kundenordner).
+  // Fallback, nur wenn weder Beschreibung noch Tabelle einen Ort hergaben –
+  // ein Aufruf weniger gegen ClickUp, und die Beschreibung ist ohnehin die
+  // genauere Quelle (Adresse statt nur Ort im Kundenordner).
   let overview: CampaignEvidence["overview"] = {};
   if (!out.locations && brief.folderId) {
     emit({ type: "step", step: "overview", status: "running" });
@@ -557,7 +621,11 @@ export async function assembleBrief(
       type: "step",
       step: "overview",
       status: "skipped",
-      detail: out.locations ? "Standort steht schon in der Aufgabe" : "kein Kundenordner an der Aufgabe",
+      detail: out.locations
+        ? out.locations.sources.includes("onboarding")
+          ? "Standort steht in der Onboarding-Tabelle"
+          : "Standort steht schon in der Aufgabe"
+        : "kein Kundenordner an der Aufgabe",
     });
   }
 
@@ -577,7 +645,13 @@ export async function assembleBrief(
       radiusKm: hint.radiusKm,
       jobs: hint.titles,
     },
-    onboarding: { benefits: sheet.benefits, jobs: [...sheet.roles, ...(sheet.roleFreeText ? [sheet.roleFreeText] : [])] },
+    onboarding: {
+      benefits: sheet.benefits,
+      jobs: [...sheet.roles, ...(sheet.roleFreeText ? [sheet.roleFreeText] : [])],
+      location: sheet.location,
+      radiusKm: sheet.radiusKm,
+      perLocation: sheet.perLocation,
+    },
     overview,
     aiNotes,
   };
@@ -588,6 +662,8 @@ export async function assembleBrief(
     Boolean(aiNotes.trim()) ||
     evidence.onboarding.benefits.length > 0 ||
     evidence.onboarding.jobs.length > 0 ||
+    evidence.onboarding.perLocation.length > 0 ||
+    Boolean(evidence.onboarding.location) ||
     Object.values(overview).some(Boolean);
   if (!beyondTask) {
     emit({ type: "step", step: "context", status: "skipped", detail: "nur die Aufgabe – nichts zu verbinden" });

@@ -4,7 +4,7 @@
  * Schirm 2, oberer Teil: der Kampagnenname als Ergebnis, die Rollen (mit
  * Herkunft), das Tagesbudget als Pflichtfeld, die Hinweise aus der Aufgabe.
  * Darunter, eingeklappt, alles Optionale: Werbekonto, Startdatum,
- * Ausgabenlimit, Name von Hand, Kürzel. Die Anzeigengruppen rendert wizard.tsx
+ * Ausgabenlimit, Kürzel. Die Anzeigengruppen rendert wizard.tsx
  * dazwischen – sie sind die Arbeit, das hier ist der Rahmen.
  */
 
@@ -23,6 +23,8 @@ import {
   type SearchSource,
   type SearchableItem,
 } from "@astryxdesign/core";
+import { PencilSimpleIcon } from "@phosphor-icons/react";
+import { useState } from "react";
 import { getLocalTimeZone, parseDate, today } from "@internationalized/date";
 import { ROLES } from "@/lib/naming";
 import { Angaben, Infotafel } from "./angaben";
@@ -65,6 +67,7 @@ export function VorschlagKopf({
 }) {
   const set = (field: SourceField, patch: Partial<WizardState>) =>
     setState((s) => edited(s, field, patch));
+  const [editingName, setEditingName] = useState(false);
   return (
     <section className={form.section}>
       {/* Derselbe Kopf wie die Abschnitte der Anzeigengruppe (ad-set-block.tsx,
@@ -79,9 +82,34 @@ export function VorschlagKopf({
         </Text>
       </div>
       <div className="flex flex-col gap-6">
-      {/* Der Name ist ein Ergebnis, keine Eingabe – gerahmt wie ein Wert. */}
+      {/* Der Name ist ein Ergebnis, keine Eingabe – gerahmt wie ein Wert.
+          Der Stift macht ihn zum Feld; Enter oder Blur schließt es wieder. */}
       <div className={form.name}>
-        <div><span>Kampagnenname</span><p>{state.campaignName || "Wird aus den Angaben erstellt…"}</p></div>
+        {editingName ? (
+          <TextInput
+            label="Kampagnenname"
+            isLabelHidden
+            value={state.campaignName}
+            hasAutoFocus
+            onChange={(campaignName) => setState((s) => ({ ...s, campaignName, nameEdited: true }))}
+            onEnter={() => setEditingName(false)}
+            onBlur={() => setEditingName(false)}
+            description={state.nameEdited ? NAME_EDITED_HINT : undefined}
+            width="100%"
+          />
+        ) : (
+          <>
+            <div><span>Kampagnenname</span><p>{state.campaignName || "Wird aus den Angaben erstellt…"}</p></div>
+            <Button
+              variant="ghost"
+              size="sm"
+              isIconOnly
+              icon={<PencilSimpleIcon size={16} weight="bold" />}
+              label="Kampagnenname bearbeiten"
+              onClick={() => setEditingName(true)}
+            />
+          </>
+        )}
         {state.nameEdited && (
           <Button
             variant="ghost"
@@ -188,6 +216,7 @@ export function Optional({
 }) {
   const set = (field: SourceField, patch: Partial<WizardState>) =>
     setState((s) => edited(s, field, patch));
+  const [editingName, setEditingName] = useState(false);
   return (
     <Collapsible className={form.options} defaultIsOpen={false} trigger="Optionale Einstellungen">
       <div className={`${form.fieldGrid} ${form.optionFields}`}>
@@ -255,13 +284,6 @@ export function Optional({
           />
           <Herkunft source={state.sources.initials} />
         </div>
-        <TextInput
-          label="Kampagnenname von Hand"
-          value={state.campaignName}
-          onChange={(campaignName) => setState((s) => ({ ...s, campaignName, nameEdited: true }))}
-          description={state.nameEdited ? NAME_EDITED_HINT : "Baut sich aus Kunde, Rollen, Datum und Kürzel."}
-          width="100%"
-        />
         <div className={form.fullWidth}>
           <Angaben titel="Feste Einstellungen" rows={fixed} />
         </div>
