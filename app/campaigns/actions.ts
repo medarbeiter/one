@@ -1,7 +1,7 @@
 "use server";
 
 import { updateTag } from "next/cache";
-import { graph } from "@/lib/graph";
+import { GraphError, graph } from "@/lib/graph";
 import { adsManagerUrl, setDailyBudget, setStatus } from "@/lib/campaigns";
 import type { Receipt } from "@/lib/launch";
 import type { Check } from "@/lib/verify";
@@ -29,6 +29,25 @@ export type LaunchState = { receipt?: Receipt; checks?: Check[]; error?: string 
  * es ausschließlich in Server Actions. Ohne diesen Aufruf danach stünde die
  * frisch angelegte Kampagne bis zu 60 Sekunden nicht in der Tabelle.
  */
+/**
+ * Steht die eben angelegte Kampagne noch bei Meta? Für den Schutz vor dem
+ * zweiten Klick auf „Erstellen“: nur wenn sie noch da ist, wird nachgefragt.
+ * Meta behält gelöschte Kampagnen als DELETED – die zählen als weg. Ein
+ * Netzfehler zählt als „noch da“: lieber einmal zu viel fragen als eine
+ * Kampagne doppelt anlegen.
+ */
+export async function campaignExistsAction(campaignId: string): Promise<boolean> {
+  try {
+    const c = await graph<{ id: string; effective_status?: string }>(campaignId, {
+      params: { fields: "id,effective_status" },
+    });
+    return c.effective_status !== "DELETED";
+  } catch (e) {
+    // Code 100 mit „does not exist“: gelöscht oder nie da – alles andere ist unklar.
+    return !(e instanceof GraphError && e.code === 100);
+  }
+}
+
 export async function refreshCampaignsAction(): Promise<void> {
   updateTag("campaigns");
 }

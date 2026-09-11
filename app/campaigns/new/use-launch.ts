@@ -67,5 +67,8 @@ export function useLaunch() {
     }
   }, []);
 
-  return { result, progress, pending, run };
+  /** Für „Neue Kampagne beginnen“: die Quittung der letzten gehört nicht zur nächsten. */
+  const clear = useCallback(() => setResult({}), []);
+
+  return { result, progress, pending, run, clear };
 }

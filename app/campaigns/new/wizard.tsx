@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import {
+  AlertDialog,
   Badge,
   Banner,
   Button,
@@ -19,7 +20,7 @@ import {
 } from "@astryxdesign/core";
 import { useRouter } from "next/navigation";
 import { Sign } from "@/theme/icons";
-import { label, plural } from "@/lib/labels";
+import { adsManagerUrl, label, plural } from "@/lib/labels";
 import { duplicateLocations, locationSummary } from "@/lib/geo";
 import {
   DEFAULT_RADIUS_KM,
@@ -63,7 +64,7 @@ import type { BriefStreamEvent } from "@/app/api/brief/route";
 import type { AssembledBrief } from "@/lib/brief";
 import type { CampaignSeed } from "@/lib/seed";
 import { readNdjson } from "@/lib/ndjson";
-import { fitRadiusAction, refreshAssetsAction, type WizardSubmission } from "../actions";
+import { campaignExistsAction, fitRadiusAction, refreshAssetsAction, type WizardSubmission } from "../actions";
 import { useLaunch } from "./use-launch";
 import { fuzzyCustomerMatch, instagramAccountLabel, resolveClientByName } from "@/lib/customers";
 import type { LaunchProgress } from "@/lib/launch";
@@ -328,7 +329,7 @@ function WizardSteps({
   // ein Standort davor entfernt, zeigte ein Index still auf einen anderen.
   // Fehlt die id, gilt der erste Standort.
   const [previewSetId, setPreviewSetId] = useState<string>();
-  const { result, progress, pending, run } = useLaunch();
+  const { result, progress, pending, run, clear: clearLaunch } = useLaunch();
   // Für den Retry-Pfad im Receipt-Panel: das genaue Objekt, das gesendet wurde,
   // nicht der aktuelle (evtl. inzwischen weiterbearbeitete) Wizard-State.
   const [submission, setSubmission] = useState<WizardSubmission | null>(null);
@@ -795,7 +796,28 @@ function WizardSteps({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queued, verdict]);
 
-  const onCreate = () =>
+  /**
+   * Der zweite Klick auf „Erstellen“ nach einer angelegten Kampagne legt sie
+   * ein zweites Mal an – und das kostet bei Meta Geld statt eine Fehlermeldung.
+   * Deshalb: steht die eben angelegte Kampagne noch, fragt ein Dialog nach.
+   * Wurde sie inzwischen bei Meta gelöscht, geht es ohne Nachfrage weiter.
+   * Bearbeiten (update) und der Retry-Pfad der Quittung sind keine neue
+   * Kampagne und laufen daran vorbei.
+   */
+  const [confirmAgain, setConfirmAgain] = useState<"checking" | "open" | null>(null);
+  const launched = campaignId && !state.editing ? campaignId : undefined;
+  const onCreate = async () => {
+    if (!launched) return createNow();
+    setConfirmAgain("checking");
+    const stillThere = await campaignExistsAction(launched);
+    if (!stillThere) {
+      setConfirmAgain(null);
+      return createNow();
+    }
+    setConfirmAgain("open");
+  };
+
+  const createNow = () =>
     submitWizard({
       // Bearbeiten: dieselbe Nutzlast, nur mit den Meta-IDs und dem Schalter,
       // der lib/launch.ts ändern statt anlegen lässt.
@@ -1100,6 +1122,57 @@ function WizardSteps({
             {/* Zwei Spalten, sobald Platz ist: links die Prüfliste, rechts das
                 Telefon. Untereinander ließ die Vorschau die halbe Seite leer –
                 und wer prüft, will Zahlen und Anzeige gleichzeitig sehen. */}
+            {launched && !pending ? (
+              /* Der Erfolgsschirm: die Kampagne steht, hier ist nichts mehr zu
+                 prüfen. Der Erstellen-Knopf unten bleibt – mit Nachfrage. */
+              <div className="flex flex-col gap-6">
+                <Banner
+                  status="success"
+                  title="Kampagne angelegt"
+                  description={`„${state.campaignName}“ steht pausiert bei Meta. Starte sie im Ads Manager, sobald die Abnahme durch ist.`}
+                  endContent={
+                    <Button
+                      variant="primary"
+                      label="Im Ads Manager öffnen"
+                      onClick={() => window.open(adsManagerUrl(state.adAccount, launched), "_blank", "noopener")}
+                    />
+                  }
+                />
+                <GhlHinweis />
+                {submission && <ReceiptPanel state={result} submission={submission} onRetry={submitWizard} />}
+                {clickup && (
+                  <Banner
+                    status={clickup.error ? "warning" : "success"}
+                    title={clickup.error ? "ClickUp nicht aktualisiert" : "ClickUp-Aufgabe auf „Abnahme Kampagne“"}
+                    description={
+                      clickup.error ?? (
+                        <>
+                          Umbenannt in „{state.campaignName}“, Kommentar mit Ads-Manager-Link steht dran:{" "}
+                          <Link href={`https://app.clickup.com/t/${taskId}`} target="_blank" rel="noreferrer">
+                            Aufgabe in ClickUp öffnen
+                          </Link>
+                        </>
+                      )
+                    }
+                  />
+                )}
+                <div>
+                  <Button
+                    variant="secondary"
+                    label="Neue Kampagne beginnen"
+                    icon={<Sign meaning="add" />}
+                    onClick={() => {
+                      clearLaunch();
+                      setSubmission(null);
+                      clearActivity();
+                      setRevealed(false);
+                      discard();
+                      setStep("0");
+                    }}
+                  />
+                </div>
+              </div>
+            ) : (
             <div className={form.review}>
               <div className="flex min-w-0 flex-col gap-6">
                 {/* Ein Standort je Zeile, mit demselben Zähler wie im Vorschlag –
@@ -1212,6 +1285,7 @@ function WizardSteps({
                 />
               )}
             </div>
+            )}
           </Step>
         )}
 
@@ -1283,10 +1357,10 @@ function WizardSteps({
                             }
                           : onCreate
                     }
-                    isLoading={pending || queued}
+                    isLoading={pending || queued || confirmAgain === "checking"}
                     // Ein wartender Knopf bleibt drückbar – der Klick nimmt das Warten zurück.
                     isInterruptible={queued}
-                    isDisabled={pending || (blocked && !uploading)}
+                    isDisabled={pending || confirmAgain === "checking" || (blocked && !uploading)}
                     icon={pending || queued ? undefined : <Sign meaning="launch" />}
                     label={
                       pending
@@ -1301,10 +1375,24 @@ function WizardSteps({
                               : "Nach dem Upload erstellen"
                             : editing
                               ? "Änderungen übernehmen"
-                              : "Erstellen (pausiert)"
+                              : launched
+                                ? "Noch eine Kampagne erstellen"
+                                : "Erstellen (pausiert)"
                     }
                   />
                 )}
+                <AlertDialog
+                  isOpen={confirmAgain === "open"}
+                  onOpenChange={(open) => !open && setConfirmAgain(null)}
+                  title="Wirklich noch eine Kampagne anlegen?"
+                  description={`„${state.campaignName}“ wurde gerade schon angelegt (Kampagne ${launched ?? ""}) und steht noch bei Meta – siehe die Quittung oben. Ein zweites Anlegen ergibt ein Duplikat.`}
+                  cancelLabel="Abbrechen"
+                  actionLabel="Trotzdem anlegen"
+                  onAction={() => {
+                    setConfirmAgain(null);
+                    createNow();
+                  }}
+                />
               </div>
             </div>
           </Section>
