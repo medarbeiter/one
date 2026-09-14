@@ -130,7 +130,7 @@ export function Suche() {
         onValueChange={gehe}
         label="Suche"
         input={<CommandPaletteInput placeholder="Wonach suchst du?" label="Suche" />}
-        emptyBootstrapText="Tippe einen Kundennamen oder einen Bereich"
+        emptyBootstrapText="Tippe einen Kunden, eine Kampagne oder einen Bereich"
         emptySearchText="Nichts gefunden — andere Schreibweise?"
         footer={
           // Ränder, damit die Hinweise nicht in den Ecken des Blattes kleben —

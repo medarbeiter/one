@@ -161,12 +161,17 @@
  * einem Daumen getroffen wird. Gilt für jede Fenstergröße — eine Maus verliert
  * nichts dabei. Der Druckpunkt quittiert den Klick, bevor der Server geantwortet
  * hat: 3,5 % sind zu wenig zum Wackeln und genug, um gespürt zu werden. */
-.leiste button {
+.leiste .astryx-button {
   min-block-size: 44px;
   transition: transform var(--beat-tap) var(--ease-in);
 }
-.leiste button:active {
+.leiste .astryx-button:active {
   transform: scale(0.965);
+}
+/* Der Kundenscope steht neben dem Suchknopf und ist gleich hoch wie er. Die
+ * Regel gilt dem Feldrahmen, nicht den Knöpfen darin (Marke, Leeren). */
+.leiste .astryx-typeahead {
+  min-block-size: 44px;
 }
 
 /* Die goldene Handlung auf der Goldwäsche: Füllung gegen Grund ≈1,7:1, also
@@ -642,4 +647,9 @@
 .collapsible-wide-trigger.collapsible-wide-trigger > button > span:first-child {
   flex: 1 1 auto;
   min-width: 0;
+}
+
+/* Verlaufsbalken (app/campaigns/balken.tsx): der gezeigte Tag tritt vor. */
+.balken:hover rect:last-of-type {
+  fill: var(--color-icon-primary);
 }

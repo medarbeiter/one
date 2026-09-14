@@ -1,42 +1,41 @@
 import * as UI from "@/app/shell/ui";
 import { Badge, Button, Card, Collapsible, CollapsibleGroup, EmptyState } from "@/app/shell/ui";
 import { Sign } from "@/theme/icons";
-import { costPerResult, getCampaign, results, type Insights } from "@/lib/campaigns";
+import { getCampaign, results, type Insights } from "@/lib/campaigns";
 import { label } from "@/lib/labels";
 import { Blatt, Blattkopf } from "@/app/shell/blattkopf";
 import { PeriodNav, readPeriod } from "../period-nav";
+import { Balken } from "../balken";
+import { KENNZAHLEN, kennzahl, money, zahl } from "../kennzahlen";
+import { StatusSwitch, BudgetField } from "../row-controls";
 
-const money = (n?: number) =>
-  n === undefined || !Number.isFinite(n)
-    ? "—"
-    : new Intl.NumberFormat("en-GB", { style: "currency", currency: "EUR" }).format(n);
-
-function Metrics({ insights }: { insights?: Insights }) {
-  const cells: [string, string][] = [
-    ["Ausgaben", money(Number(insights?.spend))],
-    ["Impressionen", insights?.impressions ?? "—"],
-    ["CPM", money(Number(insights?.cpm))],
-    ["Ergebnisse", String(results(insights) ?? "—")],
-    ["Kosten/Ergebnis", money(costPerResult(insights))],
-  ];
+/** Alle Kennzahlen als Kacheln; `kompakt` nur die erste Reihe (Anzeigengruppen, Anzeigen). */
+function Kacheln({ insights, kompakt }: { insights?: Insights; kompakt?: boolean }) {
+  const liste = kompakt ? ["spend", "leads", "cpl", "clicks", "ctr", "cpm"].map(kennzahl) : KENNZAHLEN;
   return (
-    <dl className="flex flex-wrap gap-6 text-sm">
-      {cells.map(([k, v]) => (
-        <div key={k}>
-          <dt className="text-ink-500 text-xs">{k}</dt>
-          <dd className="font-display text-ink-900 tabular-nums">{v}</dd>
+    <dl className={kompakt ? "flex flex-wrap gap-x-6 gap-y-2 text-sm" : "grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5"}>
+      {liste.map((k) => (
+        <div key={k.key} title={k.hilfe}>
+          <dt className="text-ink-500 text-xs">{k.label}</dt>
+          <dd className={`font-display text-ink-900 tabular-nums ${kompakt ? "" : "text-xl"}`}>{k.format(k.wert(insights))}</dd>
         </div>
       ))}
     </dl>
   );
 }
 
+const marke = (status: string) => (
+  <Badge variant={status === "ACTIVE" ? "success" : "neutral"} label={label(status)} />
+);
+
 export default async function CampaignPage({ params, searchParams }: PageProps<"/campaigns/[id]">) {
   const { id } = await params;
   const sp = await searchParams;
   const period = readPeriod(sp);
-  const c = await getCampaign(id, period);
-  const insights = (c as any).insights?.data?.[0] as Insights | undefined;
+  const c = await getCampaign(id);
+  const insights = c.insights?.[period];
+  const leads = results(insights);
+  const cpl = kennzahl("cpl").wert(insights);
 
   return (
     <>
@@ -48,10 +47,10 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
         meaning="campaign"
         figur={money(Number(insights?.spend))}
         figurEinheit="Ausgaben"
-        stand={`${results(insights) ?? 0} Ergebnisse · ${money(costPerResult(insights))} je Ergebnis`}
+        stand={`${leads ?? 0} Leads · ${money(cpl)} je Lead · ${c.customerName ?? ""}`.replace(/ · $/, "")}
         marken={
           <>
-            <Badge variant={c.status === "ACTIVE" ? "success" : "neutral"} label={c.status} />
+            {marke(c.status)}
             <Badge variant="neutral" label={label(c.objective)} />
           </>
         }
@@ -67,9 +66,34 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
       />
 
       <Blatt>
+        {/* Status und Budget direkt hier – mit denselben Rückfragen wie in der Liste. */}
+        <Card elevation="low">
+          <UI.CardContent className="flex flex-col gap-5">
+            <div className="flex flex-wrap items-center gap-6">
+              <StatusSwitch id={c.id} name={c.name} status={c.status} />
+              <span className="flex items-center gap-2 text-sm">
+                <span className="text-ink-500">Tagesbudget</span>
+                <BudgetField id={c.id} name={c.name} cents={c.daily_budget !== undefined ? Number(c.daily_budget) : undefined} />
+              </span>
+              {c.start_time && (
+                <span className="text-ink-500 text-sm">
+                  Gestartet {new Date(c.start_time).toLocaleDateString("de-DE")}
+                </span>
+              )}
+            </div>
+            <Kacheln insights={insights} />
+          </UI.CardContent>
+        </Card>
+
+        {/* Der Verlauf ist immer der letzte Monat, egal welcher Reiter oben
+            gewählt ist – ein Tag hätte einen Balken, „Gesamt“ Hunderte. */}
         <Card elevation="low">
           <UI.CardContent className="flex flex-col gap-4">
-            <Metrics insights={insights} />
+            <span className="text-ink-500 text-xs">Letzte 30 Tage, je Tag</span>
+            <div className="flex flex-col gap-6 md:flex-row">
+              <Balken titel="Ausgaben" werte={c.tage.map((t) => ({ tag: t.date_start, wert: Number(t.spend ?? 0) }))} format={money} />
+              <Balken titel="Leads" werte={c.tage.map((t) => ({ tag: t.date_start, wert: results(t) ?? 0 }))} format={zahl} />
+            </div>
           </UI.CardContent>
         </Card>
 
@@ -77,26 +101,29 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
             die `trigger`-Prop, der Körper sind die Kinder. Den Pfeil und die
             Aria-Verknüpfung bringt es selbst mit. */}
         <CollapsibleGroup type="multiple">
-          {(c.adsets?.data ?? []).map((s: any) => (
+          {c.adsets.map((s) => (
             <Collapsible
               key={s.id}
               value={s.id}
               trigger={
                 <span className="flex w-full items-center gap-3 text-left">
                   <span className="flex-1">{s.name}</span>
-                  <Badge variant={s.status === "ACTIVE" ? "success" : "neutral"} label={s.status} />
+                  <span className="text-ink-500 text-xs tabular-nums">
+                    {zahl(results(s.insights[period]))} Leads · {money(kennzahl("cpl").wert(s.insights[period]))} je Lead
+                  </span>
+                  {marke(s.status)}
                 </span>
               }
             >
               <div className="space-y-4 pb-4">
-                <Metrics insights={s.insights?.data?.[0]} />
+                <Kacheln insights={s.insights[period]} kompakt />
                 <div className="text-ink-500 text-xs">
-                  {s.optimization_goal} · {s.billing_event} · täglich{" "}
+                  {label(s.optimization_goal ?? "")} · {label(s.billing_event ?? "")} · täglich{" "}
                   {money(Number(s.daily_budget) / 100)}
                 </div>
-                {s.ads?.data?.length ? (
+                {s.ads.length ? (
                   <ul className="space-y-2">
-                    {s.ads.data.map((ad: any) => (
+                    {s.ads.map((ad) => (
                       <li key={ad.id}>
                         {/* Jede Anzeige ist eine Karte – dieselbe Fläche, die auch
                             die Kennzahlen darüber trägt. */}
@@ -109,12 +136,9 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
                             <div className="min-w-0 flex-1 space-y-2">
                               <div className="flex items-center gap-2">
                                 <span className="truncate text-sm">{ad.name}</span>
-                                <Badge
-                                  variant={ad.status === "ACTIVE" ? "success" : "neutral"}
-                                  label={ad.status}
-                                />
+                                {marke(ad.status)}
                               </div>
-                              <Metrics insights={ad.insights?.data?.[0]} />
+                              <Kacheln insights={ad.insights[period]} kompakt />
                             </div>
                           </UI.CardContent>
                         </Card>

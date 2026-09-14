@@ -10,7 +10,7 @@ process.env.META_ACCESS_TOKEN = "TEST";
 process.env.META_AD_ACCOUNT_ID = "act_1";
 process.env.META_PAGE_ID = "page_1";
 
-const { results, costPerResult, launch, listCampaigns } = await import("./campaigns");
+const { results, costPerResult, launch, listCampaigns, pickInsights } = await import("./campaigns");
 type Customer = Parameters<typeof listCampaigns>[0][number];
 
 const a = (action_type: string, value: string) => ({ action_type, value });
@@ -27,10 +27,15 @@ function stub(handler: (url: URL) => unknown) {
   return calls;
 }
 
-test("Leads schlagen Klicks, Klicks schlagen Interaktionen", () => {
+test("Nur Leads sind Ergebnisse – Klicks und Interaktionen zählen nicht", () => {
   expect(results({ actions: [a("post_engagement", "90"), a("lead", "3")] })).toBe(3);
-  expect(results({ actions: [a("post_engagement", "90"), a("link_click", "12")] })).toBe(12);
-  expect(results({ actions: [a("post_engagement", "90")] })).toBe(90);
+  expect(results({ actions: [a("post_engagement", "90"), a("link_click", "12")] })).toBeUndefined();
+  expect(results({ actions: [a("landing_page_view", "40"), a("link_click", "12")] })).toBeUndefined();
+});
+
+test("Vier Zeiträume kommen als Aliasse und werden zur Karte", () => {
+  const raw = { i_heute: { data: [{ spend: "1" }] }, i_gesamt: { data: [{ spend: "9" }] }, i_woche: { data: [] } };
+  expect(pickInsights(raw)).toEqual({ today: { spend: "1" }, maximum: { spend: "9" } });
 });
 
 test("Ohne Actions gibt es kein Ergebnis – nicht null", () => {
@@ -72,7 +77,6 @@ test("Geteiltes Konto: jede Kampagne genau einmal, ein Sub-Request", async () =>
 
   const { campaigns } = await listCampaigns(
     [customer("medarbeiter", "MedArbeiter"), customer("jobsmedarbeiter", "Jobs - MedArbeiter")],
-    "last_7d",
   );
 
   expect(campaigns.map((c) => c.id)).toEqual(["camp_act_shared"]);
@@ -96,7 +100,6 @@ test("Getrennte Konten bleiben getrennt zugeordnet", async () => {
       { source: "a", id: "a", name: "Kunde A", adAccounts: [acct("act_a")], access: "own", issues: [] },
       { source: "b", id: "b", name: "Kunde B", adAccounts: [acct("act_b")], access: "own", issues: [] },
     ],
-    "last_7d",
   );
 
   expect(campaigns.map((c) => [c.id, c.customerName])).toEqual([
@@ -117,7 +120,6 @@ test("Suchwort landet als filtering-Parameter im Sub-Request", async () => {
   const acct = { id: "act_x", name: "X", account_status: 1, currency: "EUR", access: "own" as const };
   await listCampaigns(
     [{ source: "x", id: "x", name: "Kunde X", adAccounts: [acct], access: "own", issues: [] }],
-    "last_7d",
     "Obermain",
   );
 

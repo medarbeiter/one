@@ -8,13 +8,27 @@ export { adsManagerUrl } from "./labels";
 import { uploadImage, uploadVideo, videoThumbnail } from "./uploads";
 
 export type Period = "today" | "last_7d" | "last_30d" | "maximum";
+export const PERIODS: Period[] = ["today", "last_7d", "last_30d", "maximum"];
+// Graph nimmt keine Ziffern in Aliasnamen („i_last_7d is not a valid name“).
+const ALIAS: Record<Period, string> = { today: "i_heute", last_7d: "i_woche", last_30d: "i_monat", maximum: "i_gesamt" };
 
 export type Insights = {
   spend?: string;
   impressions?: string;
+  reach?: string;
+  frequency?: string;
   cpm?: string;
+  inline_link_clicks?: string;
+  inline_link_click_ctr?: string;
+  cost_per_inline_link_click?: string;
   actions?: { action_type: string; value: string }[];
 };
+
+/** Ein Tag der Kampagne – für die Verlaufsbalken auf der Kampagnenseite. */
+export type Tag = { date_start: string; spend?: string; actions?: Insights["actions"] };
+
+/** Die Kennzahlen aller vier Zeiträume auf einmal – siehe FIELDS. */
+export type PeriodInsights = Partial<Record<Period, Insights>>;
 
 export type Campaign = {
   id: string;
@@ -26,17 +40,15 @@ export type Campaign = {
   /** Erster Eigentümer des Kontos; bei geteiltem Konto nennt customerName alle. */
   customerId?: string;
   customerName?: string;
-  insights?: Insights;
+  insights?: PeriodInsights;
 };
 
-// Rangfolge, nicht Summe: ein Lead ist auch ein Klick, doppelt zählen wäre falsch.
+// Ein Ergebnis ist ein Lead – nie ein Klick oder eine Formularansicht. Rangfolge,
+// nicht Summe: lead_grouped enthält lead schon, doppelt zählen wäre falsch.
 const RESULT_ACTIONS = [
   "onsite_conversion.lead_grouped",
   "lead",
   "offsite_conversion.fb_pixel_lead",
-  "landing_page_view",
-  "link_click",
-  "post_engagement",
 ];
 
 export function results(insights?: Insights): number | undefined {
@@ -56,10 +68,29 @@ export function costPerResult(insights?: Insights): number | undefined {
   return spend / n;
 }
 
-const FIELDS = (period: Period) =>
-  `name,status,objective,daily_budget,start_time,insights.date_preset(${period}){spend,impressions,cpm,actions}`;
+const METRICS =
+  "spend,impressions,reach,frequency,cpm,inline_link_clicks,inline_link_click_ctr,cost_per_inline_link_click,actions";
 
-export async function listCampaigns(customers: Customer[], period: Period, q?: string) {
+/**
+ * Alle vier Zeiträume in EINEM Aufruf, als Aliasse (`insights.date_preset(x).as(i_x)`).
+ * Der Zeitraum steht damit nicht mehr in der Anfrage-URL – Nexts Datencache
+ * (60 s, Tag „campaigns“) trifft beim Reiterwechsel, statt Meta für jeden
+ * Zeitraum neu über alle Konten zu fragen.
+ */
+const INSIGHTS = PERIODS.map((p) => `insights.date_preset(${p}).as(${ALIAS[p]}){${METRICS}}`).join(",");
+const FIELDS = `name,status,objective,daily_budget,start_time,${INSIGHTS}`;
+
+/** Aus den Aliassen der Antwort wieder eine Karte je Zeitraum. */
+export function pickInsights(raw: any): PeriodInsights {
+  const out: PeriodInsights = {};
+  for (const p of PERIODS) {
+    const row = raw?.[ALIAS[p]]?.data?.[0];
+    if (row) out[p] = row;
+  }
+  return out;
+}
+
+export async function listCampaigns(customers: Customer[], q?: string) {
   // Ein Sub-Request pro Werbekonto – nicht pro Kunde: ein Konto kann mehreren
   // Kunden gehören (MedArbeiter zahlt über dasselbe Konto auch für "Jobs -
   // MedArbeiter"). Je Kunde gefragt, käme dieselbe Kampagne doppelt zurück.
@@ -76,7 +107,7 @@ export async function listCampaigns(customers: Customer[], period: Period, q?: s
     : "";
   const settled = await batch<{ data: Campaign[] }>(
     accounts.map((acct) => ({
-      relative_url: `${acct}/campaigns?fields=${encodeURIComponent(FIELDS(period))}&limit=100${filtering}`,
+      relative_url: `${acct}/campaigns?fields=${encodeURIComponent(FIELDS)}&limit=100${filtering}`,
     })),
     { revalidate: 60, tags: ["campaigns"] },
   );
@@ -92,7 +123,7 @@ export async function listCampaigns(customers: Customer[], period: Period, q?: s
     for (const raw of r.value.data ?? [])
       campaigns.push({
         ...raw,
-        insights: (raw as any).insights?.data?.[0],
+        insights: pickInsights(raw),
         customerId: cs[0].id,
         customerName: cs.map((c) => c.name).join(", "),
       });
@@ -101,14 +132,51 @@ export async function listCampaigns(customers: Customer[], period: Period, q?: s
   return { campaigns, errors };
 }
 
-export function getCampaign(id: string, period: Period) {
-  return graph<Campaign & { adsets?: { data: any[] } }>(id, {
+export type AdSet = {
+  id: string;
+  name: string;
+  status: string;
+  daily_budget?: string;
+  optimization_goal?: string;
+  billing_event?: string;
+  insights: PeriodInsights;
+  ads: Ad[];
+};
+export type Ad = {
+  id: string;
+  name: string;
+  status: string;
+  creative?: { thumbnail_url?: string; effective_object_story_id?: string };
+  insights: PeriodInsights;
+};
+export type CampaignDetail = Campaign & { adsets: AdSet[]; tage: Tag[] };
+
+// 31, nicht 25 (Vorgabe): sonst fehlen die ältesten Tage des Monats.
+const DAILY = "insights.date_preset(last_30d).time_increment(1).limit(31).as(i_daily){date_start,spend,actions}";
+
+export async function getCampaign(id: string): Promise<CampaignDetail> {
+  const raw = await graph<any>(id, {
     params: {
-      fields: `${FIELDS(period)},adsets{name,status,daily_budget,optimization_goal,billing_event,targeting,insights.date_preset(${period}){spend,impressions,cpm,actions},ads{name,status,creative{thumbnail_url,effective_object_story_id},insights.date_preset(${period}){spend,impressions,cpm,actions}}}`,
+      fields: `${FIELDS},${DAILY},adsets{name,status,daily_budget,optimization_goal,billing_event,${INSIGHTS},ads{name,status,creative{thumbnail_url,effective_object_story_id},${INSIGHTS}}}`,
     },
     revalidate: 60,
     tags: ["campaigns", `campaign:${id}`],
   });
+  const strip = (x: any) => {
+    const { adsets, ads, i_daily, ...rest } = x;
+    for (const p of PERIODS) delete rest[ALIAS[p]];
+    return rest;
+  };
+  return {
+    ...strip(raw),
+    insights: pickInsights(raw),
+    tage: raw.i_daily?.data ?? [],
+    adsets: (raw.adsets?.data ?? []).map((s: any) => ({
+      ...strip(s),
+      insights: pickInsights(s),
+      ads: (s.ads?.data ?? []).map((a: any) => ({ ...strip(a), insights: pickInsights(a) })),
+    })),
+  };
 }
 
 export const setStatus = (id: string, status: "ACTIVE" | "PAUSED") =>

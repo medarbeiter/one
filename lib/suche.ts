@@ -1,5 +1,5 @@
 /**
- * Die Suche über das ganze Haus: ein Feld, das Wege und Kunden findet.
+ * Die Suche über das ganze Haus: ein Feld, das Wege, Kunden und Kampagnen findet.
  *
  * 1:1 im Aufbau aus dem Hub übernommen (lib/suche.ts dort), nur mit dem
  * Bestand dieses Hauses gefüllt. Der Zuschnitt geschieht auf dem Server, nicht
@@ -12,7 +12,9 @@
  * Jede Zeile kommt fertig sortiert und mit ihrer Adresse; die Palette tippt,
  * zeichnet und navigiert nur (app/shell/suche.tsx).
  */
+import { listCampaigns, type Campaign } from "./campaigns";
 import { fuzzyCustomerMatch, instagramAccountLabel, listCustomers } from "./customers";
+import { label } from "./labels";
 import type { Meaning } from "@/theme/icons";
 
 export type Treffer = {
@@ -65,29 +67,52 @@ export async function suche(frage: string, bereich?: string): Promise<Treffer[]>
   // Und wer auf eine andere Gruppe zugeschnitten hat, bekommt die Kunden
   // hinterher ohnehin weggeschnitten – dann gar nicht erst holen.
   let kunden: Treffer[] = [];
-  if (wort !== "" && (!bereich || bereich === "Kunden")) {
+  let kampagnen: Treffer[] = [];
+  if (wort !== "" && (!bereich || bereich === "Kunden" || bereich === "Kampagnen")) {
     // Ein toter Token darf die Suche nicht sprengen – dann findet sie eben nur
     // Wege. Sie ist nie der einzige Weg zu einem Kunden.
     const { customers } = await listCustomers().catch(() => ({ customers: [] }));
-    kunden = customers
-      .filter((c) => fuzzyCustomerMatch(c.name, wort))
-      .map((c) => ({
-        id: `kunde:${c.id}`,
-        label: c.name,
-        gruppe: "Kunden",
-        zusatz:
-          [c.page?.name, instagramAccountLabel(c.instagram)].filter(Boolean).join(" · ") ||
-          undefined,
-        href: `/customers/${c.id}`,
-        meaning: "customer" as const,
+    if (!bereich || bereich === "Kunden")
+      kunden = customers
+        .filter((c) => fuzzyCustomerMatch(c.name, wort))
+        .map((c) => ({
+          id: `kunde:${c.id}`,
+          label: c.name,
+          gruppe: "Kunden",
+          zusatz:
+            [c.page?.name, instagramAccountLabel(c.instagram)].filter(Boolean).join(" · ") ||
+            undefined,
+          href: `/customers/${c.id}`,
+          meaning: "customer" as const,
+        }));
+    // Kampagnen filtert Graph selbst über den ganzen Bestand (CONTAIN auf den
+    // Namen), gebündelt je Werbekonto – dieselbe Abfrage wie die Kampagnenliste.
+    if (!bereich || bereich === "Kampagnen") {
+      const { campaigns } = await listCampaigns(customers, wort).catch(() => ({
+        campaigns: [],
       }));
+      kampagnen = campaigns.map(kampagneAlsTreffer);
+    }
   }
 
   const gruppen: Array<[string, Treffer[]]> = [
     ["Wege", wege],
     ["Kunden", kunden],
+    ["Kampagnen", kampagnen],
   ];
   return gruppen
     .filter(([name]) => !bereich || bereich === name)
     .flatMap(([, zeilen]) => zeilen.slice(0, grenze));
+}
+
+/** Eine Kampagne als Trefferzeile: Name, darunter Kunde und Zustand. */
+export function kampagneAlsTreffer(c: Pick<Campaign, "id" | "name" | "status" | "customerName">): Treffer {
+  return {
+    id: `kampagne:${c.id}`,
+    label: c.name,
+    gruppe: "Kampagnen",
+    zusatz: [c.customerName, label(c.status)].filter(Boolean).join(" · ") || undefined,
+    href: `/campaigns/${c.id}`,
+    meaning: "campaign",
+  };
 }
