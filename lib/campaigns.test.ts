@@ -162,3 +162,18 @@ test("EMPLOYMENT: kein Alters-Targeting, Land wird mitgeschickt", async () => {
   );
   expect(campaign.searchParams.get("status")).toBe("PAUSED");
 });
+
+test("sumInsights: Summen, Quoten neu gerechnet", async () => {
+  const { sumInsights, results: r } = await import("./campaigns");
+  const s = sumInsights([
+    { spend: "100", impressions: "10000", reach: "5000", inline_link_clicks: "100", actions: [a("lead", "4")] },
+    { spend: "50", impressions: "5000", reach: "2500", inline_link_clicks: "200", actions: [a("lead", "1")] },
+    undefined,
+  ]);
+  expect(s.spend).toBe("150");
+  expect(s.cpm).toBe("10");
+  expect(s.inline_link_click_ctr).toBe("2");
+  expect(s.frequency).toBe("2");
+  expect(r(s)).toBe(5);
+  expect(costPerResult(s)).toBe(30);
+});

@@ -8,7 +8,7 @@ import { PeriodNav, readPeriod } from "../period-nav";
 import { Balken } from "../balken";
 import { kennzahl, money, zahl } from "../kennzahlen";
 import { StatusSwitch, BudgetField } from "../row-controls";
-import { Kacheln } from "./kacheln";
+import { Kacheln } from "../kacheln";
 import { Anzeigen } from "./anzeigen";
 
 const marke = (status: string) => (

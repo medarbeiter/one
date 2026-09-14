@@ -41,6 +41,8 @@ export type Campaign = {
   /** Erster Eigentümer des Kontos; bei geteiltem Konto nennt customerName alle. */
   customerId?: string;
   customerName?: string;
+  /** Werbekonto (act_…) – für den Sprung in den Ads Manager aus der Liste. */
+  adAccount?: string;
   insights?: PeriodInsights;
 };
 
@@ -134,10 +136,37 @@ export async function listCampaigns(
         insights: pickInsights(raw),
         customerId: cs[0].id,
         customerName: cs.map((c) => c.name).join(", "),
+        adAccount: accounts[i],
       });
   });
 
   return { campaigns, errors };
+}
+
+/**
+ * Die Liste als eine Kampagne: Summen, und daraus die Quoten neu gerechnet –
+ * CTR und CPM lassen sich nicht mitteln. Reichweite ist die Summe der
+ * Reichweiten und zählt eine Person je Kampagne, nicht je Liste.
+ */
+export function sumInsights(list: (Insights | undefined)[]): Insights {
+  const add = (k: keyof Insights) => list.reduce((s, i) => s + (Number(i?.[k]) || 0), 0);
+  const spend = add("spend");
+  const impressions = add("impressions");
+  const reach = add("reach");
+  const clicks = add("inline_link_clicks");
+  const leads = list.reduce((s, i) => s + (results(i) ?? 0), 0);
+  const q = (n: number) => String(n);
+  return {
+    spend: q(spend),
+    impressions: q(impressions),
+    reach: q(reach),
+    frequency: reach ? q(impressions / reach) : undefined,
+    cpm: impressions ? q((spend / impressions) * 1000) : undefined,
+    inline_link_clicks: q(clicks),
+    inline_link_click_ctr: impressions ? q((clicks / impressions) * 100) : undefined,
+    cost_per_inline_link_click: clicks ? q(spend / clicks) : undefined,
+    actions: [{ action_type: "lead", value: q(leads) }],
+  };
 }
 
 export type AdSet = {

@@ -1,5 +1,5 @@
 import type { Insights } from "@/lib/campaigns";
-import { KENNZAHLEN, kennzahl } from "../kennzahlen";
+import { KENNZAHLEN, kennzahl } from "./kennzahlen";
 
 /** Alle Kennzahlen als Kacheln; `kompakt` als eine Zeile für Anzeigengruppen und Anzeigen. */
 export function Kacheln({ insights, kompakt }: { insights?: Insights; kompakt?: boolean }) {
