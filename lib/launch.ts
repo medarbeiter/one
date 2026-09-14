@@ -45,6 +45,8 @@ export type CreativeInput = {
   description: string;
   callToAction?: string;
   ad: AdInput;
+  /** Nur von buildCreative(…, { lax }) gesetzt – siehe dort. */
+  lax?: boolean;
 };
 
 /**
@@ -83,12 +85,23 @@ function adFormats(portrait: FormatAsset, square: FormatAsset): string[] {
   return ["AUTOMATIC_FORMAT"];
 }
 
-export function buildCreative(i: CreativeInput) {
-  if (!i.bodies.length || !i.titles.length)
-    throw new Error("Mindestens ein Primärtext und eine Überschrift sind erforderlich.");
-  if (i.bodies.length > 5 || i.titles.length > 5)
-    throw new Error("Meta erlaubt höchstens 5 Primärtexte und 5 Überschriften.");
-  if (!i.formId) throw new Error("Ein Lead-Formular muss ausgewählt sein.");
+/**
+ * `lax` ist der Vorschau-Modus: Metas generatepreviews rendert auch eine
+ * Anzeige mit einem Text und ohne Formular – der Assistent soll sie zeigen
+ * dürfen, lange bevor sie anlegbar ist. Zum Anlegen bleibt alles Pflicht.
+ */
+export function buildCreative(i: CreativeInput, opts: { lax?: boolean } = {}) {
+  if (opts.lax) {
+    const bodies = i.bodies.filter(Boolean);
+    const titles = i.titles.filter(Boolean);
+    i = { ...i, bodies: bodies.length ? bodies : [" "], titles: titles.length ? titles : [" "], lax: true };
+  } else {
+    if (!i.bodies.length || !i.titles.length)
+      throw new Error("Mindestens ein Primärtext und eine Überschrift sind erforderlich.");
+    if (i.bodies.length > 5 || i.titles.length > 5)
+      throw new Error("Meta erlaubt höchstens 5 Primärtexte und 5 Überschriften.");
+    if (!i.formId) throw new Error("Ein Lead-Formular muss ausgewählt sein.");
+  }
 
   // instagramUserId ist immer gesetzt, wenn Instagram-Platzierungen laufen
   // sollen – ohne verknüpftes Konto ist es die PBIA der Seite, die
@@ -111,7 +124,7 @@ export function buildCreative(i: CreativeInput) {
 function singleCreative(i: CreativeInput, ad: Extract<AdInput, { type: "single" }>) {
   // Dieselbe Bedingung wie bei UGC: DEGREES_OF_FREEDOM verlangt ein Feld mit
   // mehr als einem Eintrag, egal ob Video oder Bild darunter liegt.
-  if (i.bodies.length < 2 && i.titles.length < 2)
+  if (!i.lax && i.bodies.length < 2 && i.titles.length < 2)
     throw new Error(
       "Eine Anzeige mit einem einzelnen Motiv braucht mindestens zwei Primärtexte oder zwei Überschriften — Meta lehnt je einen ab.",
     );
@@ -126,7 +139,7 @@ function singleCreative(i: CreativeInput, ad: Extract<AdInput, { type: "single" 
         link: "http://fb.me/",
         call_to_action: {
           type: i.callToAction ?? "APPLY_NOW",
-          value: { lead_gen_form_id: i.formId, link: "http://fb.me/" },
+          value: { ...(i.formId ? { lead_gen_form_id: i.formId } : {}), link: "http://fb.me/" },
         },
       },
     },
@@ -148,7 +161,7 @@ function ugcCreative(i: CreativeInput, ad: Extract<AdInput, { type: "ugc" }>) {
   // benötigen mindestens ein Gestaltungsfreiraum-Feld mit mehr als einem Asset").
   // Die Meldung hier zu werfen ist der Unterschied zwischen einem verständlichen
   // Hinweis im Assistenten und dem Satz oben mitten im Anlegen.
-  if (i.bodies.length < 2 && i.titles.length < 2)
+  if (!i.lax && i.bodies.length < 2 && i.titles.length < 2)
     throw new Error(
       "Eine UGC-Anzeige braucht mindestens zwei Primärtexte oder zwei Überschriften — Meta lehnt je einen ab.",
     );
@@ -163,7 +176,7 @@ function ugcCreative(i: CreativeInput, ad: Extract<AdInput, { type: "ugc" }>) {
         call_to_action: {
           type: i.callToAction ?? "APPLY_NOW",
           // link ist bei Lead-Ads ein Platzhalter – Meta verlangt ihn trotzdem.
-          value: { lead_gen_form_id: i.formId, link: "http://fb.me/" },
+          value: { ...(i.formId ? { lead_gen_form_id: i.formId } : {}), link: "http://fb.me/" },
         },
       },
     },
@@ -230,7 +243,7 @@ function splitCreative(i: CreativeInput, ad: Extract<AdInput, { type: "split" }>
       // Ohne Label und damit für beide Regeln gültig.
       descriptions: [{ text: i.description }],
       call_to_action_types: [cta],
-      call_to_actions: [{ type: cta, value: { lead_gen_form_id: i.formId } }],
+      call_to_actions: [{ type: cta, value: { ...(i.formId ? { lead_gen_form_id: i.formId } : {}) } }],
       link_urls: [
         {
           website_url: "http://fb.me/",

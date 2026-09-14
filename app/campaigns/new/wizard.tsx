@@ -163,8 +163,8 @@ function VorschauSpalte({
       )}
       <Preview
         adSet={adSet}
-        pageName={client?.pageName ?? ""}
         pageId={client?.pageId ?? ""}
+        instagramUserId={client?.instagram?.id}
         adAccount={adAccount}
       />
     </section>

@@ -179,7 +179,8 @@ export const PREVIEW_FORMATS = [
   ["MOBILE_FEED_STANDARD", "Facebook Feed"],
   ["INSTAGRAM_STANDARD", "Instagram Feed"],
   ["INSTAGRAM_STORY", "Instagram Story"],
-  ["INSTAGRAM_REELS", "Reels"],
+  ["INSTAGRAM_REELS", "Instagram Reels"],
+  ["FACEBOOK_REELS_MOBILE", "Facebook Reels"],
 ] as const;
 export type PreviewFormat = (typeof PREVIEW_FORMATS)[number][0];
 
@@ -187,6 +188,18 @@ export type PreviewFormat = (typeof PREVIEW_FORMATS)[number][0];
 export async function adPreview(adId: string, format: PreviewFormat): Promise<string> {
   const r = await graph<{ data?: { body: string }[] }>(`${adId}/previews`, {
     params: { ad_format: format },
+    revalidate: 300,
+    tags: ["campaigns"],
+  });
+  const body = r.data?.[0]?.body;
+  if (!body) throw new Error("Meta liefert für dieses Format keine Vorschau.");
+  return body;
+}
+
+/** Vorschau für eine Anzeige, die es noch nicht gibt – aus dem Creative-Spec des Assistenten. */
+export async function generatePreview(acct: string, creative: unknown, format: PreviewFormat): Promise<string> {
+  const r = await graph<{ data?: { body: string }[] }>(`${acct}/generatepreviews`, {
+    params: { creative, ad_format: format },
     revalidate: 300,
     tags: ["campaigns"],
   });

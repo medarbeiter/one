@@ -653,3 +653,10 @@
 .balken:hover rect:last-of-type {
   fill: var(--color-icon-primary);
 }
+
+/* Metas Vorschau-iframe (Assistent und Kampagnenseite): nie breiter als die
+ * Spalte, keine eigene Kante – der Rahmen ist die Karte drumherum. */
+.vorschau iframe {
+  max-width: 100%;
+  border: 0;
+}

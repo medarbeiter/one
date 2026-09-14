@@ -92,6 +92,10 @@ test("more than five bodies or titles is rejected", () => {
 
 test("at least one body and one title are required", () => {
   expect(() => buildCreative({ ...input, bodies: [] })).toThrow(/mindestens ein/i);
+  // Vorschau: ein Text, kein Formular – geht durch, das Formular fehlt dann im CTA.
+  const lax = buildCreative({ ...input, bodies: ["nur einer"], titles: [""], formId: "" }, { lax: true }) as any;
+  const cta = lax.object_story_spec.video_data?.call_to_action ?? lax.object_story_spec.link_data?.call_to_action ?? lax.asset_feed_spec.call_to_actions?.[0];
+  expect(cta.value.lead_gen_form_id).toBeUndefined();
   expect(() => buildCreative({ ...input, titles: [] })).toThrow(/mindestens ein/i);
 });
 

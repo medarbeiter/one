@@ -3,7 +3,8 @@
 import { updateTag } from "next/cache";
 import { GraphError, graph } from "@/lib/graph";
 import { addAd, type NewAd } from "@/lib/ads";
-import { adPreview, adsManagerUrl, deleteAd, getCampaign, setAdStatus, setDailyBudget, setStatus, type PreviewFormat } from "@/lib/campaigns";
+import { adPreview, adsManagerUrl, deleteAd, generatePreview, getCampaign, setAdStatus, setDailyBudget, setStatus, type PreviewFormat } from "@/lib/campaigns";
+import { buildCreative, type CreativeInput } from "@/lib/launch";
 import type { Receipt } from "@/lib/launch";
 import type { Check } from "@/lib/verify";
 import { getLeadForm, listLeadForms, parseFormId, type LeadForm } from "@/lib/forms";
@@ -412,6 +413,22 @@ export async function addAdAction(campaignId: string, adsetId: string, ad: NewAd
     updateTag(`campaign:${campaignId}`);
     updateTag("campaigns");
     return { ok: `„${ad.name}“ angelegt – pausiert.` };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+}
+
+/**
+ * Vorschau im Assistenten, bevor es die Anzeige gibt: derselbe Creative-Spec,
+ * den das Anlegen schickt, nur nachsichtig gebaut (lax) – ein Text reicht.
+ */
+export async function wizardPreviewAction(
+  adAccount: string,
+  input: CreativeInput,
+  format: PreviewFormat,
+): Promise<{ html?: string; error?: string }> {
+  try {
+    return { html: await generatePreview(adAccount, buildCreative(input, { lax: true }), format) };
   } catch (e) {
     return { error: (e as Error).message };
   }
