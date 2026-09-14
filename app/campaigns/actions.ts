@@ -2,7 +2,8 @@
 
 import { updateTag } from "next/cache";
 import { GraphError, graph } from "@/lib/graph";
-import { adsManagerUrl, setDailyBudget, setStatus } from "@/lib/campaigns";
+import { addAd, type NewAd } from "@/lib/ads";
+import { adPreview, adsManagerUrl, deleteAd, getCampaign, setAdStatus, setDailyBudget, setStatus, type PreviewFormat } from "@/lib/campaigns";
 import type { Receipt } from "@/lib/launch";
 import type { Check } from "@/lib/verify";
 import { getLeadForm, listLeadForms, parseFormId, type LeadForm } from "@/lib/forms";
@@ -361,6 +362,56 @@ export async function closeBriefAction(
       `Kampagne über One angelegt (pausiert): ${campaignName}\n${adsManagerUrl(adAccount, campaignId)}`,
     );
     return {};
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+}
+
+/* ---------- Anzeigen einer laufenden Kampagne ---------- */
+
+export async function adPreviewAction(adId: string, format: PreviewFormat): Promise<{ html?: string; error?: string }> {
+  try {
+    return { html: await adPreview(adId, format) };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+}
+
+export async function setAdStatusAction(campaignId: string, adId: string, status: "ACTIVE" | "PAUSED"): Promise<LaunchResult> {
+  try {
+    await setAdStatus(adId, status);
+    updateTag(`campaign:${campaignId}`);
+    return { ok: status === "ACTIVE" ? "Anzeige ist live." : "Anzeige pausiert." };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+}
+
+export async function deleteAdAction(campaignId: string, adId: string): Promise<LaunchResult> {
+  try {
+    await deleteAd(adId);
+    updateTag(`campaign:${campaignId}`);
+    return { ok: "Anzeige entfernt." };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+}
+
+/**
+ * Eine Anzeige in eine bestehende Gruppe – Motiv ist schon hochgeladen
+ * (/api/upload), Texte und Seite kommen von den Geschwistern (lib/ads.ts).
+ */
+export async function addAdAction(campaignId: string, adsetId: string, ad: NewAd): Promise<LaunchResult> {
+  try {
+    const c = await getCampaign(campaignId);
+    const set = c.adsets.find((s) => s.id === adsetId);
+    if (!set) return { error: "Anzeigengruppe nicht gefunden." };
+    if (!c.account_id) return { error: "Werbekonto der Kampagne unbekannt." };
+    const sibling = set.ads.find((a) => a.status !== "DELETED" && a.creative?.object_story_spec)?.creative;
+    await addAd(`act_${c.account_id}`, adsetId, sibling, ad);
+    updateTag(`campaign:${campaignId}`);
+    updateTag("campaigns");
+    return { ok: `„${ad.name}“ angelegt – pausiert.` };
   } catch (e) {
     return { error: (e as Error).message };
   }

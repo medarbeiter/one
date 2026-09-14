@@ -52,6 +52,34 @@ export const SEED_FIELDS =
   "adsets{id,name,status,daily_budget,targeting,promoted_object," +
   "ads{id,name,status,creative{object_story_spec,asset_feed_spec}}}";
 
+/**
+ * Die Texte einer Anzeigengestaltung: aus asset_feed_spec, sonst aus
+ * object_story_spec. Leere Listen sind [""] – so erwartet es der Assistent.
+ */
+export function creativeTexts(creative: any): { bodies: string[]; titles: string[]; description: string; formId: string; callToAction?: string } {
+  const obj = creative?.object_story_spec ?? {};
+  const af = creative?.asset_feed_spec ?? {};
+  let bodies = (af.bodies ?? []).map((b: any) => b.text?.trim()).filter(Boolean);
+  if (!bodies.length) {
+    const msg = obj.video_data?.message ?? obj.link_data?.message;
+    bodies = msg?.trim() ? [msg.trim()] : [""];
+  }
+  let titles = (af.titles ?? []).map((t: any) => t.text?.trim()).filter(Boolean);
+  if (!titles.length) {
+    const t = obj.video_data?.title ?? obj.link_data?.name;
+    titles = t?.trim() ? [t.trim()] : [""];
+  }
+  const description = af.descriptions?.[0]?.text?.trim() ?? "";
+  const cta = obj.video_data?.call_to_action ?? obj.link_data?.call_to_action ?? af.call_to_actions?.[0];
+  return {
+    bodies,
+    titles,
+    description,
+    formId: String(cta?.value?.lead_gen_form_id ?? ""),
+    callToAction: cta?.type ? String(cta.type) : undefined,
+  };
+}
+
 /** Reine Abbildung der Graph-Antwort – ohne Netz, damit sie testbar bleibt. */
 export function seedFromCampaign(raw: unknown): CampaignSeed {
   const c = raw as Record<string, any>;
@@ -159,34 +187,7 @@ export function seedFromCampaign(raw: unknown): CampaignSeed {
       }
     }
 
-    if (firstMappableTextAd) {
-      const obj = firstMappableTextAd.object_story_spec ?? {};
-      const af = firstMappableTextAd.asset_feed_spec ?? {};
-
-      const b = (af.bodies ?? []).map((b: any) => b.text?.trim()).filter(Boolean);
-      if (b.length) {
-        bodies = b;
-      } else {
-        const msg = obj.video_data?.message ?? obj.link_data?.message;
-        if (msg?.trim()) bodies = [msg.trim()];
-      }
-
-      const t = (af.titles ?? []).map((t: any) => t.text?.trim()).filter(Boolean);
-      if (t.length) {
-        titles = t;
-      } else {
-        const fallbackT = obj.video_data?.title ?? obj.link_data?.name;
-        if (fallbackT?.trim()) titles = [fallbackT.trim()];
-      }
-
-      description = af.descriptions?.[0]?.text?.trim() ?? "";
-
-      const vdFormId = obj.video_data?.call_to_action?.value?.lead_gen_form_id;
-      const ldFormId = obj.link_data?.call_to_action?.value?.lead_gen_form_id;
-      const afFormId = af.call_to_actions?.[0]?.value?.lead_gen_form_id;
-
-      formId = String(vdFormId ?? ldFormId ?? afFormId ?? "");
-    }
+    if (firstMappableTextAd) ({ bodies, titles, description, formId } = creativeTexts(firstMappableTextAd));
 
     if (!formId) {
       warnings.push(`„${name}“: kein Lead-Formular gefunden – bitte wählen.`);

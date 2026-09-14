@@ -6,6 +6,7 @@ import { batch, graph, GraphError } from "./graph";
 import type { Customer } from "./customers";
 export { adsManagerUrl } from "./labels";
 import { uploadImage, uploadVideo, videoThumbnail } from "./uploads";
+import { seedFromCampaign, type CampaignSeed } from "./seed";
 
 export type Period = "today" | "last_7d" | "last_30d" | "maximum";
 export const PERIODS: Period[] = ["today", "last_7d", "last_30d", "maximum"];
@@ -90,7 +91,14 @@ export function pickInsights(raw: any): PeriodInsights {
   return out;
 }
 
-export async function listCampaigns(customers: Customer[], q?: string) {
+export async function listCampaigns(
+  customers: Customer[],
+  q?: string,
+  // Die Suche braucht nur Namen und Status – ohne die vier Insights-Aggregate
+  // antwortet Graph in unter einer Sekunde statt in zehn.
+  opts: { lean?: boolean } = {},
+) {
+  const fields = opts.lean ? "name,status,objective" : FIELDS;
   // Ein Sub-Request pro Werbekonto – nicht pro Kunde: ein Konto kann mehreren
   // Kunden gehören (MedArbeiter zahlt über dasselbe Konto auch für "Jobs -
   // MedArbeiter"). Je Kunde gefragt, käme dieselbe Kampagne doppelt zurück.
@@ -107,7 +115,7 @@ export async function listCampaigns(customers: Customer[], q?: string) {
     : "";
   const settled = await batch<{ data: Campaign[] }>(
     accounts.map((acct) => ({
-      relative_url: `${acct}/campaigns?fields=${encodeURIComponent(FIELDS)}&limit=100${filtering}`,
+      relative_url: `${acct}/campaigns?fields=${encodeURIComponent(fields)}&limit=100${filtering}`,
     })),
     { revalidate: 60, tags: ["campaigns"] },
   );
@@ -139,17 +147,58 @@ export type AdSet = {
   daily_budget?: string;
   optimization_goal?: string;
   billing_event?: string;
+  promoted_object?: { page_id?: string };
   insights: PeriodInsights;
   ads: Ad[];
+};
+export type Creative = {
+  id?: string;
+  thumbnail_url?: string;
+  effective_object_story_id?: string;
+  video_id?: string;
+  object_story_spec?: any;
+  asset_feed_spec?: any;
 };
 export type Ad = {
   id: string;
   name: string;
   status: string;
-  creative?: { thumbnail_url?: string; effective_object_story_id?: string };
+  creative?: Creative;
   insights: PeriodInsights;
 };
-export type CampaignDetail = Campaign & { adsets: AdSet[]; tage: Tag[] };
+export type CampaignDetail = Campaign & {
+  account_id?: string;
+  adsets: AdSet[];
+  tage: Tag[];
+  /** Texte, Formular und Formate je Anzeigengruppe – dieselbe Lesart wie der Assistent. */
+  seed: CampaignSeed;
+};
+
+/** Vorschauformate, die Meta für eine Anzeige rendert – Reihenfolge ist die Reihenfolge im Dialog. */
+export const PREVIEW_FORMATS = [
+  ["MOBILE_FEED_STANDARD", "Facebook Feed"],
+  ["INSTAGRAM_STANDARD", "Instagram Feed"],
+  ["INSTAGRAM_STORY", "Instagram Story"],
+  ["INSTAGRAM_REELS", "Reels"],
+] as const;
+export type PreviewFormat = (typeof PREVIEW_FORMATS)[number][0];
+
+/** Das iframe-HTML einer Vorschau. Fünf Minuten gecacht – die Links darin halten länger. */
+export async function adPreview(adId: string, format: PreviewFormat): Promise<string> {
+  const r = await graph<{ data?: { body: string }[] }>(`${adId}/previews`, {
+    params: { ad_format: format },
+    revalidate: 300,
+    tags: ["campaigns"],
+  });
+  const body = r.data?.[0]?.body;
+  if (!body) throw new Error("Meta liefert für dieses Format keine Vorschau.");
+  return body;
+}
+
+export const setAdStatus = (adId: string, status: "ACTIVE" | "PAUSED") =>
+  graph(adId, { method: "POST", params: { status } });
+
+export const deleteAd = (adId: string) => graph(adId, { method: "DELETE" });
 
 // 31, nicht 25 (Vorgabe): sonst fehlen die ältesten Tage des Monats.
 const DAILY = "insights.date_preset(last_30d).time_increment(1).limit(31).as(i_daily){date_start,spend,actions}";
@@ -157,7 +206,7 @@ const DAILY = "insights.date_preset(last_30d).time_increment(1).limit(31).as(i_d
 export async function getCampaign(id: string): Promise<CampaignDetail> {
   const raw = await graph<any>(id, {
     params: {
-      fields: `${FIELDS},${DAILY},adsets{name,status,daily_budget,optimization_goal,billing_event,${INSIGHTS},ads{name,status,creative{thumbnail_url,effective_object_story_id},${INSIGHTS}}}`,
+      fields: `${FIELDS},account_id,spend_cap,${DAILY},adsets{name,status,daily_budget,optimization_goal,billing_event,targeting,promoted_object,${INSIGHTS},ads{name,status,creative{id,thumbnail_url,effective_object_story_id,video_id,object_story_spec,asset_feed_spec},${INSIGHTS}}}`,
     },
     revalidate: 60,
     tags: ["campaigns", `campaign:${id}`],
@@ -171,6 +220,7 @@ export async function getCampaign(id: string): Promise<CampaignDetail> {
     ...strip(raw),
     insights: pickInsights(raw),
     tage: raw.i_daily?.data ?? [],
+    seed: seedFromCampaign({ ...raw, id }),
     adsets: (raw.adsets?.data ?? []).map((s: any) => ({
       ...strip(s),
       insights: pickInsights(s),

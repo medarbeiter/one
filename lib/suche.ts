@@ -88,7 +88,7 @@ export async function suche(frage: string, bereich?: string): Promise<Treffer[]>
     // Kampagnen filtert Graph selbst über den ganzen Bestand (CONTAIN auf den
     // Namen), gebündelt je Werbekonto – dieselbe Abfrage wie die Kampagnenliste.
     if (!bereich || bereich === "Kampagnen") {
-      const { campaigns } = await listCampaigns(customers, wort).catch(() => ({
+      const { campaigns } = await listCampaigns(customers, wort, { lean: true }).catch(() => ({
         campaigns: [],
       }));
       kampagnen = campaigns.map(kampagneAlsTreffer);

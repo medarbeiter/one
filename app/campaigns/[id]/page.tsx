@@ -1,28 +1,15 @@
 import * as UI from "@/app/shell/ui";
-import { Badge, Button, Card, Collapsible, CollapsibleGroup, EmptyState } from "@/app/shell/ui";
+import { Badge, Button, Card, Collapsible, CollapsibleGroup } from "@/app/shell/ui";
 import { Sign } from "@/theme/icons";
-import { getCampaign, results, type Insights } from "@/lib/campaigns";
+import { getCampaign, PERIODS, results } from "@/lib/campaigns";
 import { label } from "@/lib/labels";
 import { Blatt, Blattkopf } from "@/app/shell/blattkopf";
 import { PeriodNav, readPeriod } from "../period-nav";
 import { Balken } from "../balken";
-import { KENNZAHLEN, kennzahl, money, zahl } from "../kennzahlen";
+import { kennzahl, money, zahl } from "../kennzahlen";
 import { StatusSwitch, BudgetField } from "../row-controls";
-
-/** Alle Kennzahlen als Kacheln; `kompakt` nur die erste Reihe (Anzeigengruppen, Anzeigen). */
-function Kacheln({ insights, kompakt }: { insights?: Insights; kompakt?: boolean }) {
-  const liste = kompakt ? ["spend", "leads", "cpl", "clicks", "ctr", "cpm"].map(kennzahl) : KENNZAHLEN;
-  return (
-    <dl className={kompakt ? "flex flex-wrap gap-x-6 gap-y-2 text-sm" : "grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5"}>
-      {liste.map((k) => (
-        <div key={k.key} title={k.hilfe}>
-          <dt className="text-ink-500 text-xs">{k.label}</dt>
-          <dd className={`font-display text-ink-900 tabular-nums ${kompakt ? "" : "text-xl"}`}>{k.format(k.wert(insights))}</dd>
-        </div>
-      ))}
-    </dl>
-  );
-}
+import { Kacheln } from "./kacheln";
+import { Anzeigen } from "./anzeigen";
 
 const marke = (status: string) => (
   <Badge variant={status === "ACTIVE" ? "success" : "neutral"} label={label(status)} />
@@ -31,8 +18,14 @@ const marke = (status: string) => (
 export default async function CampaignPage({ params, searchParams }: PageProps<"/campaigns/[id]">) {
   const { id } = await params;
   const sp = await searchParams;
-  const period = readPeriod(sp);
   const c = await getCampaign(id);
+  // Ohne Zeitraum in der Adresse (Suche, Kundenseite) den ersten mit Ausgaben:
+  // eine alte, pausierte Kampagne zeigte unter „Letzte 7 Tage“ sonst nur
+  // Striche – und das sieht aus, als wäre nichts geladen worden.
+  const period =
+    typeof sp.period === "string"
+      ? readPeriod(sp)
+      : (PERIODS.find((p) => Number(c.insights?.[p]?.spend) > 0) ?? "maximum");
   const insights = c.insights?.[period];
   const leads = results(insights);
   const cpl = kennzahl("cpl").wert(insights);
@@ -121,33 +114,13 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
                   {label(s.optimization_goal ?? "")} · {label(s.billing_event ?? "")} · täglich{" "}
                   {money(Number(s.daily_budget) / 100)}
                 </div>
-                {s.ads.length ? (
-                  <ul className="space-y-2">
-                    {s.ads.map((ad) => (
-                      <li key={ad.id}>
-                        {/* Jede Anzeige ist eine Karte – dieselbe Fläche, die auch
-                            die Kennzahlen darüber trägt. */}
-                        <Card elevation="low" variant="muted">
-                          <UI.CardContent className="flex items-start gap-3">
-                            {ad.creative?.thumbnail_url && (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={ad.creative.thumbnail_url} alt="" className="size-16 rounded-lg object-cover" />
-                            )}
-                            <div className="min-w-0 flex-1 space-y-2">
-                              <div className="flex items-center gap-2">
-                                <span className="truncate text-sm">{ad.name}</span>
-                                {marke(ad.status)}
-                              </div>
-                              <Kacheln insights={ad.insights[period]} kompakt />
-                            </div>
-                          </UI.CardContent>
-                        </Card>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <EmptyState title="Diese Anzeigengruppe hat noch keine Anzeigen." isCompact />
-                )}
+                <Anzeigen
+                  campaignId={c.id}
+                  adAccount={c.account_id ? `act_${c.account_id}` : undefined}
+                  adsetId={s.id}
+                  ads={s.ads}
+                  period={period}
+                />
               </div>
             </Collapsible>
           ))}
