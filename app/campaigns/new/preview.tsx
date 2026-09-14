@@ -97,7 +97,7 @@ export function Preview({
           />
         )}
 
-        <div className="vorschau flex min-h-[520px] items-start justify-center" aria-busy={laedt}>
+        <div className="vorschau flex min-h-[720px] items-start justify-center" aria-busy={laedt}>
           {!ad ? (
             <Text type="supporting" size="sm" color="secondary">
               Lade ein Motiv hoch – dann zeigt Meta hier die Anzeige.
@@ -111,7 +111,7 @@ export function Preview({
           ) : html[key] ? (
             <div dangerouslySetInnerHTML={{ __html: html[key] }} />
           ) : (
-            <Skeleton className="h-[520px] w-[320px] rounded-lg" />
+            <Skeleton className="h-[720px] w-[360px] rounded-lg" />
           )}
         </div>
 

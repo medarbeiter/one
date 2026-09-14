@@ -657,6 +657,10 @@
 /* Metas Vorschau-iframe (Assistent und Kampagnenseite): nie breiter als die
  * Spalte, keine eigene Kante – der Rahmen ist die Karte drumherum. */
 .vorschau iframe {
+  /* Meta setzt 320×525 und lässt innen scrollen – so groß, dass Feed-Text
+   * und Story ohne Balken hineinpassen. Das Attribut verliert gegen CSS. */
+  width: 360px !important;
+  height: 720px !important;
   max-width: 100%;
   border: 0;
 }

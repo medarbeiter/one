@@ -34,8 +34,9 @@
 .valueRow + .valueRow { border-top: 1px solid var(--color-border-emphasized); }
 .valueRow dt { color: var(--color-text-secondary); }
 .valueRow dd { text-align: right; font-weight: 500; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.review { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 380px); align-items: start; gap: 28px; }
-.reviewPreview { display: grid; min-width: 0; gap: 16px; position: sticky; top: 24px; padding: 20px; border: 1px solid var(--color-border-emphasized); border-radius: var(--radius-container); background: var(--color-background-surface); }
+/* Eine Spalte: die Vorschau steht unter den Standorten. Metas Vorschau ist 320–360 px breit und bis 720 px hoch – neben der Liste war sie eingequetscht und lief über den Rand. */
+.review { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 28px; }
+.reviewPreview { display: grid; min-width: 0; gap: 16px; padding: 20px; border: 1px solid var(--color-border-emphasized); border-radius: var(--radius-container); background: var(--color-background-surface); }
 .footer.footer { position: sticky; bottom: 0; z-index: 20; background: var(--color-background-surface); border-radius: 0 0 var(--radius-container) var(--radius-container); box-shadow: 0 -6px 20px color-mix(in srgb, var(--color-shadow) 12%, transparent); }
 .footerActions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
 .footerEnd { display: flex; min-width: 0; flex: 1; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 16px; }
@@ -74,8 +75,6 @@
 .mediaShelf { background: var(--color-background-muted); border-radius: var(--radius-container); padding: 20px; display: grid; gap: 16px; }
 .mediaGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr)); gap: 20px; }
 @container (max-width: 900px) {
-  .review { grid-template-columns: 1fr; }
-  .reviewPreview { position: static; max-width: 480px; width: 100%; justify-self: center; }
 }
 @container (max-width: 640px) {
   .step, .taskHeader { padding: 20px; }

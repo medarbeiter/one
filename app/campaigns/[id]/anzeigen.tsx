@@ -198,7 +198,7 @@ function Vorschau({ adId, name, isOpen, onOpenChange }: { adId: string; name: st
   }, [isOpen, format, adId, html]);
 
   return (
-    <Dialog isOpen={isOpen} onOpenChange={onOpenChange} purpose="info" width={560}>
+    <Dialog isOpen={isOpen} onOpenChange={onOpenChange} purpose="info" width={640}>
       <div className="flex flex-col gap-4">
         <Heading level={2}>{name}</Heading>
         <SegmentedControl label="Platzierung" value={format} onChange={(v) => setFormat(v as PreviewFormat)} size="sm">
@@ -206,13 +206,13 @@ function Vorschau({ adId, name, isOpen, onOpenChange }: { adId: string; name: st
             <SegmentedControlItem key={wert} value={wert} label={text} />
           ))}
         </SegmentedControl>
-        <div className="flex min-h-[560px] justify-center overflow-auto">
+        <div className="flex min-h-[720px] justify-center overflow-auto">
           {fehler ? (
             <span className="text-sm" style={{ color: "var(--color-error)" }}>{fehler}</span>
           ) : html[format] ? (
             <div className="vorschau" dangerouslySetInnerHTML={{ __html: html[format] }} />
           ) : (
-            <UI.Skeleton className="h-[560px] w-[320px] rounded-lg" />
+            <UI.Skeleton className="h-[720px] w-[360px] rounded-lg" />
           )}
         </div>
       </div>
