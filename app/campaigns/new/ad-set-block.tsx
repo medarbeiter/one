@@ -887,6 +887,8 @@ export function AdSetBlock({
               id: a.id,
               name: nextCreativeName(taken),
               source: a.source,
+              // Bleibt dieselbe Anzeige bei Meta – sie bekommt nur ein neues Creative.
+              ...(a.existingAdId ? { existingAdId: a.existingAdId } : {}),
               type: "split",
               portrait,
               square,
@@ -939,7 +941,8 @@ export function AdSetBlock({
     const fresh = src.ads
       .filter((a) => !a.source && !already.has(`${src.id}:${a.id}`))
       .map((a): WizardAd => {
-        const { id: _id, ...content } = a;
+        // Ohne existingAdId – dieselbe Regel wie in syncLinkedAds.
+        const { id: _id, existingAdId: _meta, ...content } = a;
         return { ...content, id: crypto.randomUUID(), source: { adSetId: src.id, adId: a.id } };
       });
     if (fresh.length) onChange({ ads: [...value.ads, ...fresh] });

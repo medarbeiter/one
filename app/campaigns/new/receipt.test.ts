@@ -37,8 +37,8 @@ test("Retry ordnet Fehler über adSetIndex zu, nicht über Position im Fehler-Ar
   const receipt: Receipt = {
     campaignId: "camp_1",
     adSets: [
-      { index: 0, id: "as_0", name: "Ads – Leipzig", adIds: ["ad_a"] },
-      { index: 1, id: "as_1", name: "Ads – Dresden", adIds: ["ad_c"] },
+      { index: 0, id: "as_0", name: "Ads – Leipzig", ads: [{ id: "ad_a", name: "ad_a" }] },
+      { index: 1, id: "as_1", name: "Ads – Dresden", ads: [{ id: "ad_c", name: "ad_c" }] },
     ],
     failed: [
       // Zuerst der Fehler aus dem zweiten Ad Set, dann erst der aus dem ersten –
@@ -71,8 +71,8 @@ test("gleicher Anzeigenname in zwei Ad Sets landet nur im richtigen Ad Set", () 
   const receipt: Receipt = {
     campaignId: "camp_1",
     adSets: [
-      { index: 0, id: "as_0", name: "Ads – Leipzig", adIds: [] },
-      { index: 1, id: "as_1", name: "Ads – Dresden", adIds: [] },
+      { index: 0, id: "as_0", name: "Ads – Leipzig", ads: [] },
+      { index: 1, id: "as_1", name: "Ads – Dresden", ads: [] },
     ],
     // Nur Dresden ist fehlgeschlagen – Leipzig darf trotz gleichem Anzeigennamen
     // nicht mit erneut versucht werden.
@@ -95,8 +95,8 @@ test("ein beim Anlegen gescheitertes Ad Set kommt komplett in den Retry", () => 
   const receipt: Receipt = {
     campaignId: "camp_1",
     adSets: [
-      { index: 0, id: "as_0", name: "Ads – Leipzig", adIds: ["ad_a", "ad_b"] },
-      { index: 1, id: undefined, name: "Ads – Dresden", adIds: [], error: "adset failed" },
+      { index: 0, id: "as_0", name: "Ads – Leipzig", ads: [{ id: "ad_a", name: "ad_a" }, { id: "ad_b", name: "ad_b" }] },
+      { index: 1, id: undefined, name: "Ads – Dresden", ads: [], error: "adset failed" },
     ],
     failed: [
       { adSetIndex: 1, adSetName: "Ads – Dresden", adName: "c.mp4", error: "adset failed" },

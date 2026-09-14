@@ -329,7 +329,17 @@ export type Receipt = {
    * Fehleintrag verlässlich seinem Ad Set zuordnen muss, ohne sich auf
    * Array-Position oder auf Namen zu verlassen (beide sind vom Bediener frei
    * änderbar und nicht eindeutig). */
-  adSets: { index: number; id?: string; name: string; adIds: string[]; error?: string }[];
+  adSets: {
+    index: number;
+    id?: string;
+    name: string;
+    /** Jede Anzeige, die nach diesem Lauf bei Meta steht, mit ihrem Namen: der
+     * Assistent schreibt die IDs damit in seinen Stand zurück (withMetaIds in
+     * app/campaigns/new/state.ts), sodass das nächste Übernehmen dieselben
+     * Anzeigen ändert statt sie neu anzulegen und die eben angelegten zu löschen. */
+    ads: { id: string; name: string }[];
+    error?: string;
+  }[];
   /** Nach Anzeige geschlüsselt, nicht nach Datei: eine Split-Anzeige hat zwei
    * Dateien, hochgeladen sind zu diesem Zeitpunkt beide, und gescheitert ist die
    * Anzeige. Der Retry baut ohnehin je Anzeige nach.
@@ -477,7 +487,7 @@ async function createAd(ctx: Ctx, job: AdJob): Promise<void> {
       method: "POST",
       params: { ...adParams(job), creative: { creative_id: creative.id } },
     });
-    job.entry.adIds.push(created.id);
+    job.entry.ads.push({ id: created.id, name: job.ad.name });
   } catch (e) {
     fail(ctx, job, causeOf(e));
   } finally {
@@ -607,7 +617,7 @@ async function batchAds(ctx: Ctx, jobs: AdJob[]): Promise<void> {
       // sie ein zweites Mal an. Danach ist die Reihenfolge die Aussage:
       // scheitert das Creative, ist die Anzeige dahinter nur die Folge davon und
       // kein zweiter Fehler.
-      if (ad.status === "fulfilled" && ad.value?.id) job.entry.adIds.push(ad.value.id);
+      if (ad.status === "fulfilled" && ad.value?.id) job.entry.ads.push({ id: ad.value.id, name: job.ad.name });
       else if (transient(creative) || transient(ad)) {
         // Ohne stepDone(): createAd() zählt diese Anzeige gleich selbst ab.
         retry.push(job);
@@ -711,7 +721,7 @@ export async function launch(
   const submittedAdSetIds = new Set<string>();
   const submittedAdIds = new Set<string>();
   // Die Quittung trägt die Gruppen in Eingabereihenfolge, egal wann sie fertig werden.
-  const entries: Receipt["adSets"] = input.adSets.map((set, index) => ({ index, name: set.name, adIds: [] }));
+  const entries: Receipt["adSets"] = input.adSets.map((set, index) => ({ index, name: set.name, ads: [] }));
   receipt.adSets.push(...entries);
 
   // Anzeigengruppen nebeneinander: jede ist ein eigener Aufruf gegen Meta,
@@ -836,7 +846,7 @@ export async function launch(
         })();
 
         if (isMatch) {
-          entry.adIds.push(ad.existingAdId);
+          entry.ads.push({ id: ad.existingAdId, name: ad.name });
           stepDone();
           if (ad.name !== seedAd!.name) {
             try {
@@ -857,7 +867,7 @@ export async function launch(
               method: "POST",
               params: { name: ad.name, creative: { creative_id: creative.id } },
             });
-            entry.adIds.push(ad.existingAdId);
+            entry.ads.push({ id: ad.existingAdId, name: ad.name });
           } catch (e) {
             fail(ctx, { set, entry, ad, adSetIndex }, causeOf(e));
           } finally {

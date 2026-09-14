@@ -122,7 +122,7 @@ export function ReceiptPanel({
             description={
               <>
                 {receipt.adSets
-                  .map((s) => `${s.name}: ${plural(s.adIds.length, "Anzeige", "Anzeigen")}`)
+                  .map((s) => `${s.name}: ${plural(s.ads.length, "Anzeige", "Anzeigen")}`)
                   .join(", ")}
                 {receipt.failed.length > 0 &&
                   ` — ${plural(receipt.failed.length, "Anzeige", "Anzeigen")} fehlgeschlagen`}
@@ -171,7 +171,7 @@ export function ReceiptPanel({
                     <Badge
                       variant={s.error ? "error" : "neutral"}
                       className="tabular-nums"
-                      label={plural(s.adIds.length, "Anzeige", "Anzeigen")}
+                      label={plural(s.ads.length, "Anzeige", "Anzeigen")}
                     />
                   }
                 />

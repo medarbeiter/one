@@ -5,7 +5,7 @@ import { adSetName } from "@/lib/naming";
 import { locationProblem } from "@/lib/geo";
 import { isSuggestedPair, nextCreativeName, normalizeAdName, planAds, uniqueName } from "@/lib/media";
 import type { AssembledBrief, Source } from "@/lib/brief";
-import type { AdInput, AdSetInput, FormatAsset } from "@/lib/launch";
+import type { AdInput, AdSetInput, FormatAsset, Receipt } from "@/lib/launch";
 import type { Orientation } from "@/lib/media";
 import { parseCampaignName } from "@/lib/naming";
 import type { BriefEvidence, Sourced } from "@/lib/brief";
@@ -495,6 +495,33 @@ export function stateFromSeed(
   };
 }
 
+/**
+ * Nach dem Übernehmen: die Meta-IDs aus der Quittung zurück in den Stand – auch
+ * die der eben neu angelegten Gruppen und Anzeigen. Ohne das trug der Stand nur
+ * die IDs vom Laden, und das nächste Übernehmen legte alles seit dem Laden Neue
+ * ein zweites Mal an und löschte die Fassung vom ersten Mal. Gruppen über die
+ * Position (die Quittung führt sie in Eingabereihenfolge), Anzeigen über den
+ * Namen, der je Gruppe eindeutig ist.
+ */
+export function withMetaIds(state: WizardState, receipt: Receipt): WizardState {
+  return {
+    ...state,
+    adSets: state.adSets.map((set, i) => {
+      const entry = receipt.adSets.find((e) => e.index === i);
+      if (!entry?.id) return set;
+      const ids = new Map(entry.ads.map((a) => [a.name, a.id]));
+      return {
+        ...set,
+        existingAdSetId: entry.id,
+        ads: set.ads.map((ad) => {
+          const id = ids.get(ad.name);
+          return id ? { ...ad, existingAdId: id } : ad;
+        }),
+      };
+    }),
+  };
+}
+
 /** Aus einer geliehenen Anzeige wird eine eigene. */
 export function detachAd(ad: WizardAd): WizardAd {
   if (!ad.source) return ad;
@@ -527,7 +554,9 @@ export function syncLinkedAds(input: WizardAdSet[]): WizardAdSet[] {
     const fresh = src.ads
       .filter((a) => !a.source && !have.has(a.id))
       .map((a): WizardAd => {
-        const { id: _id, ...content } = a;
+        // Ohne existingAdId: die Leihe ist bei Meta eine eigene Anzeige in einer
+        // anderen Gruppe, nicht die Quelle.
+        const { id: _id, existingAdId: _meta, ...content } = a;
         return { ...content, id: crypto.randomUUID(), source: { adSetId: src.id, adId: a.id } };
       });
     return fresh.length ? { ...set, ads: [...set.ads, ...fresh] } : set;
@@ -544,8 +573,13 @@ export function syncLinkedAds(input: WizardAdSet[]): WizardAdSet[] {
       const src = source(ad.source.adSetId, ad.source.adId);
       if (!src) return detachAd(ad);
       // Name inbegriffen: "Creative 1" heißt an jedem Standort dasselbe.
-      const { id: _id, source: _s, ...content } = src;
-      return { ...content, id: ad.id, source: ad.source } as WizardAd;
+      const { id: _id, source: _s, existingAdId: _meta, ...content } = src;
+      return {
+        ...content,
+        id: ad.id,
+        source: ad.source,
+        ...(ad.existingAdId ? { existingAdId: ad.existingAdId } : {}),
+      } as WizardAd;
     }),
   }));
 }

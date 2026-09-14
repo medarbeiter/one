@@ -33,6 +33,7 @@ import {
   type WizardLooseAsset,
   type WizardState,
   type WizardVideoAsset,
+  withMetaIds,
 } from "./state";
 
 // Ein Zustand, an dem nichts offen ist – jeder Test dreht genau eine Schraube,
@@ -642,4 +643,59 @@ test("firstScreen und hasWork", () => {
   expect(firstScreen({ stepIndex: 1, manual: false, business: "", taskId: undefined })).toBe("other");
   expect(hasWork(initialState("act_1"))).toBe(false);
   expect(hasWork(ready({ adSets: [{ ...emptyAdSet(0), bodies: ["Text"] }] }))).toBe(true);
+});
+
+// Mosbach, 11.09.: das zweite Übernehmen derselben Sitzung legte die im ersten
+// Lauf neu angelegten Anzeigen noch einmal an und löschte die vom ersten Lauf,
+// weil der Stand ihre Meta-IDs nie erfahren hatte. withMetaIds schließt die Lücke.
+test("withMetaIds: the second Übernehmen edits what the first one created instead of recreating it", async () => {
+  const { launch } = await import("@/lib/launch");
+  const { seedFromCampaign } = await import("@/lib/seed");
+  const creative = (video: string) => ({
+    object_story_spec: { video_data: { video_id: video, call_to_action: { value: { lead_gen_form_id: "f1" } } } },
+    asset_feed_spec: { bodies: [{ text: "b1" }, { text: "b2" }], titles: [{ text: "t1" }] },
+  });
+  const raw = (ads: [string, string][]) => ({
+    id: "c1", name: "Camp", status: "ACTIVE", daily_budget: "1000",
+    adsets: { data: [{
+      id: "s1", name: "Set", status: "ACTIVE", promoted_object: { page_id: "p1" },
+      targeting: { geo_locations: { custom_locations: [{ address_string: "Berlin", radius: 20 }] } },
+      ads: { data: ads.map(([id, video]) => ({ id, name: video, status: "ACTIVE", creative: creative(video) })) },
+    }] },
+  });
+  const submit = (s: WizardState) => ({
+    existingCampaignId: s.editing!.campaignId, update: true, adAccount: "act_1", pageId: "p1",
+    campaignName: s.campaignName, dailyBudgetCents: 1000,
+    adSets: s.adSets.map(({ id: _i, loose: _l, mirrorOf: _m, ads, ...rest }) => ({ ...rest, ads: ads.map(toAdInput) })),
+  });
+  const run = async (s: WizardState, seed: ReturnType<typeof seedFromCampaign>) => {
+    const calls: string[] = [];
+    const graph = async <T = any>(path: string, opts: any = {}): Promise<T> => {
+      calls.push(`${opts.method ?? "GET"} ${path}`);
+      return { id: path.endsWith("/ads") ? "ad-new" : `${path}-x` } as T;
+    };
+    const receipt = await launch(submit(s) as any, { graph, readSeed: async () => seed });
+    return { calls, receipt };
+  };
+
+  // Laden: eine Anzeige. Erster Lauf: eine zweite kommt dazu.
+  const seed1 = seedFromCampaign(raw([["a1", "v1"]]));
+  const state = stateFromSeed(seed1, { mode: "edit", adAccount: "act_1", business: "K", initials: "AB" });
+  const added: WizardState = {
+    ...state,
+    adSets: state.adSets.map((s) => ({
+      ...s,
+      ads: [...s.ads, { id: "w2", name: "v2", type: "ugc", asset: { kind: "video", videoId: "v2", fileName: "v2", orientation: "portrait" } }],
+    })),
+  };
+  const first = await run(added, seed1);
+  expect(first.calls).toEqual(["POST act_1/adcreatives", "POST act_1/ads"]);
+  expect(first.receipt.adSets[0].ads).toEqual([{ id: "a1", name: "v1" }, { id: "ad-new", name: "v2" }]);
+
+  // Zweiter Lauf ohne weitere Änderung, Meta kennt jetzt beide Anzeigen.
+  const seed2 = seedFromCampaign(raw([["a1", "v1"], ["ad-new", "v2"]]));
+  const stale = await run(added, seed2);
+  expect(stale.calls).toEqual(["POST act_1/adcreatives", "POST act_1/ads", "DELETE ad-new"]);
+  const folded = await run(withMetaIds(added, first.receipt), seed2);
+  expect(folded.calls).toEqual([]);
 });

@@ -40,6 +40,7 @@ import {
   toAdInput,
   useWizardState,
   withArrivedAssets,
+  withMetaIds,
   duplicateAdSet,
   firstScreen,
   reapplyBrief,
@@ -519,6 +520,16 @@ function WizardSteps({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignId]);
 
+  // Bearbeiten: nach jedem Übernehmen kennt der Stand die Meta-IDs aus der
+  // Quittung (withMetaIds). Sonst legte das nächste Übernehmen – oder der
+  // Retry – jede seit dem Laden neue Anzeige noch einmal an und löschte die
+  // vom Lauf davor.
+  const receipt = result.receipt;
+  useEffect(() => {
+    if (receipt && state.editing) setState((s) => withMetaIds(s, receipt));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [receipt]);
+
   const clickup = useClickupCloseout(campaignId, state);
   const taskId = state.taskId;
 
@@ -816,6 +827,13 @@ function WizardSteps({
     }
     setConfirmAgain("open");
   };
+
+  // Retry beim Bearbeiten heißt: den ganzen Stand noch einmal übernehmen. Die
+  // Quittung hat ihn eben um die Meta-IDs ergänzt, also ändert der zweite Lauf
+  // an Ort und Stelle, was schon steht, und holt nur nach, was fehlte. Nur die
+  // fehlgeschlagenen Anzeigen zu schicken (buildRetryAdSets) hieße im
+  // Bearbeiten-Modus: alles andere gilt als entfernt und wird gelöscht.
+  const retry = (input: WizardSubmission) => (state.editing ? createNow() : submitWizard(input));
 
   const createNow = () =>
     submitWizard({
@@ -1139,7 +1157,7 @@ function WizardSteps({
                   }
                 />
                 <GhlHinweis />
-                {submission && <ReceiptPanel state={result} submission={submission} onRetry={submitWizard} />}
+                {submission && <ReceiptPanel state={result} submission={submission} onRetry={retry} />}
                 {clickup && (
                   <Banner
                     status={clickup.error ? "warning" : "success"}
@@ -1247,7 +1265,7 @@ function WizardSteps({
                 {campaignId && <GhlHinweis />}
 
                 {submission && (
-                  <ReceiptPanel state={result} submission={submission} onRetry={submitWizard} />
+                  <ReceiptPanel state={result} submission={submission} onRetry={retry} />
                 )}
 
                 {/* Die Aufgabe ist Teil des Ergebnisses, nicht des Formulars:
