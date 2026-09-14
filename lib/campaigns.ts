@@ -187,16 +187,32 @@ export const PREVIEW_GROUPS = [
 ] as const;
 export type PreviewFormat = (typeof PREVIEW_GROUPS)[number]["formats"][number][0];
 
-/** Breite × Höhe je Format: Feed braucht Platz für den Text, 9:16 ist 9:16. */
+/**
+ * Breite × Höhe je Format – gemessen an dem, was Meta tatsächlich zeichnet
+ * (2026-09-14, iframe-Dokument im Browser vermessen): die Instagram-Mocks sind
+ * ein 320 px breites Telefon, egal wie breit man fragt, und ihre Höhe ist fix
+ * (Feed 567, Reels/Story 624). Nur der Facebook-Feed füllt die Breite und
+ * wächst mit dem Text. Größer angefragt heißt: Weißraum rechts und unten –
+ * und mit Metas `scrolling="yes"` ein Rollbalken, der nichts zu rollen hat.
+ */
 export const PREVIEW_SIZE: Record<PreviewFormat, [number, number]> = {
-  INSTAGRAM_STANDARD: [420, 820],
-  MOBILE_FEED_STANDARD: [420, 820],
-  INSTAGRAM_REELS: [420, 747],
-  FACEBOOK_REELS_MOBILE: [420, 747],
-  INSTAGRAM_STORY: [420, 747],
+  INSTAGRAM_STANDARD: [320, 567],
+  MOBILE_FEED_STANDARD: [420, 700],
+  INSTAGRAM_REELS: [320, 624],
+  FACEBOOK_REELS_MOBILE: [320, 567],
+  INSTAGRAM_STORY: [320, 624],
 };
 
 const sized = (format: PreviewFormat) => ({ ad_format: format, width: PREVIEW_SIZE[format][0], height: PREVIEW_SIZE[format][1] });
+
+/**
+ * Meta liefert das iframe mit `scrolling="yes"`; auf einem Mac mit immer
+ * sichtbaren Rollbalken steht damit an jeder Vorschau eine leere Schiene.
+ * Der Inhalt ist auf die Größe oben zugeschnitten, das iframe hat nichts zu
+ * rollen. (Der Rollbalken *im* Instagram-Feed-Mock ist Metas eigener
+ * Telefonbildschirm – 318×565 mit 645 px Inhalt – und von außen nicht erreichbar.)
+ */
+const ohneRollbalken = (body: string) => body.replace('scrolling="yes"', 'scrolling="no"');
 
 /** Das iframe-HTML einer Vorschau. Fünf Minuten gecacht – die Links darin halten länger. */
 export async function adPreview(adId: string, format: PreviewFormat): Promise<string> {
@@ -207,7 +223,7 @@ export async function adPreview(adId: string, format: PreviewFormat): Promise<st
   });
   const body = r.data?.[0]?.body;
   if (!body) throw new Error("Meta liefert für dieses Format keine Vorschau.");
-  return body;
+  return ohneRollbalken(body);
 }
 
 /** Vorschau für eine Anzeige, die es noch nicht gibt – aus dem Creative-Spec des Assistenten. */
@@ -219,7 +235,7 @@ export async function generatePreview(acct: string, creative: unknown, format: P
   });
   const body = r.data?.[0]?.body;
   if (!body) throw new Error("Meta liefert für dieses Format keine Vorschau.");
-  return body;
+  return ohneRollbalken(body);
 }
 
 export const setAdStatus = (adId: string, status: "ACTIVE" | "PAUSED") =>
