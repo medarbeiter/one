@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
-import { AlertDialog, Badge, Button, Dialog, FileInput, Heading, SegmentedControl, SegmentedControlItem, Switch, Text, useToast } from "@astryxdesign/core";
+import { useCallback, useState, useTransition } from "react";
+import { AlertDialog, Badge, Button, Dialog, FileInput, Heading, Switch, Text, useToast } from "@astryxdesign/core";
 import * as UI from "@/app/shell/ui";
 import { Card } from "@/app/shell/ui";
 import { Sign } from "@/theme/icons";
-import { PREVIEW_FORMATS, results, type Ad, type Period, type PreviewFormat } from "@/lib/campaigns";
+import { results, type Ad, type Period, type PreviewFormat } from "@/lib/campaigns";
+import { Vorschauen } from "../vorschauen";
 import { creativeTexts } from "@/lib/seed";
 import { label } from "@/lib/labels";
 import type { FormatAsset } from "@/lib/launch";
@@ -177,44 +178,14 @@ function Textzeile({ name, werte }: { name: string; werte: string[] }) {
   );
 }
 
-/** Metas eigene Vorschau als iframe – erst geholt, wenn der Dialog aufgeht. */
+/** Metas eigene Vorschauen – erst geholt, wenn der Dialog aufgeht. */
 function Vorschau({ adId, name, isOpen, onOpenChange }: { adId: string; name: string; isOpen: boolean; onOpenChange: (o: boolean) => void }) {
-  const [format, setFormat] = useState<PreviewFormat>("MOBILE_FEED_STANDARD");
-  const [html, setHtml] = useState<Record<string, string>>({});
-  const [fehler, setFehler] = useState<string>();
-
-  useEffect(() => {
-    if (!isOpen || html[format]) return;
-    let aktuell = true;
-    setFehler(undefined);
-    adPreviewAction(adId, format).then((r) => {
-      if (!aktuell) return;
-      if (r.html) setHtml((h) => ({ ...h, [format]: r.html! }));
-      else setFehler(r.error);
-    });
-    return () => {
-      aktuell = false;
-    };
-  }, [isOpen, format, adId, html]);
-
+  const lade = useCallback((format: PreviewFormat) => adPreviewAction(adId, format), [adId]);
   return (
-    <Dialog isOpen={isOpen} onOpenChange={onOpenChange} purpose="info" width={640}>
+    <Dialog isOpen={isOpen} onOpenChange={onOpenChange} purpose="info" width={960}>
       <div className="flex flex-col gap-4">
         <Heading level={2}>{name}</Heading>
-        <SegmentedControl label="Platzierung" value={format} onChange={(v) => setFormat(v as PreviewFormat)} size="sm">
-          {PREVIEW_FORMATS.map(([wert, text]) => (
-            <SegmentedControlItem key={wert} value={wert} label={text} />
-          ))}
-        </SegmentedControl>
-        <div className="flex min-h-[720px] justify-center overflow-auto">
-          {fehler ? (
-            <span className="text-sm" style={{ color: "var(--color-error)" }}>{fehler}</span>
-          ) : html[format] ? (
-            <div className="vorschau" dangerouslySetInnerHTML={{ __html: html[format] }} />
-          ) : (
-            <UI.Skeleton className="h-[720px] w-[360px] rounded-lg" />
-          )}
-        </div>
+        {isOpen && <Vorschauen lade={lade} />}
       </div>
     </Dialog>
   );

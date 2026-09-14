@@ -174,20 +174,34 @@ export type CampaignDetail = Campaign & {
   seed: CampaignSeed;
 };
 
-/** Vorschauformate, die Meta für eine Anzeige rendert – Reihenfolge ist die Reihenfolge im Dialog. */
-export const PREVIEW_FORMATS = [
-  ["MOBILE_FEED_STANDARD", "Facebook Feed"],
-  ["INSTAGRAM_STANDARD", "Instagram Feed"],
-  ["INSTAGRAM_STORY", "Instagram Story"],
-  ["INSTAGRAM_REELS", "Instagram Reels"],
-  ["FACEBOOK_REELS_MOBILE", "Facebook Reels"],
+/**
+ * Vorschauen, wie Meta sie rendert – in drei Reitern, je Platzierung beide
+ * Plattformen nebeneinander. Die Größe geht mit in die Anfrage: Meta baut sie
+ * in den Einbettungslink ein, ein nachträgliches CSS-Resize ließe den Inhalt
+ * bei 320 px stehen und scrollen.
+ */
+export const PREVIEW_GROUPS = [
+  { key: "feed", label: "Feed", formats: [["INSTAGRAM_STANDARD", "Instagram"], ["MOBILE_FEED_STANDARD", "Facebook"]] },
+  { key: "reels", label: "Reels", formats: [["INSTAGRAM_REELS", "Instagram"], ["FACEBOOK_REELS_MOBILE", "Facebook"]] },
+  { key: "story", label: "Story", formats: [["INSTAGRAM_STORY", "Instagram"]] },
 ] as const;
-export type PreviewFormat = (typeof PREVIEW_FORMATS)[number][0];
+export type PreviewFormat = (typeof PREVIEW_GROUPS)[number]["formats"][number][0];
+
+/** Breite × Höhe je Format: Feed braucht Platz für den Text, 9:16 ist 9:16. */
+export const PREVIEW_SIZE: Record<PreviewFormat, [number, number]> = {
+  INSTAGRAM_STANDARD: [420, 820],
+  MOBILE_FEED_STANDARD: [420, 820],
+  INSTAGRAM_REELS: [420, 747],
+  FACEBOOK_REELS_MOBILE: [420, 747],
+  INSTAGRAM_STORY: [420, 747],
+};
+
+const sized = (format: PreviewFormat) => ({ ad_format: format, width: PREVIEW_SIZE[format][0], height: PREVIEW_SIZE[format][1] });
 
 /** Das iframe-HTML einer Vorschau. Fünf Minuten gecacht – die Links darin halten länger. */
 export async function adPreview(adId: string, format: PreviewFormat): Promise<string> {
   const r = await graph<{ data?: { body: string }[] }>(`${adId}/previews`, {
-    params: { ad_format: format },
+    params: sized(format),
     revalidate: 300,
     tags: ["campaigns"],
   });
@@ -199,7 +213,7 @@ export async function adPreview(adId: string, format: PreviewFormat): Promise<st
 /** Vorschau für eine Anzeige, die es noch nicht gibt – aus dem Creative-Spec des Assistenten. */
 export async function generatePreview(acct: string, creative: unknown, format: PreviewFormat): Promise<string> {
   const r = await graph<{ data?: { body: string }[] }>(`${acct}/generatepreviews`, {
-    params: { creative, ad_format: format },
+    params: { creative, ...sized(format) },
     revalidate: 300,
     tags: ["campaigns"],
   });
