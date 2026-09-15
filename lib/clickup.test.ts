@@ -134,6 +134,13 @@ test("overviewFacts: eine Zeile nur mit Leerzeichen zählt als leer", () => {
   expect(overviewFacts(md)).toEqual({ address: undefined, rolesText: "FK" });
 });
 
+test("overviewFacts: Adresse über zwei Zeilen – Straße, darunter PLZ Ort", () => {
+  const md = "Adresse: Hildastraße 4a\n68723 Schwetzingen\nPaket: Startangebot\n";
+  expect(overviewFacts(md).address).toBe("Hildastraße 4a, 68723 Schwetzingen");
+  // Die Folgezeile ist keine Ortszeile – nichts anhängen.
+  expect(overviewFacts("Adresse: Musterstr. 1, 12345 Musterstadt\nPaket: Start\n").address).toBe("Musterstr. 1, 12345 Musterstadt");
+});
+
 test("overviewFacts: Markdown-Fettung um den Wert wird abgestreift", () => {
   const md = "Adresse: **Am Illgenberg 2, 76530 Baden-Baden**\n";
   expect(overviewFacts(md)).toEqual({ address: "Am Illgenberg 2, 76530 Baden-Baden", rolesText: undefined });

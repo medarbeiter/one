@@ -226,8 +226,13 @@ export function overviewFacts(markdown: string): { address?: string; rolesText?:
     line?.match(/https?:\/\/[^\s\])]+/)?.[0] ??
     line?.match(/[\w.-]+\.[a-z]{2,}[^\s\])]*/i)?.[0] ??
     markdown.match(/https?:\/\/(?!(?:www\.)?(?:facebook|instagram|clickup|google|drive)\.)[^\s)>\]]+/i)?.[0];
+  // Die Adresse steht oft auf zwei Zeilen – Straße, darunter „PLZ Ort“; ohne
+  // die zweite landet nur die Straße im Standort.
+  const street = pick("Adresse");
+  const cityLine = street && markdown.match(/^Adresse:.*\r?\n[ \t]*(\d{5}[ \t]+[^\n]+?)[ \t]*$/m)?.[1];
+  const address = street && cityLine && !/\d{5}/.test(street) ? `${street}, ${cityLine}` : street;
   return {
-    address: pick("Adresse"),
+    address,
     rolesText: pick("Offene Stellen"),
     ...(km > 0 && { radiusKm: km }),
     ...(website && { website }),
