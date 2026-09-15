@@ -185,3 +185,9 @@ test("der Datenschutz-Linktext nennt den Kunden, solange er ins Limit passt", ()
   expect(privacyLinkText("Pflegedienst mit einem viel zu langen Namen für Metas Linktext GmbH & Co. KG")).toBe("Datenschutzrichtlinie ansehen");
   expect(privacyLinkText("")).toBe("Datenschutzrichtlinie ansehen");
 });
+
+test("eigene Freitextfragen stehen vor der Erreichbarkeit, leer und doppelt fällt weg", () => {
+  const s = buildFormSpec({ ...base, freeText: [" Wo wohnst du? ", "", "wo wohnst du?", REACHABILITY] });
+  expect(s.freeText).toEqual(["Wo wohnst du?", REACHABILITY]);
+  expect(formSpecBlockers({ ...s, freeText: ["", REACHABILITY] })).toContain("Freitext 1: Es fehlt der Fragetext.");
+});

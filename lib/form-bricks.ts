@@ -55,6 +55,16 @@ export const BRICKS: readonly FormBrick[] = [
   },
 ];
 
+/** Freitextfragen, die die Agentur gern vor der Erreichbarkeit stellt. */
+export const FREE_TEXT_BRICKS: readonly string[] = [
+  "Wo wohnst du? (PLZ oder Ort)",
+  "Was motiviert dich, in der Pflege zu arbeiten?",
+  "Was ist dir bei deinem neuen Arbeitgeber besonders wichtig?",
+  "Welche Weiterbildungen oder Zusatzqualifikationen hast du?",
+  "Bei welchem Arbeitgeber bist du aktuell tätig?",
+  "Gibt es etwas, das wir vorab wissen sollten?",
+];
+
 export const brick = (id: string): FormBrick | undefined => BRICKS.find((b) => b.id === id);
 
 /** Eine Zeile je Baustein für den Prompt: id, Frage, Antworten mit Ziel. */

@@ -82,6 +82,8 @@ export type FormSpecInput = {
   initials: string;
   city: string;
   questions: FormQuestion[];
+  /** Eigene Freitextfragen; die Erreichbarkeit hängt buildFormSpec immer hinten an. */
+  freeText?: string[];
   privacyUrl: string;
   website: string;
 };
@@ -243,7 +245,7 @@ export function buildFormSpec(input: FormSpecInput): FormSpec {
     sharing: "Offen",
     intro: { title: introTitle(input.city), description: INTRO_TEXT },
     questions: input.questions.map(clean).filter((q): q is FormQuestion => !!q),
-    freeText: [REACHABILITY],
+    freeText: [...(input.freeText ?? []).map((t) => t.trim()).filter((t, i, all) => t && !same(t, REACHABILITY) && all.findIndex((x) => same(x, t)) === i), REACHABILITY],
     contact: { headline: CONTACT_HEADLINE, fields: ["FULL_NAME", "PHONE", "EMAIL"] },
     privacyUrl: input.privacyUrl.trim() || website,
     privacyLinkText: privacyLinkText(input.business),
@@ -265,6 +267,7 @@ export function formSpecBlockers(spec: FormSpec): string[] {
   return [
     ...(spec.website ? [] : ["Es fehlt die Website des Kunden."]),
     ...(spec.questions.length ? questionBlockers(spec.questions) : ["Es fehlt mindestens eine Frage zur Qualifikation."]),
+    ...spec.freeText.flatMap((t, i) => (t.trim() ? [] : [`Freitext ${i + 1}: Es fehlt der Fragetext.`])),
     ...(spec.intro.title === introTitle("") ? ["Es fehlt der Ort."] : []),
   ];
 }

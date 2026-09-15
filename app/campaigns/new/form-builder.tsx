@@ -4,13 +4,14 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Banner, Button, Dialog, DialogHeader, IconButton, Layout, LayoutContent, LayoutFooter, TextInput } from "@astryxdesign/core";
 import { ArrowDownIcon, ArrowSquareOutIcon, ArrowUpIcon, PlusIcon, SparkleIcon, TrashIcon } from "@phosphor-icons/react";
 import { Sign } from "@/theme/icons";
-import { BRICKS } from "@/lib/form-bricks";
-import { buildFormSpec, formSpecBlockers, gotoOf, moveQuestion, removeQuestion, type FormQuestion, type FormSpec, type Goto } from "@/lib/form-spec";
+import { BRICKS, FREE_TEXT_BRICKS } from "@/lib/form-bricks";
+import { buildFormSpec, formSpecBlockers, gotoOf, moveQuestion, REACHABILITY, removeQuestion, type FormQuestion, type FormSpec, type Goto } from "@/lib/form-spec";
 import { instantFormsUrl } from "@/lib/forms";
 import { suggestFormAction, type FormSuggestInput } from "../actions";
 import styles from "./form-builder.module.css";
 
 type EditorQuestion = FormQuestion & { id: string };
+type EditorFreeText = { id: string; label: string };
 const editable = (q: FormQuestion): EditorQuestion => ({ ...q, id: crypto.randomUUID(), options: [...q.options], goto: { ...q.goto } });
 
 /** Edits stay local; the extension transfers the validated template to Meta for review. */
@@ -21,6 +22,7 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
   useEffect(() => setExtension(document.documentElement.dataset.moFormExt ?? null), []);
   const [spec, setSpec] = useState<FormSpec>();
   const [questions, setQuestions] = useState<EditorQuestion[]>([]);
+  const [freeText, setFreeText] = useState<EditorFreeText[]>([]);
   const [website, setWebsite] = useState("");
   const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState<string>();
@@ -63,6 +65,7 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
       if (res.spec) {
         setSpec(res.spec);
         setQuestions(res.spec.questions.map(editable));
+        setFreeText(res.spec.freeText.filter(t => t !== REACHABILITY).map(label => ({ id: crypto.randomUUID(), label })));
         setWebsite(res.spec.website);
         setUndo(undefined);
         setPreview(false);
@@ -78,10 +81,10 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
   const current = spec ? buildFormSpec({
     business: input.business, roles: input.roles, roleFreeText: input.roleFreeText,
     version: Number(spec.name.match(/ v(\d+)/)?.[1] ?? 1), initials: input.initials,
-    city: input.city, questions, privacyUrl: spec.privacyUrl, website,
+    city: input.city, questions, freeText: freeText.map(t => t.label), privacyUrl: spec.privacyUrl, website,
   }) : undefined;
   // Validate raw editor values: the export removes incomplete questions.
-  const blockers = current ? formSpecBlockers({ ...current, questions }) : [];
+  const blockers = current ? formSpecBlockers({ ...current, questions, freeText: freeText.map(t => t.label) }) : [];
   const build = () => {
     if (!current || blockers.length || busy) return;
     setOpened(undefined);
@@ -139,6 +142,14 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
     const next = questions[i + 1] ?? questions[i - 1];
     if (next) focusQuestion(next.id);
   };
+  const addFreeText = (label = "") => {
+    const added = { id: crypto.randomUUID(), label };
+    setFreeText([...freeText, added]);
+    setOpened(undefined);
+    focusQuestion(added.id);
+    setAnnouncement(`Freitextfrage ${freeText.length + 1} hinzugefügt.`);
+  };
+  const setFree = (next: EditorFreeText[]) => { setFreeText(next); setOpened(undefined); };
   const targetLabel = (i: number, target: Goto) => {
     if (target === "nolead") return "Kein Lead · Formular schließen";
     if (target === "lead") return "Lead · weiter zu den Kontaktdaten";
@@ -258,13 +269,38 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
           })}</div>
         </details>
         <div className={styles.sectionHeading}>
+          <div><h4>Freitextfragen</h4><p>Kommen nach den Fragen oben, ohne Antwortwege. Die Erreichbarkeit steht immer zuletzt.</p></div>
+          <span className={styles.count}>{freeText.length} eigene</span>
+        </div>
+        <ol className={styles.questions} aria-label="Freitextfragen in Reihenfolge">
+          {freeText.map((t, i) => <li key={t.id} className={styles.question}>
+            <div className={styles.questionHeader}>
+              <label className={styles.questionLabel} htmlFor={`${id}-${t.id}`}>Freitext {i + 1}</label>
+              <div className={styles.tools}>
+                <IconButton variant="ghost" size="sm" label={`Freitext ${i + 1} nach oben`} icon={<ArrowUpIcon size={16} />} isDisabled={busy || i === 0} onClick={() => setFree(moveFree(freeText, i, i - 1))} />
+                <IconButton variant="ghost" size="sm" label={`Freitext ${i + 1} nach unten`} icon={<ArrowDownIcon size={16} />} isDisabled={busy || i === freeText.length - 1} onClick={() => setFree(moveFree(freeText, i, i + 1))} />
+                <IconButton variant="ghost" size="sm" label={`Freitext ${i + 1} entfernen`} icon={<TrashIcon size={16} />} isDisabled={busy} onClick={() => setFree(freeText.filter((_, k) => k !== i))} />
+              </div>
+            </div>
+            <textarea id={`${id}-${t.id}`} data-question={t.id} className={styles.questionInput} value={t.label} onChange={e => setFree(freeText.map((x, k) => k === i ? { ...x, label: e.target.value } : x))} placeholder="Was sollen Bewerber frei beantworten?" rows={2} aria-invalid={!t.label.trim()} />
+          </li>)}
+        </ol>
+        <div className={styles.addRow}><Button variant="secondary" icon={<PlusIcon size={16} />} label="Eigene Freitextfrage hinzufügen" onClick={() => addFreeText()} isDisabled={busy} /><span>Oder nutze eine fertige Freitextfrage aus den Bausteinen.</span></div>
+        <details className={styles.details}>
+          <summary>Freitextbausteine <span>{FREE_TEXT_BRICKS.length} Vorlagen</span></summary>
+          <div className={styles.bricks}>{FREE_TEXT_BRICKS.map(b => {
+            const used = freeText.some(t => t.label.trim().toLowerCase() === b.toLowerCase());
+            return <button type="button" key={b} disabled={busy || used} onClick={() => addFreeText(b)}><span>{b}</span><span>{used ? "Hinzugefügt" : "+ Hinzufügen"}</span></button>;
+          })}</div>
+        </details>
+        <div className={styles.sectionHeading}>
           <div><h4>Kontakt & Abschluss</h4><p>Diese Inhalte sind vorgegeben. Die Antwortwege bestimmen, wer sie erreicht.</p></div>
         </div>
         <div className={styles.fixed}>
           <section className={styles.section}>
             <div className={styles.sectionTitle}><h4>Erreichbarkeit</h4><span>Freitext</span></div>
             <div className={styles.readOnly}><p>{current.freeText[0]}</p></div>
-            <p className={styles.sectionHelp}>Nach der letzten Frage geht es hier weiter – außer ein Antwortweg führt direkt zum Abschluss.</p>
+            <p className={styles.sectionHelp}>Nach der letzten Frage und den Freitextfragen geht es hier weiter – außer ein Antwortweg führt direkt zum Abschluss.</p>
           </section>
           <section className={styles.section}>
             <div className={styles.sectionTitle}><h4>Kontaktdaten</h4><span>Nur bei Leads</span></div>
@@ -308,13 +344,22 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
   );
 }
 
+const moveFree = <T,>(list: T[], from: number, to: number): T[] => {
+  const next = [...list];
+  next.splice(to, 0, next.splice(from, 1)[0]);
+  return next;
+};
+
 function FormPreview({ spec }: { spec: FormSpec }) {
   const [path, setPath] = useState<(number | "contact" | "lead" | "nolead")[]>([0]);
   const step = path[path.length - 1];
   const question = typeof step === "number" ? spec.questions[step] : undefined;
+  // Nach den Fragen folgen die Freitexte (Erreichbarkeit zuletzt), dann die Kontaktdaten.
+  const free = typeof step === "number" ? spec.freeText[step - spec.questions.length] : undefined;
   const next = (target: Goto) => {
     const index = typeof step === "number" ? step : 0;
-    setPath([...path, target === "nolead" ? "nolead" : target === "lead" ? "contact" : target === "next" ? index + 1 : target - 1]);
+    const after = target === "next" ? index + 1 : typeof target === "number" ? target - 1 : 0;
+    setPath([...path, target === "nolead" ? "nolead" : target === "lead" || after >= spec.questions.length + spec.freeText.length ? "contact" : after]);
   };
   return <section className={styles.preview} aria-label="Formular testen">
     <div className={styles.previewHeading}><h4>Ablauf testen</h4><span>Vorschau · es werden keine Daten gesendet</span></div>
@@ -322,7 +367,7 @@ function FormPreview({ spec }: { spec: FormSpec }) {
       {question ? <><p>Frage {Number(step) + 1}</p><h3>{question.label}</h3><div className={styles.previewOptions}>{question.options.map(option => <Button key={option} variant="secondary" label={option} onClick={() => next(gotoOf(question, option))} />)}</div></> :
         step === "lead" || step === "nolead" ? <><p>{step === "lead" ? "Ergebnis: Lead" : "Ergebnis: Kein Lead"}</p><h3>{spec.endings[step === "lead" ? "lead" : "nonLead"].title}</h3><p className={styles.previewCopy}>{spec.endings[step === "lead" ? "lead" : "nonLead"].description}</p><p>„Website ansehen“ führt zu {spec.website}</p></> :
         step === "contact" ? <><h3>{spec.contact.headline}</h3><p>Hier geben Bewerber Name, Telefonnummer und E-Mail-Adresse an und bestätigen den Datenschutz.</p><Button variant="primary" label="Bewerbung senden (Test)" onClick={() => setPath([...path, "lead"])} /></> :
-        <><h3>{spec.freeText[0]}</h3><p>Hier können Bewerber ihre gewünschte Rückrufzeit frei angeben.</p><Button variant="secondary" label="Weiter zu den Kontaktdaten" onClick={() => setPath([...path, "contact"])} /></>}
+        <><p>Freitext</p><h3>{free}</h3><p>{free === REACHABILITY ? "Hier können Bewerber ihre gewünschte Rückrufzeit frei angeben." : "Hier antworten Bewerber in eigenen Worten."}</p><Button variant="secondary" label="Weiter" onClick={() => next("next")} /></>}
     </div>
     <div className={styles.previewNavigation}><Button variant="ghost" label="Zurück" isDisabled={path.length === 1} onClick={() => setPath(path.slice(0, -1))} /><Button variant="secondary" label="Neu starten" onClick={() => setPath([0])} /></div>
   </section>;
