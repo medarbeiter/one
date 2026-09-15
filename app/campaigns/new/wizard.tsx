@@ -601,9 +601,10 @@ function WizardSteps({
     router.replace("/campaigns/new");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded]);
-  // Ein Kunde entsteht im Business Manager (Seite dem System User zuweisen),
-  // nicht hier. Der Knopf holt danach nur die Liste: ohne den Tag-Wurf hielte
-  // der Portfolio-Cache die neue Seite bis zu 5 Minuten zurück.
+  // Ein Kunde entsteht im Business Manager, nicht hier. Der Knopf holt danach
+  // die Liste frisch und weist die neue Seite dem System User zu (Begründung
+  // in refreshAssetsAction): ohne den Tag-Wurf hielte der Portfolio-Cache die
+  // neue Seite bis zu 5 Minuten zurück.
   const [reloading, startReload] = useTransition();
   const reloadClients = () =>
     startReload(async () => {

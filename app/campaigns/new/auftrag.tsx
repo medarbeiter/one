@@ -324,7 +324,7 @@ export function KundeWahl({
             isIconOnly
             variant="secondary"
             label="Neuen Kunden nachladen"
-            tooltip="Seite im Business Manager dem System User zuweisen, dann hier nachladen."
+            tooltip="Seite im Business Manager hinzufügen, dann hier nachladen – den System User weist die App selbst zu."
             icon={<UserPlusIcon aria-hidden size={20} weight="bold" />}
             isLoading={reloading}
             onClick={onReload}

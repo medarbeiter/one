@@ -9,6 +9,15 @@ import { graph } from "./graph";
 
 /** MANAGE = Vollzugriff, deckt Anzeigen, Inhalte und Nachrichten ab. */
 export const TASK = "MANAGE";
+/**
+ * Gilt ebenfalls als zugewiesen. Behält ein Kunde beim Teilen seiner Seite
+ * MANAGE für sich, lehnt Meta jeden API-Schreibweg auf assigned_users ab –
+ * auch den für Aufgaben, die der System-Nutzer längst hat (geprüft an
+ * 454649894908632, 2026-09-15). Mehr als ADVERTISE ist dort nicht zu holen,
+ * und Anzeigen brauchen genau das. Ohne die Ausnahme parkte der Abgleich die
+ * Seite in jedem Prozess neu und schrieb bei jedem Start einen Fehlschlag.
+ */
+export const FALLBACK_TASK = "ADVERTISE";
 
 export type AssignedAsset = { id: string; tasks?: string[] };
 export type PortfolioAsset = { id: string; name: string };
@@ -20,14 +29,19 @@ export type PortfolioAsset = { id: string; name: string };
  * jede Anzeige ab.
  */
 export const readyIds = (assigned: AssignedAsset[]) =>
-  new Set(assigned.filter((a) => a.tasks?.includes(TASK)).map((a) => a.id));
+  new Set(
+    assigned
+      .filter((a) => a.tasks?.includes(TASK) || a.tasks?.includes(FALLBACK_TASK))
+      .map((a) => a.id),
+  );
 
 export const missingAssets = (portfolio: PortfolioAsset[], ready: Set<string>) =>
   portfolio.filter((a) => !ready.has(a.id));
 
 export type AssignDeps = {
   listAssets: () => Promise<{ accounts: PortfolioAsset[]; pages: PortfolioAsset[] }>;
-  listAssigned: (edge: "assigned_pages" | "assigned_ad_accounts") => Promise<AssignedAsset[]>;
+  /** Beide Edges des System-Nutzers, ein Aufruf. */
+  listAssigned: () => Promise<AssignedAsset[]>;
   assign: (assetId: string) => Promise<void>;
   /** Nur für Tests – sonst Date.now(). */
   now?: () => number;
@@ -52,13 +66,7 @@ export function createAssigner(deps: AssignDeps, ttl = TTL) {
   const now = () => deps.now?.() ?? Date.now();
 
   async function prime() {
-    const [pages, accounts] = await Promise.all([
-      deps.listAssigned("assigned_pages"),
-      deps.listAssigned("assigned_ad_accounts"),
-    ]);
-    // Erst nach beiden gelungenen Lesungen setzen: ein halber Ist-Zustand ließe
-    // den Abgleich zuweisen, was längst zugewiesen ist.
-    ready = new Set([...readyIds(pages), ...readyIds(accounts)]);
+    ready = readyIds(await deps.listAssigned());
     primedAt = now();
   }
 
@@ -131,11 +139,11 @@ export const realDeps: AssignDeps = {
     const { accounts, pages } = await listAssets();
     return { accounts, pages };
   },
-  listAssigned: async (edge) => {
-    const { data } = await graph<{ data: AssignedAsset[] }>(`${await systemUser()}/${edge}`, {
-      params: { fields: "id,tasks", limit: 500 },
+  listAssigned: async () => {
+    const r = await graph<Record<string, { data: AssignedAsset[] } | undefined>>(await systemUser(), {
+      params: { fields: "assigned_pages.limit(500){id,tasks},assigned_ad_accounts.limit(500){id,tasks}" },
     });
-    return data;
+    return [...(r.assigned_pages?.data ?? []), ...(r.assigned_ad_accounts?.data ?? [])];
   },
   assign: async (id) => {
     await graph(`${id}/assigned_users`, {
@@ -157,17 +165,22 @@ const redact = (s: string) => s.replace(/access_token=[^&\s]+/g, "access_token=�
 /**
  * Auslöser für das Layout. Wirft nie: der Abgleich läuft in after(), die Antwort
  * ist längst raus, und ein Graph-Aussetzer darf keine Seite zerlegen.
+ *
+ * `force` ist der Knopf „Neuen Kunden nachladen“ im Wizard: dort wartet ein
+ * Mensch auf genau diese Zuweisung, also wird der Merker ignoriert.
  */
-export async function ensureAssigned(): Promise<void> {
+export async function ensureAssigned(force = false): Promise<number> {
   // `next build` rendert / und /_not-found vor. Dort gibt es keinen Nutzer, dem
   // etwas fehlen könnte, und jeder Aufruf macht die Seite dynamisch.
-  if (process.env.NEXT_PHASE === "phase-production-build") return;
+  if (process.env.NEXT_PHASE === "phase-production-build") return 0;
   try {
-    const { assigned, failed } = await assigner.run();
+    const { assigned, failed } = await assigner.run(force);
     for (const a of assigned) console.log(`[assign] zugewiesen: ${a.name} (${a.id})`);
     for (const f of failed)
       console.error(`[assign] fehlgeschlagen: ${f.asset.name} (${f.asset.id}): ${redact(f.message)}`);
+    return assigned.length;
   } catch (e) {
     console.error(`[assign] Abgleich nicht möglich: ${redact((e as Error).message)}`);
+    return 0;
   }
 }

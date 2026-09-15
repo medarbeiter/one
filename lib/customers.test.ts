@@ -165,7 +165,7 @@ test("Seiten werden mit ihren verknüpften Assets gelesen", async () => {
   globalThis.fetch = (async (input: any) => {
     const url = new URL(String(input));
     asked.push(url.searchParams.get("fields") ?? "");
-    return new Response(JSON.stringify({ data: [] }), {
+    return new Response(JSON.stringify({ id: "1" }), {
       headers: { "content-type": "application/json" },
     });
   }) as typeof fetch;

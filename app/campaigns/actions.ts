@@ -2,6 +2,7 @@
 
 import { updateTag } from "next/cache";
 import { GraphError, graph } from "@/lib/graph";
+import { ensureAssigned } from "@/lib/assign";
 import { addAd, type NewAd } from "@/lib/ads";
 import { adPreview, adsManagerUrl, deleteAd, generatePreview, getCampaign, setAdStatus, setDailyBudget, setStatus, type PreviewFormat } from "@/lib/campaigns";
 import { buildCreative, type CreativeInput } from "@/lib/launch";
@@ -60,7 +61,13 @@ export async function refreshCampaignsAction(): Promise<void> {
  * antwortete router.refresh() bis zu 5 Minuten mit demselben alten Stand.
  */
 export async function refreshAssetsAction(): Promise<void> {
+  // Erst frisch lesen, dann zuweisen, dann noch einmal wegwerfen: die erste
+  // Lesung kennt die neue Seite, aber ohne Zuweisung fehlt ihr
+  // leadgen_tos_accepted – die zweite liefert die Seite komplett. Der Mensch
+  // wartet hier absichtlich; im Layout läuft derselbe Abgleich nur nach der
+  // Antwort, und der Klick in den Wizard kam ihm bisher zuvor.
   updateTag("assets");
+  if (await ensureAssigned(true)) updateTag("assets");
 }
 
 /**

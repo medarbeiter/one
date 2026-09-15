@@ -151,43 +151,40 @@ const EDGES = [
   ["client_pages", "pages", "client"],
 ] as const;
 
-// ponytail: erste Seite mit 500 Einträgen, kein Paging. Reicht bis ~500 Kunden.
-export async function listAssets() {
-  const settled = await Promise.allSettled(
-    EDGES.map(([edge, kind]) =>
-      graph<{ data: any[] }>(`${meta.business}/${edge}`, {
-        params: {
-          // leadgen_tos_accepted kommt über diese Edge mit und kostet damit
-          // keinen eigenen Aufruf – die Alternative wären 200+ Seiten-Reads.
-          fields:
-            kind === "accounts"
-              ? "name,account_status,currency"
-              : "name,link,fan_count,leadgen_tos_accepted,instagram_business_account{id,username}",
-          limit: 500,
-        },
-        revalidate: 300,
-        tags: ["assets"],
-      }),
-    ),
-  );
+// leadgen_tos_accepted kommt über diese Edge mit und kostet damit keinen
+// eigenen Aufruf – die Alternative wären 200+ Seiten-Reads.
+const FIELDS = {
+  accounts: "name,account_status,currency",
+  pages: "name,link,fan_count,leadgen_tos_accepted,instagram_business_account{id,username}",
+};
 
+// ponytail: erste Seite mit 500 Einträgen, kein Paging. Reicht bis ~500 Kunden.
+/**
+ * Ein Aufruf statt vier: die Edges hängen als Felder am Business. Vorher stand
+ * hier Promise.allSettled je Edge, damit eine kaputte Edge nicht alle leert –
+ * die vier liegen aber am selben Business und fallen gemeinsam oder gar nicht.
+ * Fällt der Aufruf, steht er in `errors`, und die Listen bleiben leer.
+ */
+export async function listAssets() {
   const accounts: AdAccount[] = [];
   const pages: Page[] = [];
   const errors: GraphError[] = [];
-
-  // Promise.allSettled statt all: ein Kunde ohne Freigabe darf nicht die
-  // ganze Seite leeren – genau das war der Fehler in listAssets() vorher.
-  settled.forEach((r, i) => {
-    const [, kind, access] = EDGES[i];
-    if (r.status === "rejected") {
-      errors.push(r.reason as GraphError);
-      return;
+  try {
+    const r = await graph<Record<string, { data: any[] } | undefined>>(meta.business, {
+      params: {
+        fields: EDGES.map(([edge, kind]) => `${edge}.limit(500){${FIELDS[kind]}}`).join(","),
+      },
+      revalidate: 300,
+      tags: ["assets"],
+    });
+    for (const [edge, kind, access] of EDGES) {
+      const tagged = (r[edge]?.data ?? []).map((d) => ({ ...d, access }));
+      if (kind === "accounts") accounts.push(...(tagged as AdAccount[]));
+      else pages.push(...(tagged as Page[]));
     }
-    const tagged = r.value.data.map((d) => ({ ...d, access }));
-    if (kind === "accounts") accounts.push(...(tagged as AdAccount[]));
-    else pages.push(...(tagged as Page[]));
-  });
-
+  } catch (e) {
+    errors.push(e as GraphError);
+  }
   return { accounts, pages, errors };
 }
 

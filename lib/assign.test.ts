@@ -14,13 +14,14 @@ import {
 
 const asset = (id: string) => ({ id, name: id });
 
-test("zugewiesen ist nur, wer MANAGE hat", () => {
+test("zugewiesen ist, wer MANAGE hat – oder ADVERTISE, wo der Kunde MANAGE zurückhält", () => {
   const ready = readyIds([
     { id: "a", tasks: ["MANAGE", "ADVERTISE"] },
     { id: "b", tasks: ["ANALYZE"] },
     { id: "c" },
+    { id: "d", tasks: ["ADVERTISE", "MESSAGING"] },
   ]);
-  expect([...ready]).toEqual(["a"]);
+  expect([...ready]).toEqual(["a", "d"]);
 });
 
 test("was nicht zugewiesen ist, bleibt übrig – und nur das", () => {
@@ -52,8 +53,8 @@ test("nur das Fehlende wird geschrieben", async () => {
   const out = await createAssigner(deps).run();
   expect(calls.writes).toEqual(["b"]);
   expect(out.assigned.map((a) => a.id)).toEqual(["b"]);
-  // Zwei Edges, ein Lauf: der Ist-Zustand kostet zwei Aufrufe, nicht 200.
-  expect(calls.reads).toBe(2);
+  // Ein Lauf, ein Aufruf: beide Edges hängen am System-Nutzer, nicht 200 Assets.
+  expect(calls.reads).toBe(1);
 });
 
 test("der zweite Lauf liest den Ist-Zustand nicht erneut", async () => {
@@ -63,7 +64,7 @@ test("der zweite Lauf liest den Ist-Zustand nicht erneut", async () => {
   await assigner.run();
   // Erste Runde schreibt b, zweite weiß es bereits – ohne einen einzigen Aufruf.
   expect(calls.writes).toEqual(["b"]);
-  expect(calls.reads).toBe(2);
+  expect(calls.reads).toBe(1);
 });
 
 test("nach Ablauf des Merkers wird neu gelesen", async () => {
@@ -72,7 +73,7 @@ test("nach Ablauf des Merkers wird neu gelesen", async () => {
   await assigner.run();
   tick(1000);
   await assigner.run();
-  expect(calls.reads).toBe(4);
+  expect(calls.reads).toBe(2);
   expect(calls.writes).toEqual([]);
 });
 
@@ -94,7 +95,7 @@ test("force liest neu und vergisst Geparktes", async () => {
   await assigner.run();
   await assigner.run(true);
   expect(calls.writes).toEqual(["a", "a"]);
-  expect(calls.reads).toBe(4);
+  expect(calls.reads).toBe(2);
 });
 
 test("parallele Läufe teilen sich einen", async () => {
