@@ -10,12 +10,17 @@
 import { ROLES } from "./naming";
 
 /**
- * Wohin eine Antwort führt – genau die vier Ziele, die Metas Baukasten kennt:
- * "next" die folgende Frage (Standard, steht deshalb nicht im JSON),
- * eine Zahl = eine spätere Frage (F-Nummer, 1-basiert),
- * "lead" = Formular senden (Zielseite E1), "nolead" = Formular schließen (E2).
+ * Wohin eine Antwort führt: "next" die folgende Frage (Standard, steht deshalb
+ * nicht im JSON), eine Zahl = eine spätere Frage (F-Nummer, 1-basiert),
+ * "nolead" = Formular schließen (Zielseite E2).
+ *
+ * Metas Baukasten kennt als viertes Ziel „Formular senden“ (E1) – das gibt es
+ * hier mit Absicht nicht. Zum Lead geht es ausschließlich hinten heraus, über
+ * die Erreichbarkeitsfrage und die Kontaktdaten; eine Antwort, die mitten im
+ * Formular absendet, überspringt die Rückrufzeit und liefert einen Lead, den
+ * niemand erreicht.
  */
-export type Goto = "next" | "lead" | "nolead" | number;
+export type Goto = "next" | "nolead" | number;
 
 export type FormQuestion = {
   label: string;
@@ -186,7 +191,7 @@ const clean = (q: FormQuestion): FormQuestion | undefined => {
   const goto: Record<string, Goto> = {};
   for (const [o, g] of Object.entries(q.goto ?? {})) {
     const key = o.trim();
-    if (options.includes(key) && g !== "next" && (g === "lead" || g === "nolead" || (Number.isInteger(g) && (g as number) > 0))) goto[key] = g;
+    if (options.includes(key) && g !== "next" && (g === "nolead" || (Number.isInteger(g) && (g as number) > 0))) goto[key] = g;
   }
   return { label, options, goto };
 };
@@ -225,13 +230,25 @@ export function assembleQuestions(input: {
   }
   // Zahlen in den KI-Vorschlägen zählen die Vorschlagsliste – hier stehen
   // feste Fragen davor und manche Vorschläge fallen weg, also neu zählen.
-  return out.map((q, i) => {
+  return dropOrphanJumps(out.map((q, i) => {
     if (!input.suggested.includes(raws[i])) return q;
     return renumber([q], (n) => {
       const target = raws.indexOf(input.suggested[n - 1]) + 1;
       return target > i + 1 ? target : "next";
     })[0];
-  });
+  }));
+}
+
+export const UNREACHABLE = "Keine Antwort führt hierher.";
+
+/**
+ * Sprünge, die eine Frage unerreichbar machen, fallen weg – dann gilt wieder
+ * die Reihenfolge. Die KI verzählt sich beim Verzweigen regelmäßig, und ein
+ * Formular, in dem F3 niemand sieht, ist schlechter als eines ohne Sprünge;
+ * von Hand baut der Bediener sie im Editor jederzeit wieder ein.
+ */
+export function dropOrphanJumps(questions: FormQuestion[]): FormQuestion[] {
+  return questionBlockers(questions).some((b) => b.endsWith(UNREACHABLE)) ? renumber(questions, () => "next") : questions;
 }
 
 export function buildFormSpec(input: FormSpecInput): FormSpec {
@@ -300,7 +317,7 @@ export function questionBlockers(questions: FormQuestion[]): string[] {
     }
   });
   questions.forEach((_, i) => {
-    if (i > 0 && !reached.has(i + 1)) out.push(`F${i + 1}: Keine Antwort führt hierher.`);
+    if (i > 0 && !reached.has(i + 1)) out.push(`F${i + 1}: ${UNREACHABLE}`);
   });
   if (questions.length && !questions.some((q) => q.options.some((o) => gotoOf(q, o) === "nolead")))
     out.push("Keine Antwort führt zur Nicht-Lead-Seite – mindestens eine Frage braucht bedingte Logik.");

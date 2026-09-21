@@ -9,7 +9,7 @@
  */
 import { FORM_MODEL, mistral } from "./bodies";
 import { questionList, unfence } from "./form-questions";
-import { gotoOf, REACHABILITY, type FormQuestion } from "./form-spec";
+import { dropOrphanJumps, gotoOf, REACHABILITY, type FormQuestion } from "./form-spec";
 
 export type ChatTurn = { role: "user" | "assistant"; text: string };
 
@@ -65,9 +65,11 @@ ${input.message}
 
 REGELN:
 - Höchstens ${MAX_QUESTIONS} Auswahlfragen, je 2 bis 4 Antworten. Freitextfragen haben keine Antwortwege.
-- "goto" nennt je Antwort das Ziel: "next" (nächste Frage, darf auch fehlen), "lead" (Formular sofort senden), "nolead" (kein Lead, Formular schließen) oder die Nummer einer SPÄTEREN Frage (1-basiert, gezählt in der Liste, die du zurückgibst).
+- "goto" nennt je Antwort das Ziel: "next" (nächste Frage, darf auch fehlen), "nolead" (kein Lead, Formular schließen) oder die Nummer einer SPÄTEREN Frage (1-basiert, gezählt in der Liste, die du zurückgibst).
+- Zum Lead führt KEINE Antwort, „lead“ gibt es nicht. Wer durchkommt, läuft bis ans Ende durch: nach der letzten Frage kommen „${REACHABILITY}“ und die Kontaktdaten, und erst danach gilt die Bewerbung als Lead. Verlangt der Bediener „direkt absenden“, erkläre das in "reply".
+- Springst du, muss jede Frage dazwischen von irgendeiner anderen Antwort erreichbar bleiben – sonst sieht sie niemand. Im Zweifel nicht springen, sondern "next".
 - Mindestens eine Antwort im ganzen Formular muss "nolead" sein – sonst filtert das Formular nichts.
-- Keine Frage darf jede Antwort auf "nolead" schicken, und jede Frage muss von irgendwo erreichbar sein.
+- Keine Frage darf jede Antwort auf "nolead" schicken.
 - Ausbildungen immer mit Dauer nennen: „3-jährige Ausbildung zur Pflegefachkraft“, „1-jährige Ausbildung zur Pflegehilfskraft“.
 - „${REACHABILITY}“ und die Kontaktfelder stehen fest und gehören NICHT in deine Antwort.
 - Ändere nur, was der Bediener will. Alles andere gibst du unverändert zurück.
@@ -93,7 +95,7 @@ export function parseFormEdit(content: string): FormEdit {
   const seen = new Set<string>();
   return {
     reply,
-    ...("questions" in obj ? { questions: questionList(obj.questions, MAX_QUESTIONS) } : {}),
+    ...("questions" in obj ? { questions: dropOrphanJumps(questionList(obj.questions, MAX_QUESTIONS)) } : {}),
     ...("freeText" in obj
       ? {
           freeText: (Array.isArray(obj.freeText) ? obj.freeText : [])

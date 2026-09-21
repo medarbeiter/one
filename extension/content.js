@@ -381,8 +381,9 @@ async function questions(spec) {
   }
 
   // 2) Logik je Antwort, wie die Vorlage sie nennt (goto): "nolead" → Formular
-  //    schließen (E2), "lead" → Formular senden (E1), Zahl → diese Frage,
-  //    sonst die nächste; hinter der letzten Frage heißt „nächste“ senden.
+  //    schließen (E2), Zahl → diese Frage, sonst die nächste; hinter der
+  //    letzten Frage (der Erreichbarkeit) heißt „nächste“ senden – das ist der
+  //    einzige Weg zum Lead, mitten im Formular sendet nichts ab.
   const all = [...spec.questions.map((q) => ({ ...q, mc: true })), ...spec.freeText.map((label) => ({ label, options: [], goto: {}, mc: false }))];
   for (let qi = 0; qi < all.length; qi++) {
     const q = all[qi];
@@ -394,7 +395,7 @@ async function questions(spec) {
       const g = (q.mc && (q.goto ?? {})[q.options[i]]) || "next";
       const targetIndex = typeof g === "number" ? g - 1 : qi + 1;
       const target = all[targetIndex];
-      const outcome = g === "nolead" ? "close" : g === "lead" || !target ? "submit" : "question";
+      const outcome = g === "nolead" ? "close" : !target ? "submit" : "question";
       await setLogic(combos[i], outcome, target?.label, targetIndex + 1);
     }
   }

@@ -7,7 +7,8 @@ test("JSON mit und ohne Zaun, Fremdes fällt heraus, höchstens vier", () => {
   const qs = parseQuestions(raw);
   expect(qs.map((q) => q.label)).toEqual(["A?", "C?", "D?", "E?"]);
   expect(qs[0].goto).toEqual({ Nein: "nolead" });
-  expect(qs[1].goto).toEqual({ "1": "lead", "2": 3 });
+  // "lead" gibt es nicht mehr – zum Lead geht es nur hinten heraus, die Antwort führt also weiter.
+  expect(qs[1].goto).toEqual({ "2": 3 });
   expect(qs[2].goto).toEqual({});
   expect(parseQuestions("kein json")).toEqual([]);
 });

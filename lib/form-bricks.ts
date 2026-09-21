@@ -71,7 +71,7 @@ export const brick = (id: string): FormBrick | undefined => BRICKS.find((b) => b
 export function bricksForPrompt(): string {
   const goto = (q: FormQuestion, o: string) => {
     const g = q.goto[o];
-    return g === "nolead" ? " (Kein Lead)" : g === "lead" ? " (Formular senden)" : "";
+    return g === "nolead" ? " (Kein Lead)" : "";
   };
   return BRICKS.map((b) => `- ${b.id}: „${b.question.label}“ → ${b.question.options.map((o) => `„${o}“${goto(b.question, o)}`).join(" / ")}`).join("\n");
 }

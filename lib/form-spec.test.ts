@@ -8,6 +8,7 @@ import {
   assembleQuestions,
   type FormQuestion,
   buildFormSpec,
+  dropOrphanJumps,
   formName,
   formSpecBlockers,
   LICENSE_QUESTION,
@@ -146,7 +147,7 @@ test("Drag-and-drop über mehrere Positionen erhält explizite Ziele und Grenzen
 
 test("unerreichbare Fragen können keine weiteren Fragen erreichbar machen", () => {
   const q: FormQuestion = { label: "Frage", options: ["Ja", "Nein"], goto: {} };
-  expect(questionBlockers([{ ...q, goto: { Ja: "lead", Nein: "nolead" } }, q, q])).toEqual([
+  expect(questionBlockers([{ ...q, goto: { Ja: 4, Nein: "nolead" } }, q, q, q])).toEqual([
     "F2: Keine Antwort führt hierher.", "F3: Keine Antwort führt hierher.",
   ]);
 });
@@ -177,7 +178,7 @@ test("Blocker für Sprünge: nur vorwärts, und jede Frage muss erreichbar sein"
   expect(questionBlockers([{ label: "A", options: ["1", "2"], goto: { "1": 3, "2": "nolead" } }, b, { ...b, label: "C" }])).toEqual([
     "F2: Keine Antwort führt hierher.",
   ]);
-  expect(questionBlockers([{ label: "A", options: ["1", "2", "3"], goto: { "1": 3, "2": "nolead" } }, { ...b, goto: { "1": "lead" } }, { ...b, label: "C" }])).toEqual([]);
+  expect(questionBlockers([{ label: "A", options: ["1", "2", "3"], goto: { "1": 3, "2": "nolead" } }, b, { ...b, label: "C" }])).toEqual([]);
 });
 
 test("der Datenschutz-Linktext nennt den Kunden, solange er ins Limit passt", () => {
@@ -190,4 +191,15 @@ test("eigene Freitextfragen stehen vor der Erreichbarkeit, leer und doppelt fäl
   const s = buildFormSpec({ ...base, freeText: [" Wo wohnst du? ", "", "wo wohnst du?", REACHABILITY] });
   expect(s.freeText).toEqual(["Wo wohnst du?", REACHABILITY]);
   expect(formSpecBlockers({ ...s, freeText: ["", REACHABILITY] })).toContain("Freitext 1: Es fehlt der Fragetext.");
+});
+
+test("Sprünge, die eine Frage unerreichbar machen, fallen weg", () => {
+  const b: FormQuestion = { label: "B", options: ["1", "2"], goto: {} };
+  const rest = [b, { ...b, label: "C" }];
+  // „1“ springt über F2 hinweg, „2“ fliegt raus – F2 sieht dann niemand mehr.
+  const orphan = [{ label: "A", options: ["1", "2"], goto: { "1": 3, "2": "nolead" as const } }, ...rest];
+  expect(dropOrphanJumps(orphan).map((q) => q.goto)).toEqual([{ "2": "nolead" }, {}, {}]);
+  // Dieselbe Abkürzung, aber „3“ führt nach F2: der Sprung bleibt stehen.
+  const fine = [{ label: "A", options: ["1", "2", "3"], goto: { "1": 3, "2": "nolead" as const } }, ...rest];
+  expect(dropOrphanJumps(fine)).toBe(fine);
 });

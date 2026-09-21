@@ -6,7 +6,7 @@
  */
 import { FORM_MODEL, mistral, roleLabels } from "./bodies";
 import { brick, bricksForPrompt } from "./form-bricks";
-import { assembleQuestions, roleChoiceQuestion, type FormQuestion, type Goto } from "./form-spec";
+import { assembleQuestions, REACHABILITY, roleChoiceQuestion, type FormQuestion, type Goto } from "./form-spec";
 import { placeQualifier, sheetSections } from "./sheet";
 export { parseCsv, sheetSection, sheetSections, type SheetSections } from "./sheet";
 
@@ -111,7 +111,9 @@ REGELN:
 - Was tatsächlich aussortiert: fehlende Ausbildung oder Schein, fehlende Erfahrung, wo der Kunde sie verlangt, ausdrücklich verlangte Zusatzqualifikationen (Beatmungsschein, Intensiv, LG1, Praxisanleiter-Weiterbildung), Deutsch, wenn der Kunde es nennt, Führerschein (kommt fest dazu), ein verlangtes Arbeitszeitmodell (Vollzeit-Pflicht, nur Minijob).
 - Ausbildungen immer mit ihrer Dauer nennen: 3-jährige Ausbildung zur Pflegefachkraft, 1-jährige Ausbildung zur Pflegehilfskraft, LG1-Schein. Nie nur „Ja, als Fachkraft“.
 - Verlangt der Kunde etwas ausdrücklich als Muss, gib den Antworten, die es nicht erfüllen, das Ziel "nolead". Wünsche ohne Muss („gern“, „wäre schön“, „bevorzugt“) werden nicht gefragt.
-- "goto" nennt je Antwort das Ziel; fehlt eine Antwort, geht es zur nächsten Frage. Ziele: "nolead" (Kein Lead), "lead" (Formular sofort senden), oder eine Zahl = Nummer einer späteren Frage in deiner Liste (Sprung, z. B. Fachkraft überspringt die Hilfskraft-Frage).
+- "goto" nennt je Antwort das Ziel; fehlt eine Antwort, geht es zur nächsten Frage. Es gibt nur zwei Ziele: "nolead" (Kein Lead, Formular schließen) oder eine Zahl = Nummer einer späteren Frage in deiner Liste (Sprung, z. B. Fachkraft überspringt die Hilfskraft-Frage).
+- Zum Lead führt KEINE Antwort. Wer durchkommt, läuft bis ans Ende durch: nach der letzten Frage kommen „${REACHABILITY}“ und die Kontaktdaten, und erst danach gilt die Bewerbung als Lead. Ein „Ja“ schickt also nie sofort ab, sondern zur nächsten Frage.
+- Springst du, muss jede Frage dazwischen von irgendeiner anderen Antwort erreichbar bleiben – sonst sieht sie niemand. Im Zweifel nicht springen.
 - Antworten kurz (höchstens 6 Wörter), 2 bis 4 je Frage, ohne Erklärsätze.
 - Nicht fragen (kommt fest dazu oder ist tabu): ${fixed.join("; ")}. Kein Gehalt, Alter, Herkunft, Gesundheit, Familie.
 - Keine Frage nach Ausbildung, wenn ausdrücklich Quereinsteiger ohne Ausbildung gesucht sind.
@@ -142,7 +144,9 @@ export function questionList(data: unknown, limit = 4): FormQuestion[] {
     const out: Record<string, Goto> = {};
     if (!v || typeof v !== "object" || Array.isArray(v)) return out;
     for (const [o, g] of Object.entries(v as Record<string, unknown>)) {
-      if (g === "lead" || g === "nolead" || (typeof g === "number" && Number.isInteger(g) && g > 0)) out[o.trim()] = g;
+      // "lead" kennt die Vorlage nicht mehr – zum Lead geht es nur hinten
+      // heraus. Das Feld fällt weg und heißt damit "next".
+      if (g === "nolead" || (typeof g === "number" && Number.isInteger(g) && g > 0)) out[o.trim()] = g;
     }
     return out;
   };

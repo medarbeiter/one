@@ -173,7 +173,6 @@ export function FormBuilder({ input, form, onBuilt }: {
   const setFree = (next: EditorFreeText[]) => { setFreeText(next); setOpened(undefined); };
   const targetLabel = (i: number, target: Goto) => {
     if (target === "nolead") return "Kein Lead · Formular schließen";
-    if (target === "lead") return "Lead · weiter zu den Kontaktdaten";
     const index = target === "next" ? i + 1 : target - 1;
     return index === questions.length ? "Weiter zur Erreichbarkeit" : `Frage ${index + 1}: ${questions[index]?.label || "Ohne Fragetext"}`;
   };
@@ -299,7 +298,6 @@ export function FormBuilder({ input, form, onBuilt }: {
                         {invalid && <option value={String(target)}>Ungültig: Frage {target} · Ziel ändern</option>}
                         <option value="next">{i + 1 < questions.length ? `Nächste Frage (${i + 2})` : "Erreichbarkeit"}</option>
                         {questions.slice(i + 1).map((later, n) => <option key={later.id} value={String(i + n + 2)}>Frage {i + n + 2}: {later.label || "Ohne Fragetext"}</option>)}
-                        <option value="lead">Lead · Kontaktdaten</option>
                         <option value="nolead">Kein Lead · Ende</option>
                       </select>
                       <p className={styles.route} data-end={target === "nolead" ? "excluded" : undefined}>{targetLabel(i, target)}</p>
@@ -490,7 +488,7 @@ function FormPreview({ spec }: { spec: FormSpec }) {
   const next = (target: Goto) => {
     const index = typeof step === "number" ? step : 0;
     const after = target === "next" ? index + 1 : typeof target === "number" ? target - 1 : 0;
-    setPath([...path, target === "nolead" ? "nolead" : target === "lead" || after >= spec.questions.length + spec.freeText.length ? "contact" : after]);
+    setPath([...path, target === "nolead" ? "nolead" : after >= spec.questions.length + spec.freeText.length ? "contact" : after]);
   };
   return <section className={styles.preview} aria-label="Formular testen">
     <div className={styles.previewHeading}><h4>Ablauf testen</h4><span>Vorschau · es werden keine Daten gesendet</span></div>
