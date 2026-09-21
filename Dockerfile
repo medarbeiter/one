@@ -24,6 +24,8 @@ ENV NODE_ENV=production \
 
 COPY --from=build --chown=bun:bun /app/.next/standalone ./
 COPY --from=build --chown=bun:bun /app/.next/static ./.next/static
+# Standalone nimmt public/ nicht mit – dort liegt der Kachel-Worker der Karte.
+COPY --from=build --chown=bun:bun /app/public ./public
 
 RUN mkdir -p /data && chown bun:bun /data
 VOLUME /data

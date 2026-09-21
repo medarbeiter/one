@@ -13,6 +13,7 @@ import {
   Map as MapLibre,
   Marker,
   NavigationControl,
+  setWorkerUrl,
   type GeoJSONSource,
   type MapMouseEvent,
 } from "maplibre-gl";
@@ -20,6 +21,14 @@ import { useEffect, useRef } from "react";
 import { circleRing, type GeoPin } from "@/lib/geo";
 import { PALETTE } from "@/lib/palette";
 import styles from "./location-map.module.css";
+
+// MapLibre 6 sucht seinen Kachel-Worker neben seinem eigenen Modul – im
+// Next-Bundle liegt dort ein Chunk, kein Worker, und die Karte bleibt still
+// leer (Attribution da, keine Kacheln, kein load-Ereignis). Der Worker
+// importiert zudem eine zweite Datei relativ zu sich selbst, die ein
+// Bundler-Asset nicht mitbrächte. Deshalb liegen beide Dateien in
+// public/maplibre – lib/maplibre-worker.test.ts hält sie mit dem Paket gleich.
+setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 
 const STYLE = "https://tiles.openfreemap.org/styles/positron";
 /** Deutschland – die leere Karte zeigt das Land, nicht die Welt. */
@@ -66,6 +75,11 @@ export default function LocationMap({ center, radiusKm, zoom = 11, onPin }: Loca
     });
     m.addControl(new NavigationControl({ showCompass: false }), "top-right");
     m.on("load", () => {
+      // Positron beschriftet auf Englisch („Hanover“, „Lower Saxony“); die
+      // Kacheln tragen den deutschen Namen mit.
+      for (const layer of m.getStyle().layers)
+        if (layer.type === "symbol" && m.getLayoutProperty(layer.id, "text-field"))
+          m.setLayoutProperty(layer.id, "text-field", ["coalesce", ["get", "name:de"], ["get", "name"]]);
       m.addSource("radius", { type: "geojson", data: EMPTY });
       m.addLayer({
         id: "radius-fill",
