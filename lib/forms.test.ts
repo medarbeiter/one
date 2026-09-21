@@ -181,7 +181,7 @@ test("ein bestehendes Formular kommt als Vorlage zurück – Auswahlfragen, Frei
               { type: "CUSTOM", label: "Wann bist du erreichbar?" },
             ],
             thank_you_page: { website_url: "https://kunde.de" },
-            privacy_policy: { url: "https://kunde.de/datenschutz" },
+            privacy_policy_url: "https://kunde.de/datenschutz",
           },
         }
       : { body: { access_token: "PAGE-111" } },

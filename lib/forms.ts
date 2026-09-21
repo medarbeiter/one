@@ -108,10 +108,10 @@ export async function getFormDetail(pageId: string, formId: string): Promise<For
     LeadForm & {
       questions?: GraphQuestion[];
       thank_you_page?: { website_url?: string };
-      privacy_policy?: { url?: string };
+      privacy_policy_url?: string;
     }
   >(formId, {
-    params: { fields: `${FIELDS},questions{type,label,options},thank_you_page{website_url},privacy_policy{url}` },
+    params: { fields: `${FIELDS},questions{type,label,options},thank_you_page{website_url},privacy_policy_url` },
     asPage: pageId,
   });
   const questions: FormQuestion[] = [];
@@ -134,6 +134,6 @@ export async function getFormDetail(pageId: string, formId: string): Promise<For
     questions,
     freeText,
     website: form.thank_you_page?.website_url ?? "",
-    privacyUrl: form.privacy_policy?.url ?? "",
+    privacyUrl: form.privacy_policy_url ?? "",
   };
 }
