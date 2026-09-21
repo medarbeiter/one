@@ -4,7 +4,7 @@
  * Führerschein, Erreichbarkeit, Kontakt), setzt lib/form-spec.ts danach
  * deterministisch davor bzw. dahinter. Läuft nur auf dem Server.
  */
-import { mistral, roleLabels } from "./bodies";
+import { FORM_MODEL, mistral, roleLabels } from "./bodies";
 import { brick, bricksForPrompt } from "./form-bricks";
 import { assembleQuestions, roleChoiceQuestion, type FormQuestion, type Goto } from "./form-spec";
 import { placeQualifier, sheetSections } from "./sheet";
@@ -22,6 +22,14 @@ export type QuestionsInput = {
   onboardingCsv?: string;
   /** Der Ort der Anzeigengruppe – Bedingungen „für <Ort>“ gelten nur dort. */
   city?: string;
+  /** Der Kunde, wie er in der Anzeige steht – ordnet die Tabellenzeilen zu. */
+  business?: string;
+  /**
+   * Das zuletzt gebaute Formular derselben Stelle beim selben Kunden. Es ist
+   * die beste Quelle für Wortlaut und Schnitt – es lief schon und wurde von
+   * einem Menschen abgenommen. Fehlt es, fällt nur dieser Block weg.
+   */
+  previous?: { name: string; questions: FormQuestion[] };
 };
 
 const LICENSE = /f[üu]hrerschein|fahrerlaubnis|pkw|klasse b/i;
@@ -52,6 +60,18 @@ export function licenseRequired(input: QuestionsInput): boolean {
 /** Aus der Onboarding-Tabelle nur den Block „Welche fachlichen Voraussetzungen muss der Kandidat erfüllen?“. */
 export const requirementsBlock = (csv?: string): string => sheetSections(csv).requirements;
 
+/** Das letzte Formular derselben Reihe als Muster – leer, wenn es keins gibt. */
+function previousBlock(previous: QuestionsInput["previous"]): string {
+  if (!previous?.questions.length) return "";
+  const fragen = previous.questions
+    .map((q, i) => `${i + 1}. ${q.label}\n   ${q.options.join(" / ")}`)
+    .join("\n");
+  return `LETZTES FORMULAR DESSELBEN KUNDEN („${previous.name}“ – dieselbe Stelle, von einem Menschen abgenommen; die Antwortwege stehen dort nicht drin. Übernimm Wortlaut und Schnitt, wo die Quellen oben nichts anderes sagen, und wiederhole keine Frage, die inzwischen wegfällt):
+${fragen}
+
+`;
+}
+
 export function questionsPrompt(input: QuestionsInput): string {
   const roles = roleLabels(input.roles, input.roleFreeText).join(", ") || "Pflegekräfte";
   const sheet = sheetSections(input.onboardingCsv);
@@ -63,6 +83,8 @@ export function questionsPrompt(input: QuestionsInput): string {
   ].filter(Boolean);
   return `Du entwirfst die Qualifizierungsfragen für ein Meta-Lead-Formular einer Pflege-Stellenanzeige (Bewerbung per Handy, Du-Ansprache). Das Formular ist ein Filter: Es soll die aussortieren, die der Kunde sicher nicht nimmt – und sonst niemanden aufhalten. Jede Frage kostet Bewerber. Eine Frage lohnt sich nur, wenn ein nennenswerter Teil der Bewerber an ihr scheitern würde UND der Kunde genau diese Bewerber nicht will.
 
+KUNDE: ${input.business?.trim() || "–"}
+ORT: ${input.city?.trim() || "–"}
 GESUCHTE STELLEN: ${roles}
 
 AUFGABE (Beschreibung und Hinweise der Agentur – hat Vorrang vor der Tabelle):
@@ -80,7 +102,7 @@ ${sheet.conditions || "–"}
 BENEFITS (nur Kontext, daraus entstehen keine Fragen):
 ${input.benefits?.trim() || "–"}
 
-FERTIGE BAUSTEINE (Wortlaut der Agentur – passt einer, nimm ihn per {"brick":"id"} statt ihn umzuschreiben; Ton und Länge sind auch das Maß für eigene Fragen):
+${previousBlock(input.previous)}FERTIGE BAUSTEINE (Wortlaut der Agentur – passt einer, nimm ihn per {"brick":"id"} statt ihn umzuschreiben; Ton und Länge sind auch das Maß für eigene Fragen):
 ${bricksForPrompt()}
 
 REGELN:
@@ -143,7 +165,7 @@ export function questionList(data: unknown, limit = 4): FormQuestion[] {
 export async function suggestQuestions(input: QuestionsInput): Promise<FormQuestion[]> {
   let suggested: FormQuestion[] = [];
   try {
-    suggested = parseQuestions(await mistral(questionsPrompt(input), { temperature: 0.2 }));
+    suggested = parseQuestions(await mistral(questionsPrompt(input), { model: FORM_MODEL, temperature: 0.2 }));
   } catch (e) {
     // Ohne Vorschlag bleiben die festen Fragen – die Vorlage ist trotzdem brauchbar.
     console.warn("Fragenvorschlag fehlgeschlagen:", (e as Error).message);

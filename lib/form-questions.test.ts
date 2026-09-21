@@ -102,3 +102,21 @@ test("Führerschein „für Bad Sulza“ gilt nur für Bad Sulza – ohne Ort f�
   expect(licenseRequired({ roles: ["PFK"], onboardingCsv: grid })).toBe(true);
   expect(licenseRequired({ roles: ["PFK"], notes: "Führerschein nötig", city: "Gera" })).toBe(true);
 });
+
+test("das letzte Formular derselben Reihe steht als Muster im Prompt", () => {
+  const p = questionsPrompt({
+    roles: ["PFK"],
+    business: "Pflegedienst Klee",
+    city: "Renningen",
+    previous: { name: "PFK v2 JP", questions: [{ label: "Hast du einen LG1-Schein?", options: ["Ja", "Nein"], goto: { Nein: "nolead" } }] },
+  });
+  expect(p).toContain("KUNDE: Pflegedienst Klee");
+  expect(p).toContain("ORT: Renningen");
+  expect(p).toContain("PFK v2 JP");
+  expect(p).toContain("1. Hast du einen LG1-Schein?");
+  expect(p).toContain("Ja / Nein");
+});
+
+test("ohne früheres Formular bleibt der Musterblock weg", () => {
+  expect(questionsPrompt({ roles: ["PFK"] })).not.toContain("LETZTES FORMULAR");
+});

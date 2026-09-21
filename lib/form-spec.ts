@@ -160,18 +160,21 @@ export function formName(roles: string[], roleFreeText: string | undefined, vers
  * schon da → 3. Groß-/Kleinschreibung und Abstände zählen nicht.
  */
 export function nextVersion(existingNames: string[], roles: string[], roleFreeText: string | undefined, initials: string): number {
-  const prefix = formName(roles, roleFreeText, 1, initials).replace(/ v1( |$)/, " v");
+  return Math.max(0, ...existingNames.map((name) => familyVersion(name, roles, roleFreeText, initials) ?? 0)) + 1;
+}
+
+/**
+ * Die Versionsnummer, falls der Name zur selben Reihe gehört – „PFK v2 JP“
+ * gehört zu PFK/JP, „PFK v9 AB“ nicht. Damit findet der Vorschlag auch das
+ * zuletzt gebaute Formular derselben Stelle und kann es als Muster zeigen.
+ */
+export function familyVersion(name: string, roles: string[], roleFreeText: string | undefined, initials: string): number | undefined {
   const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
-  let max = 0;
-  for (const name of existingNames) {
-    const n = norm(name);
-    const p = norm(prefix);
-    // Präfix bis vor die Version, dann die Zahl, dann derselbe Rest (Initialen).
-    const [head, tail = ""] = p.split(" v");
-    const m = n.match(new RegExp(`^${escape(head)} v(\\d+)\\s*${escape(tail)}$`));
-    if (m) max = Math.max(max, Number(m[1]));
-  }
-  return max + 1;
+  const prefix = norm(formName(roles, roleFreeText, 1, initials).replace(/ v1( |$)/, " v"));
+  // Präfix bis vor die Version, dann die Zahl, dann derselbe Rest (Initialen).
+  const [head, tail = ""] = prefix.split(" v");
+  const m = norm(name).match(new RegExp(`^${escape(head)} v(\\d+)\\s*${escape(tail)}$`));
+  return m ? Number(m[1]) : undefined;
 }
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");

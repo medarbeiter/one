@@ -7,7 +7,7 @@
  * Rein wie lib/form-spec.ts: der Prompt und das Auslesen stehen hier prüfbar,
  * der Netzaufruf ist die einzige unreine Zeile.
  */
-import { mistral } from "./bodies";
+import { FORM_MODEL, mistral } from "./bodies";
 import { questionList, unfence } from "./form-questions";
 import { gotoOf, REACHABILITY, type FormQuestion } from "./form-spec";
 
@@ -111,6 +111,6 @@ export function parseFormEdit(content: string): FormEdit {
 }
 
 export async function chatForm(input: ChatInput): Promise<FormEdit> {
-  const edit = parseFormEdit(await mistral(chatPrompt(input), { temperature: 0.2 }));
+  const edit = parseFormEdit(await mistral(chatPrompt(input), { model: FORM_MODEL, temperature: 0.2 }));
   return edit.reply ? edit : { ...edit, reply: "Erledigt – sieh dir die Fragen links an." };
 }

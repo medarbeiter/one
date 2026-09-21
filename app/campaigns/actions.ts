@@ -15,7 +15,7 @@ import { estimateReach, fitReachRadius, searchPlaces, type FittedRadius, type Re
 import { lastCampaignDefaults, type Prefill } from "@/lib/prefill";
 import { generateBody, generateDescription, generateTitles, type BodiesInput } from "@/lib/bodies";
 import { closeBrief, customerOverview, getBrief, listOpenBriefs, type Brief } from "@/lib/clickup";
-import { buildFormSpec, nextVersion, type FormQuestion, type FormSpec } from "@/lib/form-spec";
+import { buildFormSpec, familyVersion, nextVersion, type FormQuestion, type FormSpec } from "@/lib/form-spec";
 import { chatForm, type ChatInput, type FormEdit } from "@/lib/form-chat";
 import { suggestQuestions } from "@/lib/form-questions";
 import { findPrivacyUrl, normalizeWebsite } from "@/lib/privacy-url";
@@ -166,11 +166,10 @@ export async function suggestFormAction(input: FormSuggestInput): Promise<FormSu
             return "";
           })
       : "";
-    const [questions, names, website] = await Promise.all([
-      suggestQuestions({ ...input, onboardingCsv }),
-      listLeadForms(input.pageId).then((fs) => fs.map((f) => f.name)).catch((e: Error) => {
+    const [forms, website] = await Promise.all([
+      listLeadForms(input.pageId).catch((e: Error) => {
         warnings.push(`Formularliste nicht lesbar – Version v1 angenommen: ${e.message}`);
-        return [] as string[];
+        return [] as LeadForm[];
       }),
       input.website?.trim()
         ? normalizeWebsite(input.website)
@@ -179,6 +178,22 @@ export async function suggestFormAction(input: FormSuggestInput): Promise<FormSu
             return "";
           }),
     ]);
+    const names = forms.map((f) => f.name);
+    // Das zuletzt gebaute Formular derselben Reihe ist das beste Muster für
+    // den Vorschlag – es lief schon und wurde abgenommen. Ein Aufruf mehr.
+    const last = forms
+      .map((f) => ({ f, v: familyVersion(f.name, input.roles, input.roleFreeText, input.initials) ?? 0 }))
+      .sort((a, b) => b.v - a.v)
+      .filter((x) => x.v > 0)[0]?.f;
+    const previous = last
+      ? await getFormDetail(input.pageId, last.id)
+          .then((d) => (d.questions.length ? { name: d.name, questions: d.questions } : undefined))
+          .catch((e: Error) => {
+            warnings.push(`Das letzte Formular „${last.name}“ ist nicht lesbar – Vorschlag ohne Muster: ${e.message}`);
+            return undefined;
+          })
+      : undefined;
+    const questions = await suggestQuestions({ ...input, onboardingCsv, previous });
     if (!website) warnings.push("Keine Website gefunden – bitte eintragen.");
     const privacyUrl = website ? await findPrivacyUrl(website) : "";
     if (website && privacyUrl === website) warnings.push("Kein Datenschutz-Link auf der Website gefunden – die Website selbst steht drin.");

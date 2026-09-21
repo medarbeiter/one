@@ -247,6 +247,16 @@ export function parseBody(content: string): string {
 // fester Vorlage reicht small und antwortet in wenigen Sekunden.
 const MODEL = "mistral-medium-latest";
 
+/**
+ * Die Formulare laufen auf large: anders als die Anzeigentexte folgen sie
+ * keiner Vorlage, sondern müssen urteilen – siebt diese Frage wirklich
+ * jemanden aus, und ist sie in den Quellen belegt? Das kann large besser, und
+ * ein Aufruf je Vorschlag verträgt die Sekunden. Das JSON drumherum ist nicht
+ * der schwierige Teil; parseQuestions und parseFormEdit fangen ohnehin ab,
+ * was nicht passt.
+ */
+export const FORM_MODEL = "mistral-large-latest";
+
 /** Ein Prompt, eine Antwort als roher Text – geteilt von Text, Überschriften
  *  und Beschreibung; mit Bildteilen im Inhalt auch von lib/headline.ts.
  *
