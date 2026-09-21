@@ -810,14 +810,14 @@ export function evidenceLines(e: CampaignEvidence): BriefEvidence {
   });
   const sheet = (where: string, quote: string): Beleg => ({
     source: "onboarding",
-    title: e.onboarding.sheet?.name ?? "Onboarding-Tabelle",
+    title: e.onboarding.sheet ? `Tabelle „${e.onboarding.sheet.name}“` : "Onboarding-Tabelle",
     where,
     quote,
     url: e.onboarding.sheet && sheetUrl(e.onboarding.sheet.id),
   });
   const doc = (where: string, quote: string): Beleg => ({
     source: "clickup",
-    title: e.overview.doc?.name ?? "Kundenübersicht",
+    title: e.overview.doc ? `Doc „${e.overview.doc.name}“` : "Kundenübersicht",
     where,
     quote,
     url: e.overview.doc?.url,

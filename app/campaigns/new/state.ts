@@ -193,11 +193,25 @@ export const emptyAdSet = (index: number, city?: string): WizardAdSet => ({
 export const objectiveOf = (state: Pick<WizardState, "objective">): Objective =>
   state.objective ?? "OUTCOME_LEADS";
 
+/**
+ * Belege je Feld zusammenführen, nicht ersetzen: eine Vorlage und ein Auftrag
+ * können beide etwas zu den Stellen sagen, und beides soll im Tooltip stehen.
+ * Gleiche Belege (Auflösung nach Vorschlag) fallen zusammen.
+ */
+export function mergeEvidence(a: BriefEvidence | undefined, b: BriefEvidence | undefined): BriefEvidence {
+  const out: BriefEvidence = { ...a };
+  for (const [field, list] of Object.entries(b ?? {}) as [keyof BriefEvidence, Beleg[]][]) {
+    const seen = new Set((out[field] ?? []).map((x) => JSON.stringify(x)));
+    out[field] = [...(out[field] ?? []), ...list.filter((x) => !seen.has(JSON.stringify(x)))];
+  }
+  return out;
+}
+
 /** Das Kürzel kommt aus dem Namen der Anmeldung – der Beleg dazu, damit auch dieses Feld seine Herkunft zeigt. */
 const sessionBeleg = (initials: string, personName: string): Beleg => ({
   source: "session",
-  title: personName || undefined,
-  where: "Name der Anmeldung",
+  title: personName ? `Anmeldung als ${personName}` : "Anmeldung",
+  where: "Kürzel",
   quote: personName ? `${personName} → ${initials}` : initials,
 });
 
@@ -237,7 +251,7 @@ export function applyBrief(state: WizardState, brief: AssembledBrief): WizardSta
     formHint: brief.formHint?.value,
     driveFolderId: brief.driveFolderId?.value,
     onboardingSheetId: brief.onboardingSheetId,
-    evidence: { ...state.evidence, ...brief.evidence },
+    evidence: mergeEvidence(state.evidence, brief.evidence),
     quellen: brief.quellen ?? state.quellen,
   };
   if (brief.formHint) sources.formHint = brief.formHint.sources;
@@ -307,7 +321,7 @@ export function reapplyBrief(
   const next: WizardState = {
     ...state,
     sources: { ...state.sources },
-    evidence: { ...state.evidence, ...final.evidence },
+    evidence: mergeEvidence(state.evidence, final.evidence),
     quellen: final.quellen ?? state.quellen,
   };
   next.copyInstructions = final.copyInstructions;

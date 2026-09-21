@@ -33,6 +33,7 @@ import {
   type WizardLooseAsset,
   type WizardState,
   type WizardVideoAsset,
+  mergeEvidence,
 } from "./state";
 
 // Ein Zustand, an dem nichts offen ist – jeder Test dreht genau eine Schraube,
@@ -651,4 +652,13 @@ test("firstScreen und hasWork", () => {
   expect(firstScreen({ stepIndex: 1, manual: false, business: "", taskId: undefined })).toBe("other");
   expect(hasWork(initialState("act_1"))).toBe(false);
   expect(hasWork(ready({ adSets: [{ ...emptyAdSet(0), bodies: ["Text"] }] }))).toBe(true);
+});
+
+test("mergeEvidence hängt Belege an und lässt doppelte weg", () => {
+  const a = { roles: [{ source: "campaign" as const, quote: "PFK" }] };
+  const b = { roles: [{ source: "clickup" as const, quote: "PDL" }, { source: "campaign" as const, quote: "PFK" }], benefits: [{ source: "onboarding" as const }] };
+  expect(mergeEvidence(a, b)).toEqual({
+    roles: [{ source: "campaign", quote: "PFK" }, { source: "clickup", quote: "PDL" }],
+    benefits: [{ source: "onboarding" }],
+  });
 });

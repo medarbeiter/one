@@ -63,7 +63,7 @@ export type SheetSections = {
   requirements: string;
   certificates: string;
   conditions: string;
-  /** „Wie gestaltet sich Ihr Jobangebot?“ – Benefits, „Besteht aktuell“ und „Weitere Vorschläge“. */
+  /** Benefits, „Besteht aktuell“ und „Weitere Vorschläge“ – je nach Vorlage „Wie gestaltet sich Ihr Jobangebot?“ oder „Was bieten Sie neuen Mitarbeitern an?“. */
   offer: string;
   /** „Wo befinden sich die Patienten?“ – Standort/Radius. */
   patients: string;
@@ -77,7 +77,7 @@ export function sheetSections(csv?: string): SheetSections {
     requirements: sheetSection(grid, /vor+aus+etzung/i),
     certificates: sheetSection(grid, /zertifikat|f[üu]hrerschein|sonstige/i),
     conditions: sheetSection(grid, /arbeitsbedingung/i),
-    offer: sheetSection(grid, /jobangebot/i),
+    offer: sheetSection(grid, /jobangebot|bieten sie/i),
     patients: sheetSection(grid, /patienten/i),
   };
 }

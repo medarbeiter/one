@@ -1,7 +1,7 @@
 'use client';
 
 import {
-  ArrowClockwise, Calendar, CaretLeft, CaretLineLeft, CaretLineRight, DotsSixVertical,
+  ArrowClockwise, Calendar, ChatText, CheckSquare, Table, UserCircle, CaretLeft, CaretLineLeft, CaretLineRight, DotsSixVertical,
   CaretRight, ChatCircleText, ChartLine, Check, Copy, DotsThree, EnvelopeSimple, Eye, FacebookLogo, Funnel, Gear, GridNine,
   Heart, House, ImageSquare, InstagramLogo, Link as LinkIcon, MagnifyingGlass, MapPin, Megaphone,
   PaperPlaneTilt, Pause, PencilSimple, Play, Plus, Prohibit, Rocket, SignOut, Sun, Trash, Tray,
@@ -58,6 +58,12 @@ export const MEANINGS = {
   warning: { solid: Warning, outline: Warning },
 
   previous: { solid: CaretLeft, outline: CaretLeft },
+
+  // Quellen eines Werts (Herkunftskarte): woher der Assistent gelesen hat.
+  task: { solid: CheckSquare, outline: CheckSquare },
+  table: { solid: Table, outline: Table },
+  hint: { solid: ChatText, outline: ChatText },
+  login: { solid: UserCircle, outline: UserCircle },
   next: { solid: CaretRight, outline: CaretRight },
 
   moreActions: { solid: DotsThree, outline: DotsThree },
