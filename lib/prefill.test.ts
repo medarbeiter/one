@@ -109,3 +109,15 @@ test("newestAdSet mit Seite: nur Ad Sets dieser Seite zählen, auch wenn ein fre
   expect(newestAdSet(sets, "42")?.id).toBe("eigen-neu");
   expect(newestAdSet(sets, "1")).toBeUndefined();
 });
+
+test("ein gesetzter Pin kommt als Koordinate zurück", () => {
+  const p = defaultsFromAdSet({
+    targeting: {
+      geo_locations: {
+        custom_locations: [{ latitude: 51.05, longitude: 13.74, radius: 20, address_string: "Dresden" }],
+      },
+    },
+  } as any);
+  expect(p.pin).toEqual({ lat: 51.05, lng: 13.74 });
+  expect(p.radiusKm).toBe(20);
+});

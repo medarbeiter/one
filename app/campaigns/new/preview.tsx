@@ -4,7 +4,7 @@ import { useCallback, useMemo, useState } from "react";
 import { Button, Card, Selector } from "@astryxdesign/core";
 import { Sign } from "@/theme/icons";
 import type { PreviewFormat } from "@/lib/campaigns";
-import type { CreativeInput } from "@/lib/launch";
+import type { CreativeInput, Objective } from "@/lib/launch";
 import { Vorschauen } from "../vorschauen";
 import { wizardPreviewAction } from "../actions";
 import { toAdInput, type WizardAdSet } from "./state";
@@ -18,11 +18,14 @@ import { toAdInput, type WizardAdSet } from "./state";
  */
 export function Preview({
   adSet,
+  objective,
   pageId,
   instagramUserId,
   adAccount,
 }: {
   adSet: WizardAdSet;
+  /** Bei Reichweite zeigt Meta „Mehr dazu“ statt des Formular-Knopfes. */
+  objective: Objective;
   pageId: string;
   instagramUserId?: string;
   adAccount: string;
@@ -41,13 +44,14 @@ export function Preview({
     return {
       pageId,
       instagramUserId,
+      objective,
       formId: adSet.formId,
       bodies: [adSet.bodies[index] ?? adSet.bodies[0] ?? ""],
       titles: [adSet.titles[index] ?? adSet.titles[0] ?? ""],
       description: adSet.description,
       ad: toAdInput(ad),
     };
-  }, [ad, pageId, instagramUserId, adSet.formId, adSet.bodies, adSet.titles, adSet.description, index]);
+  }, [ad, pageId, instagramUserId, objective, adSet.formId, adSet.bodies, adSet.titles, adSet.description, index]);
   const schluessel = input ? JSON.stringify(input) : "";
   const lade = useCallback(
     (format: PreviewFormat) => wizardPreviewAction(adAccount, input!, format),

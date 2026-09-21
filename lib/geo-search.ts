@@ -6,7 +6,7 @@
  * Beide Aufrufe legen bei Meta nichts an. `search` liest ein Verzeichnis,
  * `delivery_estimate` rechnet nur.
  */
-import { toGeoPlace, geoLocations, type GeoPlace } from "./geo";
+import { toGeoPlace, geoLocations, type GeoPlace, type LocationInput } from "./geo";
 import { actId, graph } from "./graph";
 import { PLACEMENTS } from "./targeting";
 
@@ -69,10 +69,7 @@ export async function searchPlaces(q: string, countryCode = "DE"): Promise<GeoPl
  */
 export type Reach = { ready: true; lower: number; upper: number } | { ready: false };
 
-export async function estimateReach(
-  adAccount: string,
-  i: { addressString: string; radiusKm: number; place?: GeoPlace },
-): Promise<Reach> {
+export async function estimateReach(adAccount: string, i: LocationInput): Promise<Reach> {
   const { data } = await graph<{
     data: {
       estimate_mau_lower_bound?: number;

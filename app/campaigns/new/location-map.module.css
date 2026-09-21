@@ -1,0 +1,18 @@
+/* Die Karte sitzt wie ein Feld im Formular: gleiche Kante, gleicher Radius. */
+.map { position: relative; height: 320px; min-width: 0; overflow: hidden; border: 1px solid var(--color-border-emphasized); border-radius: var(--radius-container); background: var(--color-background-muted); }
+.map:focus-within { border-color: var(--color-text-primary); }
+/* Positron ist kühlgrau; das Haus ist warmes Papier. Ein Filter auf der Leinwand, kein eigener Kartenstil. */
+.map :global(.maplibregl-canvas) { filter: sepia(0.22) saturate(0.85); }
+.map :global(.maplibregl-canvas-container.maplibregl-interactive) { cursor: crosshair; }
+.map :global(.maplibregl-ctrl-group) { border-radius: var(--radius-element); box-shadow: 0 1px 3px color-mix(in srgb, var(--color-shadow) 14%, transparent); }
+.map :global(.maplibregl-ctrl-attrib) { font-size: 10px; font-family: inherit; }
+.map :global(.maplibregl-cooperative-gesture-screen) { font-family: inherit; font-size: var(--font-size-base); background: color-mix(in srgb, var(--color-text-primary) 60%, transparent); }
+.skeleton { height: 320px; border: 1px solid var(--color-border-emphasized); border-radius: var(--radius-container); background: linear-gradient(100deg, var(--color-background-muted) 40%, var(--color-background-surface) 50%, var(--color-background-muted) 60%); background-size: 300% 100%; animation: shimmer 1.4s var(--ease-move) infinite; }
+@keyframes shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+/* Der Pin: Gold auf Tinte, wie ein Primärknopf. MapLibre setzt das transform des
+   Elements selbst – deshalb liegt jede eigene Bewegung auf dem SVG darin. */
+.pin { width: 30px; height: 40px; cursor: grab; }
+.pin:active { cursor: grabbing; }
+.pin svg { display: block; transform-origin: 50% 100%; filter: drop-shadow(0 2px 2px rgb(28 25 23 / 0.28)); transition: transform var(--beat-tap) var(--ease-in); }
+.pin:hover svg { transform: translateY(-3px); }
+@media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }

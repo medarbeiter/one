@@ -11,9 +11,9 @@
  * Formular), fällt mit einer Warnung heraus statt halb übernommen zu werden.
  */
 import { graph as realGraph } from "./graph";
-import type { AdInput, FormatAsset } from "./launch";
+import type { AdInput, FormatAsset, Objective } from "./launch";
 import { defaultsFromAdSet } from "./prefill";
-import type { GeoPlace } from "./geo";
+import type { GeoPin, GeoPlace } from "./geo";
 
 /** Eine Anzeige aus Meta, wie lib/launch.ts sie anlegen würde – plus ihre ID dort. */
 export type SeedAd = AdInput & { metaId: string };
@@ -24,6 +24,7 @@ export type SeedAdSet = {
   addressString: string;
   radiusKm: number;
   place?: GeoPlace;
+  pin?: GeoPin;
   /** Nur bei Gruppenbudget statt Kampagnenbudget – in dieser App die Ausnahme. */
   dailyBudgetCents?: number;
   formId: string;
@@ -37,6 +38,8 @@ export type CampaignSeed = {
   campaignId: string;
   name: string;
   status: string;
+  /** Das Ziel, wie es bei Meta steht – unveränderlich, deshalb gelesen statt geraten. */
+  objective?: Objective;
   /** Die Seite aus promoted_object der ersten Anzeigengruppe – sie bestimmt den Kunden. */
   pageId?: string;
   dailyBudgetEuros?: number;
@@ -48,7 +51,7 @@ export type CampaignSeed = {
 
 /** Alles, was seedFromCampaign() liest – ein Aufruf, die ganze Kampagne. */
 export const SEED_FIELDS =
-  "name,status,daily_budget,spend_cap," +
+  "name,status,objective,daily_budget,spend_cap," +
   "adsets{id,name,status,daily_budget,targeting,promoted_object," +
   "ads{id,name,status,creative{object_story_spec,asset_feed_spec}}}";
 
@@ -199,6 +202,7 @@ export function seedFromCampaign(raw: unknown): CampaignSeed {
       addressString,
       radiusKm,
       place,
+      ...(defaults.pin ? { pin: defaults.pin } : {}),
       ...(set.daily_budget !== undefined ? { dailyBudgetCents: Number(set.daily_budget) } : {}),
       formId,
       bodies,
@@ -215,6 +219,9 @@ export function seedFromCampaign(raw: unknown): CampaignSeed {
     campaignId: String(c.id || ""),
     name: String(c.name || ""),
     status: String(c.status || ""),
+    // Nur die zwei Ziele, die dieser Assistent anlegt – ein fremdes (Traffic,
+    // Engagement) bleibt leer und der Entwurf bleibt beim Normalfall Leads.
+    objective: c.objective === "OUTCOME_AWARENESS" ? ("OUTCOME_AWARENESS" as Objective) : undefined,
     pageId: pageId || undefined,
     dailyBudgetEuros: daily_budget,
     spendCapEuros: spend_cap,

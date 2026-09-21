@@ -58,7 +58,11 @@ export async function POST(request: Request) {
     sink.push({ type: "progress", label: "Wird überprüft, was erstellt wurde", done: total, total });
     try {
       const checks = await verifyCampaign(receipt.campaignId, {
-        formIds: Object.fromEntries(input.adSets.map((s) => [s.name, s.formId])),
+        // Bei Reichweite trägt keine Anzeige ein Formular – auch dann nicht,
+        // wenn im Entwurf noch eins ausgewählt stand (buildCreative ignoriert es).
+        formIds: Object.fromEntries(
+          input.adSets.map((s) => [s.name, input.objective === "OUTCOME_AWARENESS" ? "" : s.formId]),
+        ),
         // Derselbe Bauplan, der auch an Meta ging (lib/geo.ts) – die Prüfung
         // vergleicht damit gegen das Geschickte und nicht gegen eine zweite,
         // hier nachgebaute Erwartung, die auseinanderlaufen könnte.

@@ -4,15 +4,18 @@
  */
 export const LABELS: Record<string, string> = {
   OUTCOME_LEADS: "Leads",
+  OUTCOME_AWARENESS: "Reichweite",
   OUTCOME_TRAFFIC: "Traffic",
   OUTCOME_ENGAGEMENT: "Engagement",
   LEAD_GENERATION: "Leads maximieren",
+  REACH: "Reichweite maximieren",
   LINK_CLICKS: "Link-Klicks",
   IMPRESSIONS: "Impressionen",
   LOWEST_COST_WITHOUT_CAP: "Niedrigste Kosten",
   ON_AD: "Instant-Formular",
   EMPLOYMENT: "Stellenanzeigen",
   APPLY_NOW: "Jetzt bewerben",
+  LEARN_MORE: "Mehr dazu",
   DE: "Deutschland",
   AT: "Österreich",
   CH: "Schweiz",

@@ -12,7 +12,7 @@ import { label } from "@/lib/labels";
 import type { FormatAsset } from "@/lib/launch";
 import { addAdAction, adPreviewAction, deleteAdAction, setAdStatusAction } from "../actions";
 import { kennzahl, money, zahl } from "../kennzahlen";
-import { Kacheln } from "../kacheln";
+import { Kacheln } from "./kacheln";
 
 /**
  * Die Anzeigen einer Anzeigengruppe: Karte je Anzeige mit Motiv, Zahlen,

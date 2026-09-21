@@ -47,7 +47,7 @@ function deps(sent: WizardSubmission[]): AutopilotDeps {
     texts: async () => ({ bodies: ["a", "b"], titles: ["x", "y"], description: "✅ Dienstwagen" }),
     launch: async (s) => {
       sent.push(s);
-      return { campaignId: "c9", adSets: [{ index: 0, id: "s1", name: s.adSets[0].name, ads: [] }], failed: [] };
+      return { campaignId: "c9", adSets: [{ index: 0, id: "s1", name: s.adSets[0].name, adIds: [] }], failed: [] };
     },
     now: () => new Date(2026, 8, 7),
   };

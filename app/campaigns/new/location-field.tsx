@@ -18,6 +18,7 @@ import form from "./campaign-form.module.css";
  */
 
 import { useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import {
   Slider,
   Spinner,
@@ -30,20 +31,29 @@ import {
   fitRadius,
   formatReach,
   locationProblem,
+  pinLabel,
   placeContext,
   placeTextValue,
   radiusRange,
   reachAdvice,
+  type GeoPin,
   type GeoPlace,
+  type LocationInput,
 } from "@/lib/geo";
 import type { Reach } from "@/lib/geo-search";
-import { reachAction, searchPlacesAction } from "../actions";
+import { geocodeAction, reachAction, reverseGeocodeAction, searchPlacesAction } from "../actions";
+import mapStyles from "./location-map.module.css";
 
-export type LocationValue = {
-  addressString: string;
-  radiusKm: number;
-  place?: GeoPlace;
-};
+/**
+ * Die Karte kommt erst mit dem Standort, nicht mit der Seite: MapLibre wiegt
+ * 250 kB und braucht WebGL – nichts davon gehört in den ersten Schirm.
+ */
+const LocationMap = dynamic(() => import("./location-map"), {
+  ssr: false,
+  loading: () => <div className={mapStyles.skeleton} aria-hidden />,
+});
+
+export type LocationValue = LocationInput;
 
 /** Tippen ist schneller als das Netz – ohne Wartezeit ginge jeder Buchstabe als
  *  eigener Aufruf gegen Metas Limit. Der Typeahead debounct selbst damit. */
@@ -52,14 +62,25 @@ const SEARCH_DELAY_MS = 250;
  *  Ziehen am Radius, und dort will niemand zehn Zwischenstände sehen. */
 const REACH_DELAY_MS = 600;
 
-/** Ein Treffer aus Metas Ortsverzeichnis, verpackt für den Typeahead. */
-type PlaceItem = SearchableItem<GeoPlace> & { auxiliaryData: GeoPlace };
+/** Ein Treffer aus Metas Ortsverzeichnis – oder der gesetzte Pin – als Token im Typeahead. */
+type PlaceItem = SearchableItem<GeoPlace | GeoPin> & { auxiliaryData: GeoPlace | GeoPin };
+
+const isPlace = (x: GeoPlace | GeoPin): x is GeoPlace => "key" in x;
 
 const toPlaceItem = (place: GeoPlace): PlaceItem => ({
   id: place.key,
   label: placeTextValue(place),
   auxiliaryData: place,
 });
+
+/** Der Pin steht im Feld wie ein gewählter Ort: als Token mit ×, nicht als Text zum Verstolpern. */
+const toPinItem = (pin: GeoPin, label: string): PlaceItem => ({ id: "pin", label, auxiliaryData: pin });
+
+/** Wonach die Karte einen Ort aus Metas Verzeichnis sucht – Name plus Stadt oder Land gegen Verwechslung. */
+const placeQuery = (p: GeoPlace) => [p.name, p.primaryCity ?? p.region].filter(Boolean).join(", ");
+
+/** Zoom ohne Umkreis: ein Bundesland braucht Abstand, ein Stadtteil Nähe. */
+const ZOOM: Record<GeoPlace["type"], number> = { region: 7, city: 10, zip: 12, subcity: 12, neighborhood: 13 };
 
 /**
  * Ortssuche über Metas Verzeichnis. Der Typeahead ruft search() selbst
@@ -107,6 +128,22 @@ export function LocationField({
   const range = radiusRange(value.place);
 
   const reach = useReach(adAccount, value);
+  const center = useMapCenter(value);
+  const latestPin = useRef(value.pin);
+  latestPin.current = value.pin;
+
+  /**
+   * Ein Klick auf die Karte: der Pin gilt sofort, mit Koordinaten im Feld, und
+   * der Name kommt nach – Meta bekommt ohnehin die Koordinate, der Name ist
+   * nur für den, der das Feld liest.
+   */
+  const placePin = (pin: GeoPin) => {
+    onChange({ pin, place: undefined, addressString: pinLabel(pin), radiusKm: fitRadius(value.radiusKm) });
+    void reverseGeocodeAction(pin).then((label) => {
+      // Nur, wenn der Pin inzwischen nicht weitergewandert ist.
+      if (label && latestPin.current === pin) onChange({ addressString: label });
+    });
+  };
 
   return (
     <div className="space-y-4">
@@ -128,19 +165,28 @@ export function LocationField({
           }
           searchSource={placeSearchSource}
           debounceMs={SEARCH_DELAY_MS}
-          value={value.place ? toPlaceItem(value.place) : null}
+          value={
+            value.place
+              ? toPlaceItem(value.place)
+              : value.pin
+                ? toPinItem(value.pin, value.addressString || pinLabel(value.pin))
+                : null
+          }
           onChange={(item) => {
-            if (item) {
+            // Aus der Liste kommt nur ein Ort – der Pin steht nie drin.
+            if (item && isPlace(item.auxiliaryData)) {
               const place = item.auxiliaryData;
               onChange({
                 place,
+                pin: undefined,
                 addressString: placeTextValue(place),
                 radiusKm: fitRadius(value.radiusKm, place),
               });
               return;
             }
+            if (item) return;
             // Explizites Leeren über das × am Token.
-            onChange({ place: undefined, addressString: "" });
+            onChange({ place: undefined, pin: undefined, addressString: "" });
           }}
           onChangeQuery={(text) => {
             // Der eingetippte Text ist wieder eine Adresse – der zuvor gewählte
@@ -148,11 +194,12 @@ export function LocationField({
             // die Stadt, während im Feld eine Straße steht. Beim Eintritt in den
             // Bearbeiten-Modus meldet der Typeahead einmalig genau inputValue –
             // das ist kein Tippen, sondern nur das Sichtbarmachen des Werts.
-            if (text !== inputValue) onChange({ addressString: text, place: undefined });
+            if (text !== inputValue) onChange({ addressString: text, place: undefined, pin: undefined });
           }}
           emptySearchResultsText="Kein Ort bei Meta gefunden. Die Eingabe zählt dann als Adresse."
           renderItem={(item) => {
             const place = item.auxiliaryData;
+            if (!isPlace(place)) return item.label;
             return (
               <div className="flex flex-col">
                 <Text type="label" as="div">
@@ -207,9 +254,51 @@ export function LocationField({
         )}
       </div>
 
+      {/* Die Karte ist die Antwort auf „wo genau?“ – der Text im Feld sagt das
+          nur dem, der die Adresse kennt. Klick setzt den Pin, der Kreis ist
+          der Umkreis, den Meta bespielt. */}
+      <LocationMap
+        center={center}
+        radiusKm={range ? value.radiusKm : undefined}
+        zoom={value.place ? ZOOM[value.place.type] : undefined}
+        onPin={placePin}
+      />
+      <Text type="supporting" as="div">
+        Klick auf die Karte setzt den Standort als Pin, Ziehen verschiebt ihn.
+        {range && " Der Kreis ist der Umkreis, in dem die Anzeigen laufen."}
+      </Text>
+
       <ReachLine reach={reach} />
     </div>
   );
+}
+
+/**
+ * Wo die Karte hinschaut. Ein Pin ist selbst der Punkt; Ort und Adresse
+ * sucht Photon (lib/geocode.ts) – verzögert wie die Reichweite, und der
+ * letzte Fund bleibt stehen, bis der nächste da ist. Sonst spränge die Karte
+ * bei jedem Tastendruck nach Deutschland zurück.
+ */
+function useMapCenter(value: LocationValue): GeoPin | undefined {
+  const query = value.pin ? "" : value.place ? placeQuery(value.place) : value.addressString.trim();
+  const settled = useDebounced(query, REACH_DELAY_MS);
+  const [found, setFound] = useState<GeoPin | undefined>();
+
+  useEffect(() => {
+    if (settled.length < 3) {
+      setFound(undefined);
+      return;
+    }
+    let current = true;
+    void geocodeAction(settled).then((pin) => {
+      if (current) setFound(pin);
+    });
+    return () => {
+      current = false;
+    };
+  }, [settled]);
+
+  return value.pin ?? (query ? found : undefined);
 }
 
 type ReachState = { loading: true } | { loading: false; reach: Reach | { error: string } } | null;
@@ -223,9 +312,11 @@ function useReach(adAccount: string, value: LocationValue): ReachState {
   const [state, setState] = useState<ReachState>(null);
   // Der Ort steckt in einem Objekt; ohne diesen Schlüssel liefe der Effekt bei
   // jedem Tastendruck neu, weil das Objekt jedes Mal ein neues ist.
+  // Beim Pin zählt die Koordinate, nicht der Name, der ihr nachkommt – sonst
+  // fragte die Schätzung zweimal nach demselben Targeting.
   const key = JSON.stringify([
     adAccount,
-    value.place?.key ?? value.addressString.trim(),
+    value.place?.key ?? (value.pin ? `${value.pin.lat},${value.pin.lng}` : value.addressString.trim()),
     value.radiusKm,
   ]);
   const settled = useDebounced(key, REACH_DELAY_MS);
@@ -244,6 +335,7 @@ function useReach(adAccount: string, value: LocationValue): ReachState {
       addressString: latest.current.addressString,
       radiusKm: latest.current.radiusKm,
       place: latest.current.place,
+      pin: latest.current.pin,
     }).then((reach) => {
       if (current) setState({ loading: false, reach });
     });

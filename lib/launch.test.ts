@@ -322,6 +322,45 @@ test("the budget sits on the campaign, not the ad set", async () => {
   expect(calls.find((c) => c.path.endsWith("/adsets"))!.params.daily_budget).toBeUndefined();
 });
 
+// ---------------------------------------------------------------- Reichweite
+
+// Dieselbe Eingabe, nur das Ziel getauscht: das Formular bleibt im Entwurf
+// stehen und darf trotzdem nirgends ankommen – Meta nimmt unter
+// OUTCOME_AWARENESS keins an.
+const reachInput = { ...input, objective: "OUTCOME_AWARENESS" as const, linkUrl: "https://facebook.com/kunde" };
+
+test("eine Reichweiten-Anzeige trägt kein Formular, sondern den Link", () => {
+  const ugc: any = buildCreative(reachInput);
+  const cta = ugc.object_story_spec.video_data.call_to_action;
+  expect(cta.type).toBe("LEARN_MORE");
+  expect(cta.value.lead_gen_form_id).toBeUndefined();
+  expect(cta.value.link).toBe("https://facebook.com/kunde");
+
+  const single: any = buildCreative({ ...reachInput, ad: singleAd });
+  expect(single.object_story_spec.link_data.link).toBe("https://facebook.com/kunde");
+  expect(single.object_story_spec.link_data.call_to_action.value.lead_gen_form_id).toBeUndefined();
+
+  const split: any = buildCreative({ ...reachInput, ad: splitAd });
+  expect(split.asset_feed_spec.call_to_actions[0].value.lead_gen_form_id).toBeUndefined();
+  expect(split.asset_feed_spec.link_urls[0].website_url).toBe("https://facebook.com/kunde");
+});
+
+test("ohne Link ist eine Reichweiten-Anzeige nicht anlegbar", () => {
+  expect(() => buildCreative({ ...reachInput, linkUrl: undefined })).toThrow(/Link/);
+  // Und umgekehrt: ohne Formular bleibt der Lead-Weg blockiert.
+  expect(() => buildCreative({ ...input, formId: "" })).toThrow(/Lead-Formular/);
+});
+
+test("Reichweite optimiert auf Reichweite, ohne Instant-Formular-Ziel", async () => {
+  const { g, calls } = fakeGraph();
+  await launch({ ...oneAdSet, objective: "OUTCOME_AWARENESS", linkUrl: "https://facebook.com/kunde" }, { graph: g });
+  expect(calls.find((c) => c.path.endsWith("/campaigns"))!.params.objective).toBe("OUTCOME_AWARENESS");
+  const set = calls.find((c) => c.path.endsWith("/adsets"))!.params;
+  expect(set.optimization_goal).toBe("REACH");
+  expect(set.destination_type).toBeUndefined();
+  expect(set.promoted_object).toBeUndefined();
+});
+
 test("the ad set carries the lead form destination", async () => {
   const { g, calls } = fakeGraph();
   await launch(oneAdSet, { graph: g });
@@ -334,13 +373,13 @@ test("the ad set carries the lead form destination", async () => {
 test("one ad per planned ad, named after it", async () => {
   const { g, calls } = fakeGraph();
   const r = await launch(oneAdSet, { graph: g });
-  expect(r.adSets[0].ads).toHaveLength(2);
+  expect(r.adSets[0].adIds).toHaveLength(2);
   expect(r.failed).toHaveLength(0);
   expect(calls.find((c) => c.path.endsWith("/ads"))!.params.name).toBe("a.mp4");
   // Nicht nur die Anzahl: die Receipt muss die Id der Anzeige tragen, nicht die
   // ihres Creatives – zwei Antworten je Anzeige lassen sich leicht vertauschen,
   // und eine vertauschte Id sieht in jedem längenbasierten Test gesund aus.
-  for (const { id } of r.adSets[0].ads) expect(id.startsWith("ads-")).toBe(true);
+  for (const id of r.adSets[0].adIds) expect(id.startsWith("ads-")).toBe(true);
 });
 
 test("the campaign name never appears on an ad or its creative", async () => {
@@ -359,7 +398,7 @@ test("a failing ad is recorded by ad name without losing the ids already created
   const { g } = fakeGraph((path, _n, p) => path.endsWith("/ads") && p?.name === "b.mp4");
   const r = await launch(oneAdSet, { graph: g });
   expect(r.campaignId).toBeTruthy();
-  expect(r.adSets[0].ads).toHaveLength(1);
+  expect(r.adSets[0].adIds).toHaveLength(1);
   expect(r.failed).toEqual([{ adSetIndex: 0, adSetName: "Ads", adName: "b.mp4", error: "boom" }]);
 });
 
@@ -403,9 +442,9 @@ test("a failing ad set does not stop the remaining ad sets from being created", 
   const r = await launch(twoAdSets, { graph: g });
   expect(r.campaignId).toBeTruthy();
   expect(r.adSets[0].error).toBeTruthy();
-  expect(r.adSets[0].ads).toHaveLength(0);
+  expect(r.adSets[0].adIds).toHaveLength(0);
   expect(r.adSets[1].id).toBeTruthy();
-  expect(r.adSets[1].ads).toHaveLength(1);
+  expect(r.adSets[1].adIds).toHaveLength(1);
 });
 
 test("an ad set that fails to create records every one of its ads as failed", async () => {
@@ -416,7 +455,7 @@ test("an ad set that fails to create records every one of its ads as failed", as
     { adSetIndex: 0, adSetName: "Ads", adName: "a.mp4", error: "boom" },
     { adSetIndex: 0, adSetName: "Ads", adName: "b.mp4", error: "boom" },
   ]);
-  expect(r.adSets[1].ads).toHaveLength(1);
+  expect(r.adSets[1].adIds).toHaveLength(1);
 });
 
 test("ads run as one phase across all ad sets, not interleaved per ad set", async () => {
@@ -503,7 +542,7 @@ test("Anzeigen laufen zu dritt, nicht nacheinander", async () => {
   };
   const r = await launch(eight, { graph: g });
   expect(peak).toBe(3);
-  expect(r.adSets[0].ads).toHaveLength(8);
+  expect(r.adSets[0].adIds).toHaveLength(8);
   expect(r.failed).toHaveLength(0);
 });
 
@@ -519,7 +558,7 @@ test("a retry with an existing ad set id skips creating a new ad set", async () 
   );
   expect(calls.some((c) => c.path.endsWith("/adsets"))).toBe(false);
   expect(r.adSets[0].id).toBe("as9");
-  expect(r.adSets[0].ads).toHaveLength(2);
+  expect(r.adSets[0].adIds).toHaveLength(2);
 });
 
 test("die Gebotsstrategie steht auf der Kampagne, wo CBO sie ausliest", async () => {
@@ -654,12 +693,12 @@ test("zwanzig Anzeigen sind vier Aufrufe zu je fünf Anzeigen", async () => {
   const r = await launch(manyAds(20), { graph: fakeGraph().g, batch: b });
   expect(sent).toHaveLength(4);
   for (const call of sent) expect(call).toHaveLength(10);
-  expect(r.adSets[0].ads).toHaveLength(20);
+  expect(r.adSets[0].adIds).toHaveLength(20);
   expect(r.failed).toHaveLength(0);
   // Nicht nur die Anzahl: jede Id muss aus der /ads-Antwort stammen, nicht aus
   // der /adcreatives-Antwort desselben Paares – fakeBatch kodiert relative_url
   // in die Id, genau dafür.
-  for (const { id } of r.adSets[0].ads) expect(id.startsWith("ads-")).toBe(true);
+  for (const id of r.adSets[0].adIds) expect(id.startsWith("ads-")).toBe(true);
 });
 
 test("die Anzeige hängt am Creative desselben Paares", async () => {
@@ -716,7 +755,7 @@ test("ein gescheitertes Creative ist ein Fehler und nicht zwei", async () => {
   expect(r.failed).toEqual([
     { adSetIndex: 0, adSetName: "Ads", adName: "a0.mp4", error: "creative kaputt" },
   ]);
-  expect(r.adSets[0].ads).toHaveLength(8);
+  expect(r.adSets[0].adIds).toHaveLength(8);
 });
 
 test("eine gescheiterte Anzeige nach heilem Creative steht mit ihrem Fehler da", async () => {
@@ -762,8 +801,8 @@ test("eine bestätigte Anzeige ohne lesbare Id kostet die Anzeige, nicht die Qui
   expect(r.failed[0].error).toContain("ohne lesbare Id");
   // Die übrigen acht bleiben heil, und keine undefined-Id schleicht sich in die
   // Liste, aus der das Retry-UI die fehlenden Anzeigen ableitet.
-  expect(r.adSets[0].ads).toHaveLength(8);
-  expect(r.adSets[0].ads.map((a) => a.id)).not.toContain(undefined);
+  expect(r.adSets[0].adIds).toHaveLength(8);
+  expect(r.adSets[0].adIds).not.toContain(undefined);
 });
 
 /**
@@ -795,7 +834,7 @@ test("ein vorübergehend abgelehnter Sub-Request wird einzeln nachgeholt", async
 
   // Nichts in der Quittung, und die Anzeige existiert – über den einzelnen Weg.
   expect(r.failed).toEqual([]);
-  expect(r.adSets[0].ads).toHaveLength(9);
+  expect(r.adSets[0].adIds).toHaveLength(9);
   expect(calls.filter((c) => c.path.endsWith("/ads"))).toHaveLength(1);
 });
 
@@ -827,7 +866,7 @@ test("ein Batch-Fehler von Meta wird einzeln nachgeholt", async () => {
   };
   const { g, calls } = fakeGraph();
   const r = await launch(manyAds(9), { graph: g, batch: b as any });
-  expect(r.adSets[0].ads).toHaveLength(9);
+  expect(r.adSets[0].adIds).toHaveLength(9);
   expect(r.failed).toHaveLength(0);
   expect(calls.filter((c) => c.path.endsWith("/adcreatives"))).toHaveLength(9);
   // Neun Anzeigen sind bei CHUNK=5 zwei Chunks (5 + 4) – also genau zwei
@@ -914,7 +953,7 @@ test("beide Wege liefern dieselbe Quittung", async () => {
   // (Batch), verglichen wird die Form der Quittung, nicht ihre Zahlen.
   const shape = (r: Awaited<ReturnType<typeof launch>>) => ({
     campaign: Boolean(r.campaignId),
-    sets: r.adSets.map((s) => ({ name: s.name, ads: s.ads.length, error: s.error })),
+    sets: r.adSets.map((s) => ({ name: s.name, ads: s.adIds.length, error: s.error })),
     failed: r.failed,
   });
 
@@ -946,7 +985,7 @@ test("eine gewöhnliche Anzeigenpanne liefert auf beiden Wegen dieselbe Fehlerfo
   // an dem receipt.tsx den Retry-Button gruppiert. Getroffen wird jeweils die
   // erste Anzeige ("a0.mp4"), damit derselbe Job auf beiden Pfaden scheitert.
   const shape = (r: Awaited<ReturnType<typeof launch>>) => ({
-    ads: r.adSets[0].ads.length,
+    ads: r.adSets[0].adIds.length,
     failed: r.failed.map((f) => ({ adSetIndex: f.adSetIndex, adSetName: f.adSetName, adName: f.adName })),
   });
 
@@ -1031,11 +1070,11 @@ const updateInput = {
   ],
 };
 
-test("unchanged ad -> no adcreatives call, receipt ads contain ad1", async () => {
+test("unchanged ad -> no adcreatives call, receipt adIds contains ad1", async () => {
   const { g, calls } = fakeGraph();
   const r = await launch(updateInput, { graph: g, readSeed: async () => seedFixture });
   expect(calls.filter(c => c.path.endsWith("/adcreatives"))).toHaveLength(0);
-  expect(r.adSets[0].ads.map((a) => a.id)).toContain("ad1");
+  expect(r.adSets[0].adIds).toContain("ad1");
 });
 
 test("changed body -> one adcreatives POST and POST ad1 { creative: { creative_id } }", async () => {

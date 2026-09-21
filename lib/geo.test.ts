@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+  circleRing,
   duplicateLocations,
   fitRadius,
   formatReach,
@@ -204,4 +205,30 @@ test("ein Topf, den niemand geschickt hat, fällt auf", () => {
   expect(
     geoProblem(sent, { cities: [{ key: "560419", radius: 20 }], countries: ["DE"] }),
   ).toMatch(/zusätzlich countries/);
+});
+
+test("ein Pin geht als Koordinate zu Meta, nicht als Text", () => {
+  const pin = { lat: 51.0493, lng: 13.7381 };
+  expect(geoLocations({ addressString: "Dresden", radiusKm: 20, pin })).toEqual({
+    custom_locations: [{ latitude: 51.0493, longitude: 13.7381, radius: 20, distance_unit: "kilometer" }],
+  });
+  // Ein Pin braucht keinen Text – aber einen Radius in Metas Grenzen.
+  expect(locationProblem({ addressString: "", radiusKm: 17, pin })).toBeUndefined();
+  expect(locationProblem({ addressString: "", radiusKm: 5, pin })).toMatch(/17 und 80/);
+  expect(locationSummary({ addressString: "", radiusKm: 17, pin })).toBe("51.0493, 13.7381 · 17 km");
+  // Zwei Pins auf demselben Grundstück sind derselbe Ort.
+  const near = { ...pin, lng: pin.lng + 0.0002 };
+  expect(duplicateLocations([
+    { name: "A", addressString: "x", pin },
+    { name: "B", addressString: "y", pin: near },
+  ])).toHaveLength(1);
+});
+
+test("der Umkreis ist ein geschlossener Ring mit dem Radius als Abstand", () => {
+  const ring = circleRing({ lat: 51, lng: 13 }, 17, 8);
+  expect(ring).toHaveLength(9);
+  expect(ring[0]).toEqual(ring[8]);
+  // Nach Norden: 17 km sind rund 0,153 Breitengrade.
+  expect(ring[0][1] - 51).toBeCloseTo(17 / 111.2, 3);
+  expect(ring[0][0]).toBeCloseTo(13, 6);
 });

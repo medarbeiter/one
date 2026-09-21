@@ -22,6 +22,7 @@ import { FormBuilder } from "./form-builder";
 import form from "./campaign-form.module.css";
 import { GhlHinweis } from "./ghl-hinweis";
 import type { Source } from "@/lib/brief";
+import type { Objective } from "@/lib/launch";
 import { cleanStem, nextCreativeName } from "@/lib/media";
 import { cityOf } from "./state";
 import { DriveShelf } from "./drive-shelf";
@@ -435,6 +436,7 @@ export function AdSetBlock({
   instagramUserId,
   instagramLabel,
   adAccount,
+  objective,
   business,
   roles,
   roleFreeText,
@@ -468,6 +470,8 @@ export function AdSetBlock({
   instagramUserId?: string;
   instagramLabel?: string;
   adAccount: string;
+  /** Bei Reichweite entfällt das Lead-Formular – Meta nimmt dort keins an. */
+  objective: Objective;
   /** Der beworbene Kunde – für die Namensregel in lib/copy.ts. */
   business: string;
   /**
@@ -887,8 +891,6 @@ export function AdSetBlock({
               id: a.id,
               name: nextCreativeName(taken),
               source: a.source,
-              // Bleibt dieselbe Anzeige bei Meta – sie bekommt nur ein neues Creative.
-              ...(a.existingAdId ? { existingAdId: a.existingAdId } : {}),
               type: "split",
               portrait,
               square,
@@ -941,8 +943,7 @@ export function AdSetBlock({
     const fresh = src.ads
       .filter((a) => !a.source && !already.has(`${src.id}:${a.id}`))
       .map((a): WizardAd => {
-        // Ohne existingAdId – dieselbe Regel wie in syncLinkedAds.
-        const { id: _id, existingAdId: _meta, ...content } = a;
+        const { id: _id, ...content } = a;
         return { ...content, id: crypto.randomUUID(), source: { adSetId: src.id, adId: a.id } };
       });
     if (fresh.length) onChange({ ads: [...value.ads, ...fresh] });
@@ -972,7 +973,9 @@ export function AdSetBlock({
       {stage === "alles" && <nav className={form.sectionNav} aria-label={`Abschnitte für ${value.name}`}>
         <a href={`#${value.id}-inhalt`}>Inhalt</a>
         <a href={`#${value.id}-standort`}>Standort & Umkreis</a>
-        <a href={`#${value.id}-formular`}>Lead-Formular</a>
+        {objective !== "OUTCOME_AWARENESS" && (
+          <a href={`#${value.id}-formular`}>Lead-Formular</a>
+        )}
         <a href={`#${value.id}-texte`}>Texte</a>
       </nav>}
       {/* Dieselben offenen Punkte, die die Kopfzeile als Zahl trägt – hier
@@ -1149,130 +1152,136 @@ export function AdSetBlock({
       </FieldsetSection>
 
 
-      {/* Wessen Formulare das sind, steht in der Überschrift – ohne den
+      {/* Nur bei Leads: Instant-Formulare bietet Meta ausschließlich unter
+          OUTCOME_LEADS an, eine Reichweiten-Anzeige führt stattdessen auf die
+          Facebook-Seite des Kunden (lib/launch.ts).
+
+          Wessen Formulare das sind, steht in der Überschrift – ohne den
           Seitennamen sah die Liste des falschen Kunden genauso aus wie die
           richtige. */}
-      <FieldsetSection
-        id={`${value.id}-formular`}
-        legend="Lead-Formular"
-        satz={`Das Formular der Seite ${pageName || "des Kunden"}, das sich aus der Anzeige öffnet. Ein in Meta neu gebautes wird hier erkannt und gewählt.`}
-        action={
-          <div className="flex items-center gap-1">
+      {objective !== "OUTCOME_AWARENESS" && (
+        <FieldsetSection
+          id={`${value.id}-formular`}
+          legend="Lead-Formular"
+          satz={`Das Formular der Seite ${pageName || "des Kunden"}, das sich aus der Anzeige öffnet. Ein in Meta neu gebautes wird hier erkannt und gewählt.`}
+          action={
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                label={formsLoading ? "Wird aktualisiert…" : "Aktualisieren"}
+                onClick={() => refreshForms(true)}
+                isDisabled={formsLoading || !pageId}
+              />
+            </div>
+          }
+        >
+          <div className="w-full space-y-4">
+          {/* Typeahead statt Select: eine Seite hat schnell dreißig Formulare mit
+              fast gleichem Namen ("PDL Kampagne 03/26"), und die scrollt niemand
+              durch. Gefiltert wird über Name und ID – die ID steht in Meta neben
+              dem Formular und ist das einzige, was sich eindeutig kopieren lässt. */}
+          <Typeahead
+            label="Lead-Formular"
+            isLabelHidden
+            searchSource={formSearchSource}
+            debounceMs={0}
+            // HeroUIs ComboBox.Trigger öffnete die volle Liste ohne Tippen —
+            // genau dafür ist dieses Feld gedacht (dreißig ähnlich benannte
+            // Formulare durchklicken statt den Namen erst zu kennen). Ohne
+            // hasEntriesOnFocus bliebe das Feld beim Fokussieren leer, bis
+            // ein Zeichen getippt wird. maxMenuItems hoch genug für den
+            // typischen Bestand, ohne unbegrenzt zu scrollen.
+            hasEntriesOnFocus
+            maxMenuItems={50}
+            value={selectedForm ? toFormItem(selectedForm) : null}
+            onChange={(item) => onChange({ formId: item ? item.id : "" })}
+            isDisabled={!pageId}
+            width="100%"
+            className="max-w-xl"
+            placeholder={
+              !pageId
+                ? "Erst den beworbenen Kunden wählen…"
+                : formsLoading
+                  ? "Wird geladen…"
+                  : "Formular suchen oder auswählen…"
+            }
+            emptySearchResultsText="Kein Formular gefunden."
+          />
+          {/* Ohne asset_id landet der Baukasten auf der Seite, die im Business
+              Manager zuletzt offen war – in der Praxis MedArbeiter statt des
+              Kunden. Deshalb erst mit gewählter Seite anbieten. */}
+          {pageId && !value.formId && (
+            <FormBuilder
+              input={{
+                pageId,
+                business,
+                taskId,
+                driveFolderId,
+                roles,
+                roleFreeText,
+                initials,
+                city: cityOf(value.addressString),
+                benefits,
+                notes,
+                instructions,
+              }}
+            />
+          )}
+          {detected && value.formId && (
+            <Text type="supporting" as="p" aria-live="polite">
+              {detected.how === "neu"
+                ? `Neu erkannt: „${detected.name}“ – gerade in Meta gebaut.`
+                : `Aus der Aufgabe gewählt: „${detected.name}“.`}
+            </Text>
+          )}
+          {value.formId && <GhlHinweis formName={selectedForm?.name} />}
+          {formsError && (
+            <Banner status="error" title="Lead-Formulare konnten nicht geladen werden" description={formsError} />
+          )}
+          {/* Kein Fehler, aber auch keine Auswahl: die Seite hat schlicht noch
+              kein Formular. Ohne diesen Hinweis wirkt das leere Feld wie ein Bug. */}
+          {!formsError && !formsLoading && pageId && forms.length === 0 && (
+            <Text type="supporting" as="div">
+              {pageName || "Diese Seite"} hat noch kein Lead-Formular — erstelle eines in Meta und
+              klicke dann auf Aktualisieren.
+            </Text>
+          )}
+
+          {/* Der Weg an der Liste vorbei: ein gerade gebautes Formular steht in
+              Metas Antwort manchmal minutenlang nicht drin, und mehr als 100
+              passen ohnehin nicht hinein. Die ID steht im Baukasten neben dem
+              Formularnamen; eine kopierte Adresszeile wird auch angenommen. */}
+          <div className="flex max-w-xl items-end gap-2">
+            <TextInput
+              label="Formular nicht dabei? Per ID holen"
+              value={formIdInput}
+              onChange={setFormIdInput}
+              isDisabled={!pageId || pulling}
+              width="100%"
+              className="flex-1"
+              placeholder="z. B. 1234567890123456"
+              // TextInput hat keine inputMode-Prop (BaseProps deckt keine nativen
+              // Input-Attribute ab) — die numerische Tastatur auf Mobilgeräten
+              // entfällt hier, keine funktionale Einbuße.
+              onKeyDown={(e) => {
+                // Enter im Assistenten schickt sonst den ganzen Schritt ab.
+                if (e.key !== "Enter") return;
+                e.preventDefault();
+                if (formIdInput.trim() && !pulling) pullForm();
+              }}
+            />
             <Button
-              variant="ghost"
+              variant="secondary"
               size="sm"
-              label={formsLoading ? "Wird aktualisiert…" : "Aktualisieren"}
-              onClick={() => refreshForms(true)}
-              isDisabled={formsLoading || !pageId}
+              label={pulling ? "Wird geholt…" : "Formular holen"}
+              onClick={pullForm}
+              isDisabled={!pageId || pulling || !formIdInput.trim()}
             />
           </div>
-        }
-      >
-        <div className="w-full space-y-4">
-        {/* Typeahead statt Select: eine Seite hat schnell dreißig Formulare mit
-            fast gleichem Namen ("PDL Kampagne 03/26"), und die scrollt niemand
-            durch. Gefiltert wird über Name und ID – die ID steht in Meta neben
-            dem Formular und ist das einzige, was sich eindeutig kopieren lässt. */}
-        <Typeahead
-          label="Lead-Formular"
-          isLabelHidden
-          searchSource={formSearchSource}
-          debounceMs={0}
-          // HeroUIs ComboBox.Trigger öffnete die volle Liste ohne Tippen —
-          // genau dafür ist dieses Feld gedacht (dreißig ähnlich benannte
-          // Formulare durchklicken statt den Namen erst zu kennen). Ohne
-          // hasEntriesOnFocus bliebe das Feld beim Fokussieren leer, bis
-          // ein Zeichen getippt wird. maxMenuItems hoch genug für den
-          // typischen Bestand, ohne unbegrenzt zu scrollen.
-          hasEntriesOnFocus
-          maxMenuItems={50}
-          value={selectedForm ? toFormItem(selectedForm) : null}
-          onChange={(item) => onChange({ formId: item ? item.id : "" })}
-          isDisabled={!pageId}
-          width="100%"
-          className="max-w-xl"
-          placeholder={
-            !pageId
-              ? "Erst den beworbenen Kunden wählen…"
-              : formsLoading
-                ? "Wird geladen…"
-                : "Formular suchen oder auswählen…"
-          }
-          emptySearchResultsText="Kein Formular gefunden."
-        />
-        {/* Ohne asset_id landet der Baukasten auf der Seite, die im Business
-            Manager zuletzt offen war – in der Praxis MedArbeiter statt des
-            Kunden. Deshalb erst mit gewählter Seite anbieten. */}
-        {pageId && !value.formId && (
-          <FormBuilder
-            input={{
-              pageId,
-              business,
-              taskId,
-              driveFolderId,
-              roles,
-              roleFreeText,
-              initials,
-              city: cityOf(value.addressString),
-              benefits,
-              notes,
-              instructions,
-            }}
-          />
-        )}
-        {detected && value.formId && (
-          <Text type="supporting" as="p" aria-live="polite">
-            {detected.how === "neu"
-              ? `Neu erkannt: „${detected.name}“ – gerade in Meta gebaut.`
-              : `Aus der Aufgabe gewählt: „${detected.name}“.`}
-          </Text>
-        )}
-        {value.formId && <GhlHinweis formName={selectedForm?.name} />}
-        {formsError && (
-          <Banner status="error" title="Lead-Formulare konnten nicht geladen werden" description={formsError} />
-        )}
-        {/* Kein Fehler, aber auch keine Auswahl: die Seite hat schlicht noch
-            kein Formular. Ohne diesen Hinweis wirkt das leere Feld wie ein Bug. */}
-        {!formsError && !formsLoading && pageId && forms.length === 0 && (
-          <Text type="supporting" as="div">
-            {pageName || "Diese Seite"} hat noch kein Lead-Formular — erstelle eines in Meta und
-            klicke dann auf Aktualisieren.
-          </Text>
-        )}
-
-        {/* Der Weg an der Liste vorbei: ein gerade gebautes Formular steht in
-            Metas Antwort manchmal minutenlang nicht drin, und mehr als 100
-            passen ohnehin nicht hinein. Die ID steht im Baukasten neben dem
-            Formularnamen; eine kopierte Adresszeile wird auch angenommen. */}
-        <div className="flex max-w-xl items-end gap-2">
-          <TextInput
-            label="Formular nicht dabei? Per ID holen"
-            value={formIdInput}
-            onChange={setFormIdInput}
-            isDisabled={!pageId || pulling}
-            width="100%"
-            className="flex-1"
-            placeholder="z. B. 1234567890123456"
-            // TextInput hat keine inputMode-Prop (BaseProps deckt keine nativen
-            // Input-Attribute ab) — die numerische Tastatur auf Mobilgeräten
-            // entfällt hier, keine funktionale Einbuße.
-            onKeyDown={(e) => {
-              // Enter im Assistenten schickt sonst den ganzen Schritt ab.
-              if (e.key !== "Enter") return;
-              e.preventDefault();
-              if (formIdInput.trim() && !pulling) pullForm();
-            }}
-          />
-          <Button
-            variant="secondary"
-            size="sm"
-            label={pulling ? "Wird geholt…" : "Formular holen"}
-            onClick={pullForm}
-            isDisabled={!pageId || pulling || !formIdInput.trim()}
-          />
-        </div>
-        </div>
-      </FieldsetSection>
+          </div>
+        </FieldsetSection>
+      )}
 
 
       <FieldsetSection

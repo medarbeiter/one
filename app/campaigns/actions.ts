@@ -9,7 +9,8 @@ import { buildCreative, type CreativeInput } from "@/lib/launch";
 import type { Receipt } from "@/lib/launch";
 import type { Check } from "@/lib/verify";
 import { getLeadForm, listLeadForms, parseFormId, type LeadForm } from "@/lib/forms";
-import { locationProblem, type GeoPlace } from "@/lib/geo";
+import { locationProblem, type GeoPin, type GeoPlace, type LocationInput } from "@/lib/geo";
+import { geocode, reverseGeocode } from "@/lib/geocode";
 import { estimateReach, fitReachRadius, searchPlaces, type FittedRadius, type Reach } from "@/lib/geo-search";
 import { lastCampaignDefaults, type Prefill } from "@/lib/prefill";
 import { generateBody, generateDescription, generateTitles, type BodiesInput } from "@/lib/bodies";
@@ -265,7 +266,7 @@ export async function searchPlacesAction(q: string): Promise<GeoPlace[]> {
  */
 export async function fitRadiusAction(
   adAccount: string,
-  location: { addressString: string; radiusKm: number; place?: GeoPlace },
+  location: LocationInput,
 ): Promise<FittedRadius | { error: string }> {
   const problem = locationProblem(location);
   if (problem) return { error: problem };
@@ -281,7 +282,7 @@ export async function fitRadiusAction(
 
 export async function reachAction(
   adAccount: string,
-  location: { addressString: string; radiusKm: number; place?: GeoPlace },
+  location: LocationInput,
 ): Promise<Reach | { error: string }> {
   const problem = locationProblem(location);
   if (problem) return { error: problem };
@@ -289,6 +290,28 @@ export async function reachAction(
     return await estimateReach(adAccount, location);
   } catch (e) {
     return { error: (e as Error).message };
+  }
+}
+
+/**
+ * Adresse → Koordinate und zurück, nur für die Karte im Standortfeld. Fehler
+ * kommen als „nichts gefunden“ zurück: die Karte zeigt dann keinen Pin, das
+ * Feld bleibt, wie es ist – eine Karte ohne Pin ist kein Grund, den Start
+ * aufzuhalten.
+ */
+export async function geocodeAction(q: string): Promise<GeoPin | undefined> {
+  try {
+    return await geocode(q);
+  } catch {
+    return undefined;
+  }
+}
+
+export async function reverseGeocodeAction(pin: GeoPin): Promise<string | undefined> {
+  try {
+    return await reverseGeocode(pin);
+  } catch {
+    return undefined;
   }
 }
 

@@ -5,7 +5,7 @@ import { adSetName } from "@/lib/naming";
 import { locationProblem } from "@/lib/geo";
 import { isSuggestedPair, nextCreativeName, normalizeAdName, planAds, uniqueName } from "@/lib/media";
 import type { AssembledBrief, Source } from "@/lib/brief";
-import type { AdInput, AdSetInput, FormatAsset, Receipt } from "@/lib/launch";
+import type { AdInput, AdSetInput, FormatAsset, Objective } from "@/lib/launch";
 import type { Orientation } from "@/lib/media";
 import { parseCampaignName } from "@/lib/naming";
 import type { BriefEvidence, Sourced } from "@/lib/brief";
@@ -38,6 +38,12 @@ export const DEFAULT_DAILY_BUDGET = 17;
 export type WizardState = {
   /** Das Werbekonto, das zahlt – fast immer eins von MedArbeiter. */
   adAccount: string;
+  /**
+   * Das Kampagnenziel. Fehlt es (alter Entwurf), gilt Leads – deshalb wird es
+   * über objectiveOf() gelesen und nicht direkt. Bei Reichweite entfällt das
+   * Lead-Formular: Meta bietet Instant-Formulare nur unter OUTCOME_LEADS an.
+   */
+  objective?: Objective;
   /**
    * Der beworbene Kunde. Nicht dasselbe wie das Werbekonto: seine Facebook-
    * Seite trägt Anzeigen und Lead-Formulare, während MedArbeiter bezahlt.
@@ -175,8 +181,13 @@ export const emptyAdSet = (index: number, city?: string): WizardAdSet => ({
   loose: [],
 });
 
+/** Das Ziel eines Entwurfs – ohne Angabe Leads, der Normalfall. */
+export const objectiveOf = (state: Pick<WizardState, "objective">): Objective =>
+  state.objective ?? "OUTCOME_LEADS";
+
 export const initialState = (adAccount = "", business = "", initials = ""): WizardState => ({
   adAccount,
+  objective: "OUTCOME_LEADS",
   business,
   roles: [],
   roleFreeText: "",
@@ -237,7 +248,7 @@ export function applyBrief(state: WizardState, brief: AssembledBrief): WizardSta
   // einen Standort angefasst hat – sonst bleibt alles, wie es ist.
   const first = state.adSets[0];
   const [head, ...more] = brief.locations?.value ?? [];
-  if (head && first && state.adSets.length === 1 && first.addressString === "" && !first.place) {
+  if (head && first && state.adSets.length === 1 && first.addressString === "" && !first.place && !first.pin) {
     next.adSets = [
       { ...first, addressString: head },
       ...more.map((addressString, i) => ({
@@ -304,7 +315,7 @@ export function reapplyBrief(
     const [head, ...more] = final.locations.value;
     const first = state.adSets[0];
     next.adSets = [
-      { ...first, addressString: head, place: undefined },
+      { ...first, addressString: head, place: undefined, pin: undefined },
       ...more.map((addressString, i) => ({ ...emptyAdSet(i + 1, cityOf(addressString)), addressString, mirrorOf: first.id })),
     ];
     next.sources.location = final.locations.sources;
@@ -470,6 +481,7 @@ export function stateFromSeed(
         addressString: set.addressString,
         radiusKm: set.radiusKm,
         ...(set.place ? { place: set.place } : {}),
+        ...(set.pin ? { pin: set.pin } : {}),
         formId: set.formId,
         bodies: set.bodies.length ? set.bodies : [""],
         titles: set.titles.length ? set.titles : [""],
@@ -486,39 +498,16 @@ export function stateFromSeed(
     // der nicht der Konvention folgt. Beim Duplizieren entsteht er neu.
     campaignName: edit ? seed.name : "",
     nameEdited: edit,
+    // Das Ziel steht bei Meta fest und lässt sich nicht ändern – ein
+    // bearbeiteter Entwurf muss es kennen, sonst verlangt er ein Formular für
+    // eine Reichweitenkampagne.
+    ...(seed.objective ? { objective: seed.objective } : {}),
     dailyBudgetEuros: seed.dailyBudgetEuros ?? DEFAULT_DAILY_BUDGET,
     ...(seed.spendCapEuros !== undefined ? { spendCapEuros: seed.spendCapEuros } : {}),
     benefits,
     sources,
     ...(edit ? { editing: { campaignId: seed.campaignId, name: seed.name } } : {}),
     adSets,
-  };
-}
-
-/**
- * Nach dem Übernehmen: die Meta-IDs aus der Quittung zurück in den Stand – auch
- * die der eben neu angelegten Gruppen und Anzeigen. Ohne das trug der Stand nur
- * die IDs vom Laden, und das nächste Übernehmen legte alles seit dem Laden Neue
- * ein zweites Mal an und löschte die Fassung vom ersten Mal. Gruppen über die
- * Position (die Quittung führt sie in Eingabereihenfolge), Anzeigen über den
- * Namen, der je Gruppe eindeutig ist.
- */
-export function withMetaIds(state: WizardState, receipt: Receipt): WizardState {
-  return {
-    ...state,
-    adSets: state.adSets.map((set, i) => {
-      const entry = receipt.adSets.find((e) => e.index === i);
-      if (!entry?.id) return set;
-      const ids = new Map(entry.ads.map((a) => [a.name, a.id]));
-      return {
-        ...set,
-        existingAdSetId: entry.id,
-        ads: set.ads.map((ad) => {
-          const id = ids.get(ad.name);
-          return id ? { ...ad, existingAdId: id } : ad;
-        }),
-      };
-    }),
   };
 }
 
@@ -554,9 +543,7 @@ export function syncLinkedAds(input: WizardAdSet[]): WizardAdSet[] {
     const fresh = src.ads
       .filter((a) => !a.source && !have.has(a.id))
       .map((a): WizardAd => {
-        // Ohne existingAdId: die Leihe ist bei Meta eine eigene Anzeige in einer
-        // anderen Gruppe, nicht die Quelle.
-        const { id: _id, existingAdId: _meta, ...content } = a;
+        const { id: _id, ...content } = a;
         return { ...content, id: crypto.randomUUID(), source: { adSetId: src.id, adId: a.id } };
       });
     return fresh.length ? { ...set, ads: [...set.ads, ...fresh] } : set;
@@ -573,13 +560,8 @@ export function syncLinkedAds(input: WizardAdSet[]): WizardAdSet[] {
       const src = source(ad.source.adSetId, ad.source.adId);
       if (!src) return detachAd(ad);
       // Name inbegriffen: "Creative 1" heißt an jedem Standort dasselbe.
-      const { id: _id, source: _s, existingAdId: _meta, ...content } = src;
-      return {
-        ...content,
-        id: ad.id,
-        source: ad.source,
-        ...(ad.existingAdId ? { existingAdId: ad.existingAdId } : {}),
-      } as WizardAd;
+      const { id: _id, source: _s, ...content } = src;
+      return { ...content, id: ad.id, source: ad.source } as WizardAd;
     }),
   }));
 }
@@ -825,7 +807,7 @@ export function needsSecondText(set: Pick<WizardAdSet, "ads" | "bodies" | "title
  * kannte nur der letzte Schritt sie – man erfuhr vom fehlenden Lead-Formular
  * erst nach dem Hochladen von acht Videos.
  */
-export function adSetBlockers(set: WizardAdSet): string[] {
+export function adSetBlockers(set: WizardAdSet, objective: Objective = "OUTCOME_LEADS"): string[] {
   // Ein gewählter Ort zählt als Standort, auch wenn nichts getippt wurde – und
   // ein Radius außerhalb von Metas Grenzen hält hier auf, nicht erst beim
   // Anlegen der Anzeigengruppe.
@@ -836,7 +818,11 @@ export function adSetBlockers(set: WizardAdSet): string[] {
     // Liegengebliebene Dateien halten nichts mehr auf: ein Bild darf einzeln
     // laufen, und wer eines übrig lässt, hat es vielleicht bewusst getan. Der
     // Hinweis dazu steht an den Dateien selbst (siehe ad-set-block.tsx).
-    ...(set.formId ? [] : ["Es ist kein Lead-Formular ausgewählt."]),
+    // Nur bei Leads: eine Reichweiten-Anzeige führt auf die Facebook-Seite des
+    // Kunden, ein Formular nimmt Meta dort nicht an (lib/launch.ts).
+    ...(objective === "OUTCOME_AWARENESS" || set.formId
+      ? []
+      : ["Es ist kein Lead-Formular ausgewählt."]),
     ...(set.bodies.some((b) => b.trim()) ? [] : ["Es fehlt ein Primärtext."]),
     ...(set.titles.some((t) => t.trim()) ? [] : ["Es fehlt eine Überschrift."]),
     ...(needsSecondText(set)

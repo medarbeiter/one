@@ -36,10 +36,23 @@ export type AdInput = {
   | { type: "split"; portrait: FormatAsset; square: FormatAsset }
 );
 
+/**
+ * Instant-Formulare gibt es bei Meta nur unter OUTCOME_LEADS. Eine
+ * Reichweitenkampagne läuft deshalb mit denselben Motiven und Texten, nur ohne
+ * Formular: der Knopf öffnet dann einen Link (linkUrl – resolveLaunch() setzt
+ * die Facebook-Seite des Kunden ein).
+ */
+export type Objective = "OUTCOME_LEADS" | "OUTCOME_AWARENESS";
+
 export type CreativeInput = {
   pageId: string;
   instagramUserId?: string;
+  /** Bei OUTCOME_AWARENESS unbenutzt – dort nimmt Meta kein Formular an. */
   formId: string;
+  /** Fehlt es, gilt OUTCOME_LEADS – der Normalfall. */
+  objective?: Objective;
+  /** Das Ziel des Knopfes bei OUTCOME_AWARENESS; dort Pflicht. */
+  linkUrl?: string;
   bodies: string[];
   titles: string[];
   description: string;
@@ -66,6 +79,28 @@ const CREATIVE_FEATURES = {
     text_optimizations: { enroll_status: "OPT_OUT" },
   },
 } as const;
+
+/** Reichweite statt Leads: kein Formular, dafür ein echter Link. */
+const reach = (i: CreativeInput) => i.objective === "OUTCOME_AWARENESS";
+
+/**
+ * Wohin der Knopf führt – die einzige Stelle, an der sich die beiden Ziele in
+ * der Anzeigengestaltung unterscheiden. Bei Leads ist der Link Metas
+ * Pflicht-Platzhalter und das Formular das Ziel, bei Reichweite ist der Link
+ * das Ziel.
+ */
+function destination(i: CreativeInput) {
+  return {
+    link: (reach(i) ? i.linkUrl : undefined) ?? "http://fb.me/",
+    type: i.callToAction ?? (reach(i) ? "LEARN_MORE" : "APPLY_NOW"),
+    formId: reach(i) ? "" : i.formId,
+  };
+}
+
+const ctaOf = (d: ReturnType<typeof destination>) => ({
+  type: d.type,
+  value: { ...(d.formId ? { lead_gen_form_id: d.formId } : {}), link: d.link },
+});
 
 const assetKey = (a: FormatAsset) => (a.kind === "video" ? a.videoId : a.hash);
 
@@ -100,7 +135,10 @@ export function buildCreative(i: CreativeInput, opts: { lax?: boolean } = {}) {
       throw new Error("Mindestens ein Primärtext und eine Überschrift sind erforderlich.");
     if (i.bodies.length > 5 || i.titles.length > 5)
       throw new Error("Meta erlaubt höchstens 5 Primärtexte und 5 Überschriften.");
-    if (!i.formId) throw new Error("Ein Lead-Formular muss ausgewählt sein.");
+    if (reach(i)) {
+      if (!i.linkUrl)
+        throw new Error("Eine Reichweiten-Anzeige braucht einen Link, den ihr Knopf öffnet.");
+    } else if (!i.formId) throw new Error("Ein Lead-Formular muss ausgewählt sein.");
   }
 
   // instagramUserId ist immer gesetzt, wenn Instagram-Platzierungen laufen
@@ -135,12 +173,10 @@ function singleCreative(i: CreativeInput, ad: Extract<AdInput, { type: "single" 
       ...(i.instagramUserId ? { instagram_user_id: i.instagramUserId } : {}),
       link_data: {
         image_hash: ad.asset.hash,
-        // link ist bei Lead-Ads ein Platzhalter – Meta verlangt ihn trotzdem.
-        link: "http://fb.me/",
-        call_to_action: {
-          type: i.callToAction ?? "APPLY_NOW",
-          value: { ...(i.formId ? { lead_gen_form_id: i.formId } : {}), link: "http://fb.me/" },
-        },
+        // link ist bei Lead-Ads ein Platzhalter – Meta verlangt ihn trotzdem;
+        // bei Reichweite ist er das Ziel (siehe destination()).
+        link: destination(i).link,
+        call_to_action: ctaOf(destination(i)),
       },
     },
     asset_feed_spec: {
@@ -173,11 +209,9 @@ function ugcCreative(i: CreativeInput, ad: Extract<AdInput, { type: "ugc" }>) {
       video_data: {
         video_id: ad.asset.videoId,
         image_url: ad.asset.thumbnailUrl,
-        call_to_action: {
-          type: i.callToAction ?? "APPLY_NOW",
-          // link ist bei Lead-Ads ein Platzhalter – Meta verlangt ihn trotzdem.
-          value: { ...(i.formId ? { lead_gen_form_id: i.formId } : {}), link: "http://fb.me/" },
-        },
+        // Der link in value ist bei Lead-Ads ein Platzhalter – Meta verlangt
+        // ihn trotzdem; bei Reichweite ist er das Ziel (siehe destination()).
+        call_to_action: ctaOf(destination(i)),
       },
     },
     asset_feed_spec: {
@@ -208,7 +242,7 @@ function splitCreative(i: CreativeInput, ad: Extract<AdInput, { type: "split" }>
     up: `mo_url_p_${p}`,
     us: `mo_url_s_${s}`,
   };
-  const cta = i.callToAction ?? "APPLY_NOW";
+  const d = destination(i);
   const media = [
     { asset: ad.portrait, label: L.p },
     { asset: ad.square, label: L.s },
@@ -242,11 +276,11 @@ function splitCreative(i: CreativeInput, ad: Extract<AdInput, { type: "split" }>
       })),
       // Ohne Label und damit für beide Regeln gültig.
       descriptions: [{ text: i.description }],
-      call_to_action_types: [cta],
-      call_to_actions: [{ type: cta, value: { ...(i.formId ? { lead_gen_form_id: i.formId } : {}) } }],
+      call_to_action_types: [d.type],
+      call_to_actions: [{ type: d.type, value: { ...(d.formId ? { lead_gen_form_id: d.formId } : {}) } }],
       link_urls: [
         {
-          website_url: "http://fb.me/",
+          website_url: d.link,
           display_url: "",
           adlabels: [{ name: L.up }, { name: L.us }],
         },
@@ -282,7 +316,7 @@ function splitCreative(i: CreativeInput, ad: Extract<AdInput, { type: "split" }>
 import { batch as realBatch, graph as realGraph, unwrapBatchItem, GraphError } from "./graph";
 import { readCampaignSeed, type CampaignSeed } from "./seed";
 import { buildTargeting } from "./targeting";
-import type { GeoPlace } from "./geo";
+import type { GeoPin, GeoPlace, LocationInput } from "./geo";
 
 export type AdSetInput = {
   name: string;
@@ -291,6 +325,8 @@ export type AdSetInput = {
   /** Statt der Adresse ein Ort aus Metas Verzeichnis – Stadt, PLZ, Bezirk.
    *  Ist er gesetzt, zielt das Ad Set darauf und nicht auf addressString. */
   place?: GeoPlace;
+  /** Ein auf der Karte gesetzter Punkt – geht als Koordinate zu Meta. */
+  pin?: GeoPin;
   formId: string;
   instagramUserId?: string;
   bodies: string[];
@@ -306,6 +342,10 @@ export type AdSetInput = {
 export type LaunchInput = {
   adAccount: string;
   pageId: string;
+  /** Fehlt es, gilt OUTCOME_LEADS – der Normalfall (siehe Objective). */
+  objective?: Objective;
+  /** Bei OUTCOME_AWARENESS das Ziel jedes Knopfes; resolveLaunch() setzt es. */
+  linkUrl?: string;
   campaignName: string;
   dailyBudgetCents: number;
   spendCapCents?: number;
@@ -329,17 +369,7 @@ export type Receipt = {
    * Fehleintrag verlässlich seinem Ad Set zuordnen muss, ohne sich auf
    * Array-Position oder auf Namen zu verlassen (beide sind vom Bediener frei
    * änderbar und nicht eindeutig). */
-  adSets: {
-    index: number;
-    id?: string;
-    name: string;
-    /** Jede Anzeige, die nach diesem Lauf bei Meta steht, mit ihrem Namen: der
-     * Assistent schreibt die IDs damit in seinen Stand zurück (withMetaIds in
-     * app/campaigns/new/state.ts), sodass das nächste Übernehmen dieselben
-     * Anzeigen ändert statt sie neu anzulegen und die eben angelegten zu löschen. */
-    ads: { id: string; name: string }[];
-    error?: string;
-  }[];
+  adSets: { index: number; id?: string; name: string; adIds: string[]; error?: string }[];
   /** Nach Anzeige geschlüsselt, nicht nach Datei: eine Split-Anzeige hat zwei
    * Dateien, hochgeladen sind zu diesem Zeitpunkt beide, und gescheitert ist die
    * Anzeige. Der Retry baut ohnehin je Anzeige nach.
@@ -394,7 +424,7 @@ function changedFields(pairs: Record<string, [unknown, unknown]>): Record<string
  * der Seed nicht abbilden konnte (etwa ganz Deutschland ohne Ort), baut sich
  * nicht – dann gilt das Targeting als geändert und wird geschrieben.
  */
-function previousTargeting(was: { addressString: string; radiusKm: number; place?: GeoPlace }): string | undefined {
+function previousTargeting(was: LocationInput): string | undefined {
   try {
     return JSON.stringify(buildTargeting(was));
   } catch {
@@ -430,6 +460,8 @@ type Ctx = {
   batch: typeof realBatch;
   acct: string;
   pageId: string;
+  objective?: Objective;
+  linkUrl?: string;
   receipt: Receipt;
   step: (label: string) => void;
   stepDone: () => void;
@@ -445,6 +477,8 @@ function creativeParams(ctx: Ctx, { set, ad }: AdJob): Record<string, unknown> {
     name: ad.name,
     ...buildCreative({
       pageId: ctx.pageId,
+      objective: ctx.objective,
+      linkUrl: ctx.linkUrl,
       instagramUserId: set.instagramUserId,
       formId: set.formId,
       bodies: set.bodies,
@@ -487,7 +521,7 @@ async function createAd(ctx: Ctx, job: AdJob): Promise<void> {
       method: "POST",
       params: { ...adParams(job), creative: { creative_id: creative.id } },
     });
-    job.entry.ads.push({ id: created.id, name: job.ad.name });
+    job.entry.adIds.push(created.id);
   } catch (e) {
     fail(ctx, job, causeOf(e));
   } finally {
@@ -617,7 +651,7 @@ async function batchAds(ctx: Ctx, jobs: AdJob[]): Promise<void> {
       // sie ein zweites Mal an. Danach ist die Reihenfolge die Aussage:
       // scheitert das Creative, ist die Anzeige dahinter nur die Folge davon und
       // kein zweiter Fehler.
-      if (ad.status === "fulfilled" && ad.value?.id) job.entry.ads.push({ id: ad.value.id, name: job.ad.name });
+      if (ad.status === "fulfilled" && ad.value?.id) job.entry.adIds.push(ad.value.id);
       else if (transient(creative) || transient(ad)) {
         // Ohne stepDone(): createAd() zählt diese Anzeige gleich selbst ab.
         retry.push(job);
@@ -663,7 +697,17 @@ export async function launch(
   const stepDone = () => {
     done++;
   };
-  const ctx: Ctx = { graph, batch: batchFn, acct, pageId: input.pageId, receipt, step, stepDone };
+  const ctx: Ctx = {
+    graph,
+    batch: batchFn,
+    acct,
+    pageId: input.pageId,
+    objective: input.objective,
+    linkUrl: input.linkUrl,
+    receipt,
+    step,
+    stepDone,
+  };
 
   let seed: CampaignSeed | undefined;
   if (input.update && input.existingCampaignId) {
@@ -697,7 +741,7 @@ export async function launch(
       method: "POST",
       params: {
         name: input.campaignName,
-        objective: "OUTCOME_LEADS",
+        objective: input.objective ?? "OUTCOME_LEADS",
         status: "PAUSED",
         special_ad_categories: ["EMPLOYMENT"],
         special_ad_category_country: ["DE"],
@@ -721,7 +765,7 @@ export async function launch(
   const submittedAdSetIds = new Set<string>();
   const submittedAdIds = new Set<string>();
   // Die Quittung trägt die Gruppen in Eingabereihenfolge, egal wann sie fertig werden.
-  const entries: Receipt["adSets"] = input.adSets.map((set, index) => ({ index, name: set.name, ads: [] }));
+  const entries: Receipt["adSets"] = input.adSets.map((set, index) => ({ index, name: set.name, adIds: [] }));
   receipt.adSets.push(...entries);
 
   // Anzeigengruppen nebeneinander: jede ist ein eigener Aufruf gegen Meta,
@@ -738,7 +782,7 @@ export async function launch(
           // Dieselbe Regel wie bei der Kampagne: nur geänderte Felder. Das
           // Targeting wird als Ganzes verglichen, denn Meta nimmt es nur als Ganzes.
           const was = seed?.adSets.find((s) => s.metaId === set.existingAdSetId);
-          const targeting = buildTargeting({ addressString: set.addressString, radiusKm: set.radiusKm, place: set.place });
+          const targeting = buildTargeting({ addressString: set.addressString, radiusKm: set.radiusKm, place: set.place, pin: set.pin });
           const params = changedFields({
             name: [set.name, was?.name],
             targeting: [JSON.stringify(targeting), was && previousTargeting(was)],
@@ -775,15 +819,22 @@ export async function launch(
             name: set.name,
             campaign_id: receipt.campaignId,
             status: "ACTIVE",
-            destination_type: "ON_AD",
-            promoted_object: { page_id: input.pageId },
-            optimization_goal: "LEAD_GENERATION",
+            // Reichweite kennt kein Instant-Formular: ohne ON_AD und ohne
+            // promoted_object optimiert Meta auf erreichte Personen.
+            ...(input.objective === "OUTCOME_AWARENESS"
+              ? { optimization_goal: "REACH" }
+              : {
+                  destination_type: "ON_AD",
+                  promoted_object: { page_id: input.pageId },
+                  optimization_goal: "LEAD_GENERATION",
+                }),
             billing_event: "IMPRESSIONS",
             bid_strategy: "LOWEST_COST_WITHOUT_CAP",
             targeting: buildTargeting({
               addressString: set.addressString,
               radiusKm: set.radiusKm,
               place: set.place,
+              pin: set.pin,
             }),
             ...(set.dailyBudgetCents ? { daily_budget: set.dailyBudgetCents } : {}),
           },
@@ -846,7 +897,7 @@ export async function launch(
         })();
 
         if (isMatch) {
-          entry.ads.push({ id: ad.existingAdId, name: ad.name });
+          entry.adIds.push(ad.existingAdId);
           stepDone();
           if (ad.name !== seedAd!.name) {
             try {
@@ -867,7 +918,7 @@ export async function launch(
               method: "POST",
               params: { name: ad.name, creative: { creative_id: creative.id } },
             });
-            entry.ads.push({ id: ad.existingAdId, name: ad.name });
+            entry.adIds.push(ad.existingAdId);
           } catch (e) {
             fail(ctx, { set, entry, ad, adSetIndex }, causeOf(e));
           } finally {

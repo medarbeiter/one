@@ -75,7 +75,9 @@ export function checkCampaign(tree: any, intent: Intent): Check[] {
 
   const wrongForm = sets.flatMap((s: any) =>
     (s.ads?.data ?? [])
-      .filter((a: any) => formOf(a) !== intent.formIds[s.name])
+      // Beide Seiten normalisiert: bei Reichweite ist kein Formular geplant
+      // und Meta liefert keins – undefined gegen "" wäre sonst ein Befund.
+      .filter((a: any) => (formOf(a) ?? "") !== (intent.formIds[s.name] ?? ""))
       .map((a: any) => a.name),
   );
   const notLive = ads.filter((a: any) => a.status !== "ACTIVE").map((a: any) => a.name);

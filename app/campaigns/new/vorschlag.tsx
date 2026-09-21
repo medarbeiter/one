@@ -16,6 +16,7 @@ import {
   Heading,
   MultiSelector,
   NumberInput,
+  Selector,
   Text,
   TextInput,
   Typeahead,
@@ -31,7 +32,7 @@ import { Angaben, Infotafel } from "./angaben";
 import form from "./campaign-form.module.css";
 import { HinweiseFeld } from "./auftrag";
 import { Herkunft } from "./herkunft";
-import { edited, type SourceField, type WizardState } from "./state";
+import { edited, objectiveOf, type SourceField, type WizardState } from "./state";
 
 /** Ein Werbekonto, das zahlen kann – unabhängig davon, für wen. */
 export type WizardAccount = { id: string; name: string; customerId: string; customerName: string };
@@ -156,6 +157,28 @@ export function VorschlagKopf({
           onChange={(roleFreeText) => setState((s) => ({ ...s, roleFreeText }))}
           placeholder="z. B. Koch"
           description="Für Einzelfälle ohne Kürzel — steht unverändert im Namen."
+          width="100%"
+        />
+        {/* Das Ziel gehört zur Kampagne, nicht zu den Festwerten: es
+            entscheidet, ob die Anzeige ein Formular öffnet (Leads) oder auf die
+            Facebook-Seite des Kunden führt (Reichweite). Beim Bearbeiten steht
+            es fest – Meta lässt das Ziel einer Kampagne nicht ändern. */}
+        <Selector
+          label="Ziel"
+          options={[
+            { value: "OUTCOME_LEADS", label: "Leads (Instant-Formular)" },
+            { value: "OUTCOME_AWARENESS", label: "Reichweite (Link zur Seite)" },
+          ]}
+          value={objectiveOf(state)}
+          onChange={(objective) =>
+            setState((s) => ({ ...s, objective: objective as WizardState["objective"] }))
+          }
+          isDisabled={Boolean(state.editing)}
+          description={
+            state.editing
+              ? "Das Ziel einer bestehenden Kampagne lässt Meta nicht ändern."
+              : "Reichweite läuft ohne Lead-Formular."
+          }
           width="100%"
         />
         <div className={form.field}>

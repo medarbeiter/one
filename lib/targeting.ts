@@ -1,4 +1,4 @@
-import { geoLocations, locationProblem, type GeoLocations, type GeoPlace } from "./geo";
+import { geoLocations, locationProblem, type GeoLocations, type GeoPin, type GeoPlace } from "./geo";
 
 /**
  * Targeting für Stellenanzeigen. Alle Werte sind gegen bestehende Kampagnen
@@ -41,6 +41,8 @@ export type TargetingInput = {
   radiusKm: number;
   /** Ein Ort aus Metas Verzeichnis statt der getippten Adresse (siehe lib/geo.ts). */
   place?: GeoPlace;
+  /** Ein auf der Karte gesetzter Punkt – Koordinaten statt Text (siehe lib/geo.ts). */
+  pin?: GeoPin;
   countries?: string[];
 };
 

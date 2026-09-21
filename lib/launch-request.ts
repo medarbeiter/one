@@ -55,6 +55,10 @@ export type Resolved =
        *  eine Anzeigengruppe ohne Instagram-Konto kam. Der Aufrufer trägt ihn
        *  in genau diese Anzeigengruppen ein, bevor launch() läuft. */
       instagramUserId?: string;
+      /** Nur bei Reichweite: das Ziel jedes Knopfes. Hier aufgelöst und nicht
+       *  vom Client übernommen – die Anzeige soll auf die Seite des beworbenen
+       *  Kunden zeigen und nicht auf eine mitgeschickte Adresse. */
+      linkUrl?: string;
     };
 
 /**
@@ -211,6 +215,7 @@ async function rejectedCreative(
   adSets: AdSetInput[],
   adAccount: string,
   pageId: string,
+  creative: Pick<LaunchInput, "objective" | "linkUrl">,
   deps: ResolveLaunchDeps,
 ): Promise<string | undefined> {
   const batch = deps.batch ?? realBatch;
@@ -224,6 +229,7 @@ async function rejectedCreative(
       name: ad.name,
       ...buildCreative({
         pageId,
+        ...creative,
         instagramUserId: set.instagramUserId,
         formId: set.formId,
         bodies: set.bodies,
@@ -277,12 +283,20 @@ export async function resolveLaunch(
   if (!client?.page)
     return { error: "Wähle den beworbenen Kunden — seine Seite trägt die Anzeigen und Formulare." };
 
+  const reach = input.objective === "OUTCOME_AWARENESS";
+  // Bei Reichweite führt der Knopf auf die Facebook-Seite des beworbenen
+  // Kunden: Meta verlangt an jeder Anzeige ein Ziel, und die Seite ist das
+  // einzige, das hier ohne weitere Angabe feststeht.
+  const linkUrl = reach
+    ? (client.page.link ?? `https://www.facebook.com/${client.page.id}`)
+    : undefined;
+
   // Die einzige Bedingung hier, die nicht aus der Eingabe kommt, sondern von
   // Meta gelesen ist – und sie muss vor dem ersten Schreibzugriff stehen. Sonst
   // fällt sie erst beim Creative auf: Kampagne und alle Anzeigengruppen sind
   // dann angelegt, jede Anzeige scheitert, und der Retry in der Receipt hilft
   // nicht, weil sich am Zustand der Seite durch Wiederholen nichts ändert.
-  if (needsLeadgenTos(client.page))
+  if (!reach && needsLeadgenTos(client.page))
     return {
       error:
         `„${client.page.name}“ hat Metas Nutzungsbedingungen für Lead-Anzeigen nicht angenommen — ` +
@@ -305,7 +319,9 @@ export async function resolveLaunch(
     const location = locationProblem(s);
     if (location) return { error: `„${s.name}“: ${location}` };
     if (!s.ads.length) return { error: `„${s.name}“ hat noch keine Anzeigen.` };
-    if (!s.formId) return { error: `„${s.name}“ hat kein Lead-Formular ausgewählt.` };
+    // Nur bei Leads: unter OUTCOME_AWARENESS nimmt Meta kein Formular an, und
+    // die Anzeige zeigt stattdessen auf die Seite des Kunden (linkUrl).
+    if (!reach && !s.formId) return { error: `„${s.name}“ hat kein Lead-Formular ausgewählt.` };
     // Eine halbe Split-Anzeige ist ein offener Zustand aus dem Assistenten und
     // kein Fehler von Meta: ohne beide Hälften deckt die zweite
     // Platzierungsregel nichts ab. Hier abfangen, solange noch nichts angelegt
@@ -380,8 +396,8 @@ export async function resolveLaunch(
 
   // Zuletzt, nach den Identitätsproben: deren Meldungen sind die besseren
   // (kuratierter Text samt Link), wenn beide denselben Zustand träfen.
-  const rejected = await rejectedCreative(adSets, adAccount, client.page.id, deps);
+  const rejected = await rejectedCreative(adSets, adAccount, client.page.id, { objective: input.objective, linkUrl }, deps);
   if (rejected) return { error: rejected };
 
-  return { adAccount, pageId: client.page.id, instagramUserId: pbiaId };
+  return { adAccount, pageId: client.page.id, instagramUserId: pbiaId, ...(linkUrl ? { linkUrl } : {}) };
 }

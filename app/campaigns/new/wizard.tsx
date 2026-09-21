@@ -37,10 +37,10 @@ import {
   stateFromSeed,
   syncLinkedAds,
   textInstructions,
+  objectiveOf,
   toAdInput,
   useWizardState,
   withArrivedAssets,
-  withMetaIds,
   duplicateAdSet,
   firstScreen,
   reapplyBrief,
@@ -68,14 +68,16 @@ import { readNdjson } from "@/lib/ndjson";
 import { campaignExistsAction, fitRadiusAction, refreshAssetsAction, type WizardSubmission } from "../actions";
 import { useLaunch } from "./use-launch";
 import { fuzzyCustomerMatch, instagramAccountLabel, resolveClientByName } from "@/lib/customers";
-import type { LaunchProgress } from "@/lib/launch";
+import type { LaunchProgress, Objective } from "@/lib/launch";
 
 // Die festen Werte der Kampagne. Sie stehen nicht zur Wahl, aber jemand muss
-// sie nachschlagen können – als Paare statt als acht Sätze untereinander.
-const FIXED: [string, string][] = [
-  ["Ziel", label("OUTCOME_LEADS")],
-  ["Optimierungsziel", label("LEAD_GENERATION")],
-  ["Zieltyp", label("ON_AD")],
+// sie nachschlagen können – als Paare statt als acht Sätze untereinander. Drei
+// davon hängen am gewählten Ziel: Reichweite optimiert auf erreichte Personen
+// und führt auf die Facebook-Seite statt in ein Formular.
+const fixedFor = (objective: Objective): [string, string][] => [
+  ["Ziel", label(objective)],
+  ["Optimierungsziel", label(objective === "OUTCOME_AWARENESS" ? "REACH" : "LEAD_GENERATION")],
+  ["Zieltyp", objective === "OUTCOME_AWARENESS" ? "Facebook-Seite des Kunden" : label("ON_AD")],
   ["Gebotsstrategie", label("LOWEST_COST_WITHOUT_CAP")],
   ["Abrechnungsereignis", label("IMPRESSIONS")],
   ["Anzeigenkategorie", label("EMPLOYMENT")],
@@ -140,12 +142,14 @@ function VorschauSpalte({
   onSelect,
   client,
   adAccount,
+  objective,
 }: {
   adSets: WizardAdSet[];
   adSet: WizardAdSet;
   onSelect: (id: string) => void;
   client?: WizardClient;
   adAccount: string;
+  objective: Objective;
 }) {
   return (
     <section className={form.reviewPreview}>
@@ -164,6 +168,7 @@ function VorschauSpalte({
       )}
       <Preview
         adSet={adSet}
+        objective={objective}
         pageId={client?.pageId ?? ""}
         instagramUserId={client?.instagram?.id}
         adAccount={adAccount}
@@ -279,6 +284,9 @@ function WizardSteps({
 }: WizardProps) {
   const { state, setState, loaded, restored, others, save, start, resume, remove, discard, park, forget } =
     useWizardState(initialState(defaultAccount, defaultBusiness, initials));
+  // Leads oder Reichweite: entscheidet über Formularpflicht, Festwerte und die
+  // Vorschau. Über objectiveOf(), weil ein alter Entwurf das Feld nicht hat.
+  const objective = objectiveOf(state);
   // Kurz „Gespeichert“ zeigen, dann zurück – ein Knopf ohne Reaktion sieht
   // kaputt aus, ein Toast wäre für diese eine Bestätigung zu viel Apparat.
   const [justSaved, setJustSaved] = useState(false);
@@ -490,6 +498,7 @@ function WizardSteps({
         addressString: set.addressString,
         radiusKm: set.radiusKm,
         place: set.place,
+        pin: set.pin,
       }).then((res) => {
         if ("error" in res) return report({ id, label, status: "failed", detail: res.error });
         const people = res.reach.ready ? `ca. ${new Intl.NumberFormat("de-DE").format(res.reach.lower)} Menschen` : "Reichweite unbekannt";
@@ -519,16 +528,6 @@ function WizardSteps({
     if (campaignId) forget();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignId]);
-
-  // Bearbeiten: nach jedem Übernehmen kennt der Stand die Meta-IDs aus der
-  // Quittung (withMetaIds). Sonst legte das nächste Übernehmen – oder der
-  // Retry – jede seit dem Laden neue Anzeige noch einmal an und löschte die
-  // vom Lauf davor.
-  const receipt = result.receipt;
-  useEffect(() => {
-    if (receipt && state.editing) setState((s) => withMetaIds(s, receipt));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [receipt]);
 
   const clickup = useClickupCloseout(campaignId, state);
   const taskId = state.taskId;
@@ -647,7 +646,7 @@ function WizardSteps({
         // `edited`. Dieselbe Regel von Hand: getippte Adresse, gefallenes
         // Etikett. Der Radius zählt nicht dazu, die Adresse bleibt ja die aus
         // dem Auftrag.
-        if (idx === 0 && ("addressString" in p || "place" in p)) ownAddress = true;
+        if (idx === 0 && ("addressString" in p || "place" in p || "pin" in p)) ownAddress = true;
         // Wer die Anzeigen eines Spiegel-Standorts selbst anfasst, hat ihn
         // übernommen: ab da folgt er der Quelle nicht mehr.
         const next = { ...set, ...p };
@@ -709,7 +708,7 @@ function WizardSteps({
   const issues = useMemo(() => {
     const perSet = state.adSets.map((s) => ({
       set: s,
-      blockers: adSetBlockers(s),
+      blockers: adSetBlockers(s, objective),
     }));
     return {
       perSet,
@@ -721,7 +720,7 @@ function WizardSteps({
         // Blockt den Anlegen-Knopf wie jeder andere offene Punkt. Der Server
         // lehnt denselben Fall in resolveLaunch() noch einmal ab – hier steht er,
         // damit niemand erst acht Dateien hochlädt, um es dann zu erfahren.
-        ...(client?.needsLeadgenTos
+        ...(objective !== "OUTCOME_AWARENESS" && client?.needsLeadgenTos
           ? [`„${client.pageName}“ hat Metas Lead-Bedingungen nicht angenommen.`]
           : []),
       ],
@@ -734,7 +733,7 @@ function WizardSteps({
         ...customerBlockers(state).map((text) => ({ text, area: "pruefung-konto" })),
       ],
     };
-  }, [state, client]);
+  }, [state, client, objective]);
   // Zum offenen Punkt springen: Aufklapper öffnen, hinscrollen, erstes leeres Feld fokussieren.
   const jumpTo = (item: { area: string; setId?: string }) => {
     if (item.setId) setOpenSets((open) => (open.includes(item.setId!) ? open : [...open, item.setId!]));
@@ -829,19 +828,13 @@ function WizardSteps({
     setConfirmAgain("open");
   };
 
-  // Retry beim Bearbeiten heißt: den ganzen Stand noch einmal übernehmen. Die
-  // Quittung hat ihn eben um die Meta-IDs ergänzt, also ändert der zweite Lauf
-  // an Ort und Stelle, was schon steht, und holt nur nach, was fehlte. Nur die
-  // fehlgeschlagenen Anzeigen zu schicken (buildRetryAdSets) hieße im
-  // Bearbeiten-Modus: alles andere gilt als entfernt und wird gelöscht.
-  const retry = (input: WizardSubmission) => (state.editing ? createNow() : submitWizard(input));
-
   const createNow = () =>
     submitWizard({
       // Bearbeiten: dieselbe Nutzlast, nur mit den Meta-IDs und dem Schalter,
       // der lib/launch.ts ändern statt anlegen lässt.
       ...(state.editing ? { existingCampaignId: state.editing.campaignId, update: true } : {}),
       adAccount: state.adAccount,
+      objective,
       // Die Seite folgt dem beworbenen Kunden – der Server löst sie noch einmal
       // selbst auf, ein Client-Feld darf nicht auf eine fremde Seite zeigen.
       clientId: client?.id ?? "",
@@ -1045,6 +1038,7 @@ function WizardSteps({
                           instagramUserId={instagram?.id}
                           instagramLabel={instagramLabel}
                           adAccount={state.adAccount}
+                          objective={objective}
                           business={state.business}
                           roles={state.roles}
                           roleFreeText={state.roleFreeText}
@@ -1118,7 +1112,7 @@ function WizardSteps({
                         accountSource={accountSource}
                         accountItem={accountItem}
                         prefill={prefill}
-                        fixed={FIXED}
+                        fixed={fixedFor(objective)}
                       />
                     </div>
                   </div>
@@ -1158,7 +1152,7 @@ function WizardSteps({
                   }
                 />
                 <GhlHinweis />
-                {submission && <ReceiptPanel state={result} submission={submission} onRetry={retry} />}
+                {submission && <ReceiptPanel state={result} submission={submission} onRetry={submitWizard} />}
                 {clickup && (
                   <Banner
                     status={clickup.error ? "warning" : "success"}
@@ -1266,7 +1260,7 @@ function WizardSteps({
                 {campaignId && <GhlHinweis />}
 
                 {submission && (
-                  <ReceiptPanel state={result} submission={submission} onRetry={retry} />
+                  <ReceiptPanel state={result} submission={submission} onRetry={submitWizard} />
                 )}
 
                 {/* Die Aufgabe ist Teil des Ergebnisses, nicht des Formulars:
@@ -1301,6 +1295,7 @@ function WizardSteps({
                   onSelect={setPreviewSetId}
                   client={client}
                   adAccount={state.adAccount}
+                  objective={objective}
                 />
               )}
             </div>

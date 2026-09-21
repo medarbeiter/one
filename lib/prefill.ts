@@ -8,13 +8,14 @@
  * in der neuen, was schlimmer ist als ein leeres Feld – ein leeres Feld sieht
  * man, einen falschen Text von letztem Mal nicht.
  */
-import { BUCKET, toGeoPlace, type GeoPlace } from "./geo";
+import { BUCKET, toGeoPlace, type GeoPin, type GeoPlace } from "./geo";
 import { graph } from "./graph";
 
 export type Prefill = {
   addressString?: string;
   radiusKm?: number;
   place?: GeoPlace;
+  pin?: GeoPin;
 };
 
 export function defaultsFromAdSet(set: any): Prefill {
@@ -30,7 +31,13 @@ export function defaultsFromAdSet(set: any): Prefill {
     if (place) return { place, radiusKm: item.radius };
   }
   const loc = geo?.custom_locations?.[0];
-  return { addressString: loc?.address_string, radiusKm: loc?.radius };
+  // Ein gesetzter Pin kommt als Koordinate zurück – mit ihr steht er wieder auf
+  // der Karte, statt dass Meta ihn beim nächsten Mal aus dem Text neu rät.
+  const pin =
+    typeof loc?.latitude === "number" && typeof loc?.longitude === "number"
+      ? { lat: loc.latitude, lng: loc.longitude }
+      : undefined;
+  return { addressString: loc?.address_string, radiusKm: loc?.radius, ...(pin ? { pin } : {}) };
 }
 
 /**

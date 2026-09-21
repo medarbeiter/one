@@ -24,6 +24,24 @@ export type GeoPlace = {
   primaryCity?: string;
 };
 
+/**
+ * Ein Punkt auf der Karte, vom Bediener gesetzt. Geht als Koordinate zu Meta,
+ * nicht als Text: was Meta aus „Feldweg 3, 01234 Kleinstadt“ macht, weiß
+ * niemand vorher – aus 51.05/13.74 macht es genau diesen Punkt.
+ */
+export type GeoPin = { lat: number; lng: number };
+
+/** Was im Feld steht, solange die Rückwärtssuche zum Pin noch keinen Namen hat. */
+export const pinLabel = (p: GeoPin) => `${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}`;
+
+/** Der Standort, wie er Feld, Karte und Targeting gemeinsam ist. */
+export type LocationInput = {
+  addressString: string;
+  radiusKm: number;
+  place?: GeoPlace;
+  pin?: GeoPin;
+};
+
 /** Welcher Topf in `geo_locations` welchen Typ aufnimmt – auch lib/prefill.ts liest damit zurück. */
 export const BUCKET = {
   city: "cities",
@@ -88,7 +106,9 @@ export const placeTextValue = (p: GeoPlace) => `${p.name} (${placeContext(p)})`;
 /** Ein Ort im Targeting: entweder ein Schlüssel aus Metas Verzeichnis, ggf. mit
  *  Radius, oder eine Adresse, die Meta selbst geocodiert. */
 type KeyedLocation = { key: string; radius?: number; distance_unit?: "kilometer" };
-type AddressLocation = { address_string: string; radius: number; distance_unit: "kilometer" };
+type AddressLocation =
+  | { address_string: string; radius: number; distance_unit: "kilometer" }
+  | { latitude: number; longitude: number; radius: number; distance_unit: "kilometer" };
 
 export type GeoLocations = {
   custom_locations?: AddressLocation[];
@@ -125,11 +145,7 @@ export function toGeoPlace(raw: unknown): GeoPlace | undefined {
  * das Targeting beim Anlegen und die Reichweitenschätzung nicht auseinanderlaufen
  * können – sonst zeigte der Assistent eine Zahl für etwas anderes, als er bucht.
  */
-export function geoLocations(i: {
-  addressString: string;
-  radiusKm: number;
-  place?: GeoPlace;
-}): GeoLocations {
+export function geoLocations(i: LocationInput): GeoLocations {
   if (i.place) {
     const bucket = BUCKET[i.place.type];
     const entry = supportsRadius(i.place.type)
@@ -137,6 +153,12 @@ export function geoLocations(i: {
       : { key: i.place.key };
     return { [bucket]: [entry] };
   }
+  if (i.pin)
+    return {
+      custom_locations: [
+        { latitude: i.pin.lat, longitude: i.pin.lng, radius: i.radiusKm, distance_unit: "kilometer" },
+      ],
+    };
   return {
     custom_locations: [
       { address_string: i.addressString.trim(), radius: i.radiusKm, distance_unit: "kilometer" },
@@ -148,12 +170,8 @@ export function geoLocations(i: {
  * Was am Ort oder an der Adresse noch nicht stimmt – dieselbe Prüfung für das
  * Formular und für den Start, damit das Feld nichts durchlässt, was Meta ablehnt.
  */
-export function locationProblem(i: {
-  addressString: string;
-  radiusKm: number;
-  place?: GeoPlace;
-}): string | undefined {
-  if (!i.place && !i.addressString.trim())
+export function locationProblem(i: LocationInput): string | undefined {
+  if (!i.place && !i.pin && !i.addressString.trim())
     return "Für das Radius-Targeting ist eine genaue Adresse erforderlich.";
   const range = radiusRange(i.place);
   if (!range) return undefined;
@@ -163,12 +181,10 @@ export function locationProblem(i: {
 }
 
 /** Wie der Ort in Zusammenfassungen steht – eine Zeile, die ohne Nachschlagen trägt. */
-export const locationSummary = (i: {
-  addressString: string;
-  radiusKm: number;
-  place?: GeoPlace;
-}) => {
-  const where = i.place ? placeTextValue(i.place) : i.addressString || "Adresse fehlt";
+export const locationSummary = (i: LocationInput) => {
+  const where = i.place
+    ? placeTextValue(i.place)
+    : i.addressString || (i.pin ? pinLabel(i.pin) : "Adresse fehlt");
   return radiusRange(i.place) ? `${where} · ${i.radiusKm} km` : where;
 };
 
@@ -177,10 +193,14 @@ export const locationSummary = (i: {
  * zählt nicht mit: 17 und 25 km um dieselbe Adresse sind zwei Kreise um denselben
  * Punkt, keine zwei Zielgruppen.
  */
-export const locationKey = (i: { addressString: string; place?: GeoPlace }): string =>
+export const locationKey = (i: { addressString: string; place?: GeoPlace; pin?: GeoPin }): string =>
   i.place
     ? `${i.place.type}:${i.place.key}`
-    : i.addressString.trim().toLowerCase().replace(/\s+/g, " ");
+    : // Drei Stellen sind rund 100 m: zwei Pins auf demselben Grundstück sind
+      // derselbe Ort, zwei Straßen weiter nicht.
+      i.pin
+      ? `pin:${i.pin.lat.toFixed(3)},${i.pin.lng.toFixed(3)}`
+      : i.addressString.trim().toLowerCase().replace(/\s+/g, " ");
 
 /**
  * Anzeigengruppen, die auf denselben Ort zielen. Meta lässt das zu, aber die
@@ -192,7 +212,7 @@ export const locationKey = (i: { addressString: string; place?: GeoPlace }): str
  * gewesen sein und kein übersehener Doppelklick auf „Anzeigengruppe hinzufügen“.
  */
 export function duplicateLocations(
-  sets: { name: string; addressString: string; place?: GeoPlace }[],
+  sets: { name: string; addressString: string; place?: GeoPlace; pin?: GeoPin }[],
 ): string[] {
   const byKey = new Map<string, string[]>();
   for (const set of sets) {
@@ -297,4 +317,26 @@ export function formatReach(lower: number, upper: number): string {
       : n.toLocaleString("de-DE");
   const span = lower === upper ? fmt(lower) : `${fmt(lower)}–${fmt(upper)}`;
   return millions ? `${span} Mio.` : span;
+}
+
+/**
+ * Der Umkreis als Ring von Koordinaten, wie ihn die Karte zeichnet. Rein
+ * geometrisch: ein Kreis auf der Kugel, in 64 Schritten – nicht Metas
+ * Zielgebiet, das kennt nur Meta. Erster und letzter Punkt sind derselbe,
+ * so will es GeoJSON.
+ */
+export function circleRing(center: GeoPin, radiusKm: number, steps = 64): [number, number][] {
+  const EARTH_KM = 6371;
+  const d = radiusKm / EARTH_KM;
+  const lat = (center.lat * Math.PI) / 180;
+  const lng = (center.lng * Math.PI) / 180;
+  const ring: [number, number][] = [];
+  for (let i = 0; i <= steps; i++) {
+    const brng = (2 * Math.PI * i) / steps;
+    const lat2 = Math.asin(Math.sin(lat) * Math.cos(d) + Math.cos(lat) * Math.sin(d) * Math.cos(brng));
+    const lng2 =
+      lng + Math.atan2(Math.sin(brng) * Math.sin(d) * Math.cos(lat), Math.cos(d) - Math.sin(lat) * Math.sin(lat2));
+    ring.push([(lng2 * 180) / Math.PI, (lat2 * 180) / Math.PI]);
+  }
+  return ring;
 }
