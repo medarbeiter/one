@@ -386,7 +386,10 @@ test("applyBrief füllt ein leeres Formular und merkt sich je Feld die Herkunft"
     location: ["clickup"],
     dailyBudget: ["clickup"],
     spendCap: ["clickup"],
+    formHint: ["clickup"],
   });
+  // Der Standort aus dem Auftrag trägt dessen Etikett, bis jemand ihn anfasst.
+  expect(s.adSets[0].fromBrief).toBe(true);
 });
 
 test("applyBrief: mehrere Standorte → je eine Anzeigengruppe, die weiteren spiegeln die erste", () => {
@@ -430,15 +433,21 @@ test("applyBrief überschreibt nichts, was schon angefasst ist", () => {
   expect(s.dailyBudgetEuros).toBe(20);
   expect(s.adSets[0].addressString).toBe("Hier");
   expect(s.spendCapEuros).toBe(2435);
-  expect(s.sources).toEqual({ initials: ["session"], spendCap: ["clickup"] });
+  expect(s.sources).toEqual({ initials: ["session"], spendCap: ["clickup"], formHint: ["clickup"] });
 });
 
-test("edited nimmt dem Feld sein Etikett", () => {
+test("edited macht das Feld zur eigenen Entscheidung – Etikett „von Hand“, Belege bleiben", () => {
   const s = applyBrief(initialState("act_1", "", "KF"), brief);
   const t = edited(s, "roles", { roles: ["FK"] });
   expect(t.roles).toEqual(["FK"]);
-  expect(t.sources.roles).toBeUndefined();
+  expect(t.sources.roles).toEqual(["hand"]);
   expect(t.sources.benefits).toEqual(["onboarding"]);
+  expect(t.evidence).toEqual(s.evidence);
+});
+
+test("hydrate wirft Belege der alten Fassung (ein Satz) weg, behält Listen", () => {
+  const old = { ...initialState("act_1", "", "KF"), evidence: { location: "Aufgabe: Renningen", roles: [{ source: "clickup" }] } } as any;
+  expect(hydrate(old, "KF").evidence).toEqual({ roles: [{ source: "clickup" }] });
 });
 
 test("das Tagesbudget beginnt beim Hausstandard", () => {

@@ -21,7 +21,7 @@ import { matchFormHint, newlyAppeared } from "@/lib/forms";
 import { FormBuilder } from "./form-builder";
 import form from "./campaign-form.module.css";
 import { GhlHinweis } from "./ghl-hinweis";
-import type { Source } from "@/lib/brief";
+import type { Beleg, Source } from "@/lib/brief";
 import type { Objective } from "@/lib/launch";
 import { cleanStem, nextCreativeName } from "@/lib/media";
 import { cityOf } from "./state";
@@ -457,8 +457,12 @@ export function AdSetBlock({
   taskId,
   notes,
   regenerateToken = 0,
-  locationEvidence,
-  benefitsEvidence,
+  locationBelege,
+  benefitsBelege,
+  radiusSource,
+  radiusBelege,
+  formHintSource,
+  formHintBelege,
   onChange,
   onRemove,
   onDuplicate,
@@ -518,8 +522,12 @@ export function AdSetBlock({
   notes?: string;
   /** Herkunft des vorbelegten Standorts – Etikett unter dem Standortfeld (nur erste Anzeigengruppe). */
   locationSource?: Source[];
-  locationEvidence?: string;
-  benefitsEvidence?: string;
+  locationBelege?: Beleg[];
+  benefitsBelege?: Beleg[];
+  radiusSource?: Source[];
+  radiusBelege?: Beleg[];
+  formHintSource?: Source[];
+  formHintBelege?: Beleg[];
   /** Als Funktion, wenn der Patch auf dem aktuellen Stand aufbauen muss – siehe addAssets. */
   onChange: (patch: Partial<WizardAdSet> | ((set: WizardAdSet) => Partial<WizardAdSet>)) => void;
   onRemove: () => void;
@@ -1146,8 +1154,19 @@ export function AdSetBlock({
             value={value}
             onChange={onChange}
             adAccount={adAccount}
+            radiusHerkunft={
+              <Herkunft
+                source={radiusSource}
+                belege={radiusBelege}
+                fehlt="Kein Umkreis genannt. Hausstandard 17 km, vom Assistenten erweitert, bis 150 000 Menschen erreicht sind."
+              />
+            }
           />
-          <Herkunft source={locationSource} evidence={locationEvidence} />
+          <Herkunft
+            source={locationSource}
+            belege={locationBelege}
+            fehlt="Kein Standort gefunden – bitte eintragen oder auf der Karte setzen."
+          />
         </div>
       </FieldsetSection>
 
@@ -1165,7 +1184,15 @@ export function AdSetBlock({
           legend="Lead-Formular"
           satz={`Das Formular der Seite ${pageName || "des Kunden"}, das sich aus der Anzeige öffnet. Ein in Meta neu gebautes wird hier erkannt und gewählt.`}
           action={
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2">
+              {/* ponytail: nach einem Neuladen des Entwurfs ist „detected“ weg –
+                  das Etikett sagt dann „ohne Quelle“, obwohl der Hinweis gewählt
+                  hat. Ein Flag am Entwurf, wenn das stört. */}
+              <Herkunft
+                source={detected?.how === "hinweis" ? formHintSource : undefined}
+                belege={formHintBelege}
+                fehlt="Kein Formular in der Aufgabe genannt – bitte aus der Liste wählen."
+              />
               <Button
                 variant="ghost"
                 size="sm"
@@ -1309,7 +1336,11 @@ export function AdSetBlock({
               <Text type="label" as="div">
                 Benefits des Arbeitgebers
               </Text>
-              <Herkunft source={benefitsSource} evidence={benefitsEvidence} />
+              <Herkunft
+                source={benefitsSource}
+                belege={benefitsBelege}
+                fehlt="Keine Benefits gefunden – die Texte brauchen sie, bitte eintragen."
+              />
             </div>
             <TextArea
               label="Benefits des Arbeitgebers"

@@ -8,7 +8,9 @@ import type { AssembledBrief, Source } from "@/lib/brief";
 import type { AdInput, AdSetInput, FormatAsset, Objective } from "@/lib/launch";
 import type { Orientation } from "@/lib/media";
 import { parseCampaignName } from "@/lib/naming";
-import type { BriefEvidence, Sourced } from "@/lib/brief";
+import type { Beleg, BriefEvidence, Quellenlage, Sourced } from "@/lib/brief";
+import { adsManagerUrl } from "@/lib/labels";
+import { locationSummary } from "@/lib/geo";
 import type { CampaignSeed, SeedAd } from "@/lib/seed";
 
 // Der Einzelentwurf von früher: ein Stand, im sessionStorage dieses Tabs, weg
@@ -28,7 +30,9 @@ export type SourceField =
   | "location"
   | "dailyBudget"
   | "spendCap"
-  | "initials";
+  | "initials"
+  | "radius"
+  | "formHint";
 /** Ein Wert kann aus mehreren Quellen stammen („ClickUp + Onboarding“). */
 export type Sources = Partial<Record<SourceField, Source[]>>;
 
@@ -69,6 +73,8 @@ export type WizardState = {
   sources: Sources;
   /** Was jede Quelle zu einem Feld sagte – der Tooltip am Herkunftsetikett. */
   evidence?: BriefEvidence;
+  /** Was der Zusammenbau lesen konnte – der Text an Feldern ohne Herkunft. */
+  quellen?: Quellenlage;
   /**
    * Freie Hinweise der bedienenden Person für die KI („Nur PFK, keine PDL“).
    * Nicht `notes` – das ist die wörtliche ClickUp-Beschreibung. Bleiben im
@@ -162,6 +168,8 @@ export type WizardAdSet = Omit<AdSetInput, "ads"> & {
    * jemand die Anzeigen dieses Standorts selbst anfasst (wizard.tsx).
    */
   mirrorOf?: string;
+  /** Der Standort kam aus dem Auftrag – trägt dessen Herkunft, bis jemand die Adresse anfasst. */
+  fromBrief?: boolean;
 };
 
 // Auch für den Prefill-Vergleich in wizard.tsx: nur wenn der Radius noch auf
@@ -185,7 +193,15 @@ export const emptyAdSet = (index: number, city?: string): WizardAdSet => ({
 export const objectiveOf = (state: Pick<WizardState, "objective">): Objective =>
   state.objective ?? "OUTCOME_LEADS";
 
-export const initialState = (adAccount = "", business = "", initials = ""): WizardState => ({
+/** Das Kürzel kommt aus dem Namen der Anmeldung – der Beleg dazu, damit auch dieses Feld seine Herkunft zeigt. */
+const sessionBeleg = (initials: string, personName: string): Beleg => ({
+  source: "session",
+  title: personName || undefined,
+  where: "Name der Anmeldung",
+  quote: personName ? `${personName} → ${initials}` : initials,
+});
+
+export const initialState = (adAccount = "", business = "", initials = "", personName = ""): WizardState => ({
   adAccount,
   objective: "OUTCOME_LEADS",
   business,
@@ -198,6 +214,7 @@ export const initialState = (adAccount = "", business = "", initials = ""): Wiza
   dailyBudgetEuros: DEFAULT_DAILY_BUDGET,
   benefits: "",
   sources: initials ? { initials: ["session"] } : {},
+  ...(initials ? { evidence: { initials: [sessionBeleg(initials, personName)] } } : {}),
   aiNotes: "",
   copyInstructions: "",
   adSets: [emptyAdSet(0)],
@@ -220,8 +237,10 @@ export function applyBrief(state: WizardState, brief: AssembledBrief): WizardSta
     formHint: brief.formHint?.value,
     driveFolderId: brief.driveFolderId?.value,
     onboardingSheetId: brief.onboardingSheetId,
-    evidence: brief.evidence ?? state.evidence,
+    evidence: { ...state.evidence, ...brief.evidence },
+    quellen: brief.quellen ?? state.quellen,
   };
+  if (brief.formHint) sources.formHint = brief.formHint.sources;
   if (brief.clientName && !state.business.trim()) {
     next.business = brief.clientName.value;
     sources.clientName = brief.clientName.sources;
@@ -250,11 +269,12 @@ export function applyBrief(state: WizardState, brief: AssembledBrief): WizardSta
   const [head, ...more] = brief.locations?.value ?? [];
   if (head && first && state.adSets.length === 1 && first.addressString === "" && !first.place && !first.pin) {
     next.adSets = [
-      { ...first, addressString: head },
+      { ...first, addressString: head, fromBrief: true },
       ...more.map((addressString, i) => ({
         ...emptyAdSet(i + 1, cityOf(addressString)),
         addressString,
         mirrorOf: first.id,
+        fromBrief: true,
       })),
     ];
     sources.location = brief.locations!.sources;
@@ -262,8 +282,10 @@ export function applyBrief(state: WizardState, brief: AssembledBrief): WizardSta
   // Ein in der Aufgabe genannter Umkreis gilt für alle Gruppen, die noch auf
   // dem Hausstandard stehen – und hält damit die Reichweiten-Leiter an
   // (wizard.tsx passt nur Gruppen mit DEFAULT_RADIUS_KM an).
-  if (brief.radiusKm)
+  if (brief.radiusKm) {
     next.adSets = next.adSets.map((a) => (a.radiusKm === DEFAULT_RADIUS_KM ? { ...a, radiusKm: brief.radiusKm!.value } : a));
+    sources.radius = brief.radiusKm.sources;
+  }
   return { ...next, sources };
 }
 
@@ -282,9 +304,16 @@ export function reapplyBrief(
 ): { state: WizardState; textsChanged: boolean } {
   const same = <T,>(a: Sourced<T> | undefined, b: Sourced<T> | undefined) =>
     JSON.stringify(a?.value) === JSON.stringify(b?.value);
-  const next: WizardState = { ...state, sources: { ...state.sources }, evidence: final.evidence ?? state.evidence };
+  const next: WizardState = {
+    ...state,
+    sources: { ...state.sources },
+    evidence: { ...state.evidence, ...final.evidence },
+    quellen: final.quellen ?? state.quellen,
+  };
   next.copyInstructions = final.copyInstructions;
   next.formHint = final.formHint?.value;
+  if (final.formHint) next.sources.formHint = final.formHint.sources;
+  else delete next.sources.formHint;
   let textsChanged = false;
   if (!same(partial.roles, final.roles)) {
     next.roles = final.roles?.value ?? [];
@@ -315,14 +344,16 @@ export function reapplyBrief(
     const [head, ...more] = final.locations.value;
     const first = state.adSets[0];
     next.adSets = [
-      { ...first, addressString: head, place: undefined, pin: undefined },
-      ...more.map((addressString, i) => ({ ...emptyAdSet(i + 1, cityOf(addressString)), addressString, mirrorOf: first.id })),
+      { ...first, addressString: head, place: undefined, pin: undefined, fromBrief: true },
+      ...more.map((addressString, i) => ({ ...emptyAdSet(i + 1, cityOf(addressString)), addressString, mirrorOf: first.id, fromBrief: true })),
     ];
     next.sources.location = final.locations.sources;
     textsChanged = true;
   }
-  if (!same(partial.radiusKm, final.radiusKm) && final.radiusKm)
+  if (!same(partial.radiusKm, final.radiusKm) && final.radiusKm) {
     next.adSets = next.adSets.map((a) => (a.radiusKm === DEFAULT_RADIUS_KM ? { ...a, radiusKm: final.radiusKm!.value } : a));
+    next.sources.radius = final.radiusKm.sources;
+  }
   if (!same(partial.copyInstructions ? { value: partial.copyInstructions, sources: [] } : undefined, final.copyInstructions ? { value: final.copyInstructions, sources: [] } : undefined))
     textsChanged = true;
   return { state: next, textsChanged };
@@ -384,9 +415,13 @@ export function cityOf(addressString: string): string {
 }
 
 /** Eine Änderung von Hand: der Wert wechselt, das Herkunftsetikett fällt. */
+/**
+ * Das Feld wurde von Hand geändert: die Herkunft wird „hand“ – ein Etikett,
+ * das den Wert als eigene Entscheidung ausweist. Die Belege bleiben stehen
+ * (state.evidence), damit man sehen kann, wovon abgewichen wurde.
+ */
 export function edited(state: WizardState, field: SourceField, patch: Partial<WizardState>): WizardState {
-  const { [field]: _gone, ...sources } = state.sources;
-  return { ...state, ...patch, sources };
+  return { ...state, ...patch, sources: { ...state.sources, [field]: ["hand"] } };
 }
 
 /** Ohne die UI-Felder (id, orientation), die auf dem Weg zu Meta nichts verloren haben. */
@@ -474,6 +509,20 @@ export function stateFromSeed(
     ...(seed.spendCapEuros !== undefined ? { spendCap: ["campaign"] } : {}),
     ...(opts.initials ? { initials: ["session"] } : {}),
   };
+  // Die Vorlage als Beleg: jedes übernommene Feld führt zur Kampagne im Ads Manager.
+  const vorlage = (where: string, quote: string): Beleg[] => [
+    { source: "campaign", title: `Kampagne „${seed.name}“`, where, quote, url: adsManagerUrl(opts.adAccount, seed.campaignId) },
+  ];
+  const evidence: BriefEvidence = {
+    ...(business ? { clientName: vorlage("Kampagnenname", business) } : {}),
+    ...(parsed?.roles.length ? { roles: vorlage("Kampagnenname", parsed.roles.join(", ")) } : {}),
+    ...(seed.adSets.length
+      ? { location: vorlage("Anzeigengruppen", seed.adSets.map((s) => locationSummary(s)).join("\n")) }
+      : {}),
+    ...(seed.dailyBudgetEuros !== undefined ? { dailyBudget: vorlage("Tagesbudget", `${seed.dailyBudgetEuros} €`) } : {}),
+    ...(seed.spendCapEuros !== undefined ? { spendCap: vorlage("Ausgabenlimit", `${seed.spendCapEuros} €`) } : {}),
+    ...(opts.initials ? { initials: [sessionBeleg(opts.initials, "")] } : {}),
+  };
   const adSets: WizardAdSet[] = seed.adSets.length
     ? seed.adSets.map((set, i) => ({
         ...emptyAdSet(i, cityOf(set.addressString)),
@@ -506,6 +555,8 @@ export function stateFromSeed(
     ...(seed.spendCapEuros !== undefined ? { spendCapEuros: seed.spendCapEuros } : {}),
     benefits,
     sources,
+    evidence,
+    quellen: { gelesen: [`Kampagne „${seed.name}“`], fehlt: [] },
     ...(edit ? { editing: { campaignId: seed.campaignId, name: seed.name } } : {}),
     adSets,
   };
@@ -971,6 +1022,8 @@ export const hydrate = (state: WizardState, initials: string): WizardState => ({
   initials: state.initials || initials,
   benefits: state.benefits ?? "",
   sources: sourcesOf(state.sources),
+  // Vor den Belegen war der Beleg ein Satz – so ein Entwurf verliert nur den Tooltip.
+  evidence: Object.fromEntries(Object.entries(state.evidence ?? {}).filter(([, v]) => Array.isArray(v))) as BriefEvidence,
   aiNotes: state.aiNotes ?? "",
   copyInstructions: state.copyInstructions ?? "",
   adSets: state.adSets.map((s) => ({

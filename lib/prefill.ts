@@ -12,6 +12,8 @@ import { BUCKET, toGeoPlace, type GeoPin, type GeoPlace } from "./geo";
 import { graph } from "./graph";
 
 export type Prefill = {
+  /** Die Kampagne, aus der Standort und Radius stammen – für den Beleg am Feld. */
+  campaign?: { id: string; name: string };
   addressString?: string;
   radiusKm?: number;
   place?: GeoPlace;
@@ -96,9 +98,12 @@ export async function lastCampaignDefaults(
   // Texte nicht mehr übernommen werden, muss dafür auch keine Anzeige samt
   // Creative mitgeladen werden.
   const full = await graph<any>(newest.id, {
-    params: { fields: "targeting" },
+    params: { fields: "targeting,campaign{id,name}" },
     revalidate: 300,
     tags: ["campaigns"],
   });
-  return defaultsFromAdSet(full);
+  return {
+    ...defaultsFromAdSet(full),
+    ...(full?.campaign?.id ? { campaign: { id: String(full.campaign.id), name: String(full.campaign.name ?? "") } } : {}),
+  };
 }

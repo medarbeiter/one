@@ -17,7 +17,7 @@ import form from "./campaign-form.module.css";
  * und genau das steht dann unter dem Feld – vor dem Start, nicht danach.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import {
   Slider,
@@ -116,10 +116,13 @@ export function LocationField({
   value,
   onChange,
   adAccount,
+  radiusHerkunft,
 }: {
   value: LocationValue;
   onChange: (patch: Partial<LocationValue>) => void;
   adAccount: string;
+  /** Das Herkunftsetikett zum Radius – der Block kennt die Quellen, das Feld den Schieber. */
+  radiusHerkunft?: ReactNode;
 }) {
   // Was im Feld steht, kommt aus dem Entwurf, nicht aus einem zweiten Zustand
   // hier: sonst zeigte das Feld nach dem Wiederherstellen einer gespeicherten
@@ -218,9 +221,10 @@ export function LocationField({
             keine Zielgruppe mehr – ein Feld, das nichts bewirkt, wäre schlimmer
             als keines. */}
         {range ? (
-          // Ein Schieber statt eines Zahlenfelds: die Grenzen sind damit sichtbar,
-          // statt erst beim Tippen aufzufallen, und ein Wert außerhalb lässt sich
-          // gar nicht erst einstellen.
+          <div className="space-y-2">
+          {/* Ein Schieber statt eines Zahlenfelds: die Grenzen sind damit sichtbar,
+              statt erst beim Tippen aufzufallen, und ein Wert außerhalb lässt sich
+              gar nicht erst einstellen. */}
           <Slider
             label="Radius"
             value={value.radiusKm}
@@ -241,6 +245,8 @@ export function LocationField({
                 : `Meta erlaubt ${range.min} bis ${range.max} km um die Adresse.`
             }
           />
+          {radiusHerkunft}
+          </div>
         ) : (
           <div className="space-y-1">
             <Text type="label" as="div">

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { assembleBrief, evidenceLines, onboardingExcerpt, parseCampaignContext, parseLocationHint, parseOnboarding, type BriefDeps } from "./brief";
+import { assembleBrief, evidenceLines, onboardingExcerpt, parseCampaignContext, parseLocationHint, parseOnboarding, quellenlage, type BriefDeps } from "./brief";
 import { overviewFacts, type Brief } from "./clickup";
 
 test("parseLocationHint nimmt Adresse, Ort und Formular-Hinweis aus dem JSON", () => {
@@ -647,10 +647,32 @@ test("assembleBrief meldet den festen Stand vor der Auflösung als partial – m
     },
   );
   expect(partials).toEqual(["Mühlgasse 24, 71272 Renningen"]);
-  expect(out.evidence?.location).toContain("Aufgabe: Mühlgasse 24, 71272 Renningen");
-  expect(out.evidence?.location).toContain("Kundenübersicht: Firmensitz 1, 70173 Stuttgart");
-  expect(out.evidence?.benefits).toContain("2 Zeilen");
-  expect(out.evidence?.dailyBudget).toContain("17,05");
+  // Jeder Fund als Beleg mit Stelle und Link – auch der nicht gewählte.
+  expect(out.evidence?.location?.map((b) => [b.source, b.quote])).toEqual([
+    ["clickup", "Mühlgasse 24, 71272 Renningen"],
+    ["clickup", "Firmensitz 1, 70173 Stuttgart"],
+  ]);
+  expect(out.evidence?.location?.[0].url).toBe("https://app.clickup.com/t/t1");
+  expect(out.evidence?.location?.[0].where).toBe("Beschreibung");
+  expect(out.evidence?.benefits?.[0].source).toBe("onboarding");
+  expect(out.evidence?.benefits?.[0].quote?.split("\n")).toHaveLength(2);
+  expect(out.evidence?.dailyBudget?.[0].quote).toContain("17,05");
+  // Die Quellenlage: was gelesen wurde, steht als Text am Feld ohne Herkunft.
+  expect(out.quellen?.gelesen).toContain("Aufgabe");
+  expect(out.quellen?.gelesen).toContain("Kundenübersicht");
+});
+
+test("quellenlage: gelesen und gefehlt, mit Grund", () => {
+  const q = quellenlage([
+    ["task", { status: "done" }],
+    ["onboarding", { status: "failed", detail: "keine Tabelle im Ordner" }],
+    ["overview", { status: "skipped", detail: "kein Kundenordner an der Aufgabe" }],
+    ["context", { status: "done" }],
+  ]);
+  expect(q).toEqual({
+    gelesen: ["Aufgabe"],
+    fehlt: ["Onboarding-Tabelle (keine Tabelle im Ordner)", "Kundenübersicht (kein Kundenordner an der Aufgabe)"],
+  });
 });
 
 test("evidenceLines lässt leere Quellen weg", () => {

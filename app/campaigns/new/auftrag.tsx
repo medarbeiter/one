@@ -26,7 +26,7 @@ import {
 } from "@astryxdesign/core";
 import { UserPlusIcon } from "@phosphor-icons/react";
 import { MAX_AI_NOTES } from "@/lib/ai-notes";
-import type { Source } from "@/lib/brief";
+import type { Beleg, Source } from "@/lib/brief";
 import { taskIdFromInput, type Brief } from "@/lib/clickup";
 import { fuzzyCustomerMatch, leadgenTosUrl, type InstagramAccount } from "@/lib/customers";
 import { briefsAction } from "../actions";
@@ -261,6 +261,7 @@ export function KundeWahl({
   clientSource,
   clientItem,
   clientNameSource,
+  clientNameBelege,
   onChange,
   customerFieldRef,
   reloading,
@@ -275,6 +276,7 @@ export function KundeWahl({
   clientItem: ClientItem | null;
   /** Woher der Kundenname kommt, solange ihn niemand geändert hat. */
   clientNameSource?: Source[];
+  clientNameBelege?: Beleg[];
   onChange: (item: ClientItem | null) => void;
   customerFieldRef: RefObject<HTMLDivElement | null>;
   reloading: boolean;
@@ -331,7 +333,11 @@ export function KundeWahl({
           />
         </div>
 
-        <Herkunft source={clientNameSource} />
+        <Herkunft
+          source={clientNameSource}
+          belege={clientNameBelege}
+          fehlt="Kein Kunde aus der Aufgabe – von Hand gewählt."
+        />
 
         {/* Das Kürzel stand vorher als dritter kleiner Kasten in der Reihe
             – neben dem Löschknopf des Feldes und dem Knopf „Kunde

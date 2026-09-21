@@ -37,6 +37,7 @@ import {
   parseRoles,
   rolesFromTaskName,
   rolesFromTitles,
+  taskUrl,
   type Brief,
 } from "./clickup";
 import {
@@ -50,8 +51,34 @@ import {
 import { ROLES } from "./naming";
 import { isStale, sheetSections } from "./sheet";
 
-export type Source = "clickup" | "onboarding" | "previous" | "session" | "user" | "campaign";
+/** „hand“: von der bedienenden Person geändert – vergibt nur edited() in state.ts, nie das Modell. */
+export type Source = "clickup" | "onboarding" | "previous" | "session" | "user" | "campaign" | "hand";
 export type Sourced<T> = { value: T; sources: Source[] };
+
+/**
+ * Ein Beleg: was eine Quelle zu einem Feld sagte, mit dem Weg dorthin. Steht
+ * im Tooltip am Herkunftsetikett – wer den Wert prüfen will, soll die Stelle
+ * sehen und mit einem Klick dort sein, nicht erst ClickUp und Drive durchsuchen.
+ */
+export type Beleg = {
+  source: Source;
+  /** Das Dokument: „Aufgabe „PDL Renningen““, der Name der Tabelle, der Kampagne. */
+  title?: string;
+  /** Die Stelle darin: „Feld „gesuchte Stellen““, „„Wo befinden sich die Patienten?““. */
+  where?: string;
+  /** Was dort stand – wörtlich oder gekürzt. */
+  quote?: string;
+  url?: string;
+};
+
+/**
+ * Welche Quellen der Zusammenbau lesen konnte und welche nicht – der Text am
+ * Feld ohne Herkunft: „nicht genannt in Aufgabe, Kundenübersicht; Onboarding-
+ * Tabelle nicht gefunden“. Ohne das hieße ein leeres Feld nur „leer“.
+ */
+export type Quellenlage = { gelesen: string[]; fehlt: string[] };
+
+export const sheetUrl = (id: string) => `https://docs.google.com/spreadsheets/d/${id}`;
 const SOURCES: readonly Source[] = ["clickup", "onboarding", "previous", "session", "user"];
 
 /**
@@ -106,18 +133,32 @@ export type AssembledBrief = {
   assigneeName?: string;
   /** Stil-, Ton- und Ausschlusswünsche aus den Hinweisen, für jede Textanfrage. */
   copyInstructions: string;
-  /** Was jede Quelle zu einem Feld sagte – ein Satz je Feld, fürs Etikett am Feld. */
+  /** Was jede Quelle zu einem Feld sagte – die Belege im Tooltip am Feld. */
   evidence?: BriefEvidence;
+  /** Was gelesen wurde und was nicht – der Text an Feldern ohne Herkunft. */
+  quellen?: Quellenlage;
   warnings: string[];
 };
 
-export type BriefEvidence = Partial<Record<"location" | "roles" | "benefits" | "dailyBudget" | "spendCap", string>>;
+export type EvidenceField =
+  | "clientName"
+  | "location"
+  | "radius"
+  | "formHint"
+  | "roles"
+  | "benefits"
+  | "dailyBudget"
+  | "spendCap"
+  | "initials";
+export type BriefEvidence = Partial<Record<EvidenceField, Beleg[]>>;
 
 /** Was die Leser fanden, bevor jemand entscheidet – Belege, keine Auswahl. */
 export type CampaignEvidence = {
   task: {
     id: string;
     name: string;
+    url?: string;
+    customer?: string;
     description: string;
     rolesText?: string;
     dailyBudgetEuros?: number;
@@ -136,9 +177,10 @@ export type CampaignEvidence = {
     radiusKm?: number;
     /** Die „Für <Ort>:“-Blöcke der Voraussetzungen – je Ort seine Stellen, mit Datum der Notiz. */
     perLocation: OnboardingLocation[];
+    sheet?: { id: string; name: string };
   };
   /** Nur die erlaubten Fakten (overviewFacts) – nie das Doc selbst. */
-  overview: { address?: string; rolesText?: string; radiusKm?: number };
+  overview: { address?: string; rolesText?: string; radiusKm?: number; doc?: { url: string; name: string } };
   aiNotes: string;
 };
 
@@ -173,7 +215,9 @@ export type BriefDeps = {
   findSheet: (folderId: string) => Promise<DriveFile | undefined>;
   exportCsv: (fileId: string) => Promise<string>;
   mistral: (content: string, opts?: { temperature?: number }) => Promise<string>;
-  customerOverview: (folderId: string) => Promise<{ address?: string; rolesText?: string; radiusKm?: number }>;
+  customerOverview: (
+    folderId: string,
+  ) => Promise<{ address?: string; rolesText?: string; radiusKm?: number; doc?: { url: string; name: string } }>;
 };
 
 const realDeps: BriefDeps = {
@@ -461,7 +505,7 @@ async function readOnboarding(
   deps: BriefDeps,
   warnings: string[],
   emit: OnBriefEvent,
-): Promise<{ folderId?: string; sheetId?: string } & ParsedOnboarding> {
+): Promise<{ folderId?: string; sheetId?: string; sheetName?: string } & ParsedOnboarding> {
   const none: ParsedOnboarding = { benefits: [], roles: [], roleFreeText: "", perLocation: [] };
   emit({ type: "step", step: "drive", status: "running" });
   let folderId = brief.driveUrl ? deps.folderIdFromUrl(brief.driveUrl) : undefined;
@@ -504,7 +548,7 @@ async function readOnboarding(
     } catch (e) {
       warnings.push(`Onboarding-Tabelle nicht gelesen: ${(e as Error).message}`);
       emit({ type: "step", step: "onboarding", status: "failed", detail: (e as Error).message });
-      return { folderId, sheetId: sheet.id, ...none };
+      return { folderId, sheetId: sheet.id, sheetName: sheet.name, ...none };
     }
     emit({
       type: "step",
@@ -518,7 +562,7 @@ async function readOnboarding(
         .filter(Boolean)
         .join(" · "),
     });
-    return { folderId, sheetId: sheet.id, ...parsed };
+    return { folderId, sheetId: sheet.id, sheetName: sheet.name, ...parsed };
   } catch (e) {
     warnings.push(`Onboarding-Tabelle nicht gelesen: ${(e as Error).message}`);
     emit({ type: "step", step: "onboarding", status: "failed", detail: (e as Error).message });
@@ -537,6 +581,14 @@ export async function assembleBrief(
   emit: OnBriefEvent = () => {},
 ): Promise<AssembledBrief> {
   const warnings: string[] = [];
+  // Jeder Schritt merkt sich seinen Ausgang – daraus wird die Quellenlage am
+  // Feld ohne Herkunft: was gelesen wurde, was fehlte und warum.
+  const steps = new Map<BriefStep, { status: string; detail?: string }>();
+  const forward = emit;
+  emit = (ev) => {
+    if (ev.type === "step" && ev.status !== "running") steps.set(ev.step, ev);
+    forward(ev);
+  };
   emit({ type: "step", step: "task", status: "running" });
   // Genau diese eine Aufgabe. Geschwister desselben Kunden werden weder
   // gesucht noch zusammengeführt – der Umfang der Kampagne ist die Aufgabe.
@@ -679,6 +731,8 @@ export async function assembleBrief(
     task: {
       id: brief.taskId,
       name: brief.name,
+      url: taskUrl(brief.taskId),
+      customer: brief.customer || undefined,
       description: brief.description,
       rolesText: brief.rolesText,
       dailyBudgetEuros: brief.dailyBudgetEuros,
@@ -694,11 +748,13 @@ export async function assembleBrief(
       location: sheet.location,
       radiusKm: sheet.radiusKm,
       perLocation: sheet.perLocation,
+      ...(sheet.sheetId ? { sheet: { id: sheet.sheetId, name: sheet.sheetName ?? "Onboarding-Tabelle" } } : {}),
     },
     overview,
     aiNotes,
   };
   out.evidence = evidenceLines(evidence);
+  out.quellen = quellenlage(steps);
   // Der feste Stand geht sofort raus – der Assistent kann damit Texte
   // schreiben lassen, während die Auflösung noch läuft.
   emit({ type: "partial", brief: structuredClone(out) });
@@ -719,7 +775,8 @@ export async function assembleBrief(
   emit({ type: "step", step: "context", status: "running" });
   try {
     const ctx = parseCampaignContext(await deps.mistral(contextPrompt(evidence), { temperature: 0 }));
-    applyResolved(out, ctx, brief);
+    applyResolved(out, ctx, brief, aiNotes);
+    out.quellen = quellenlage(steps);
     const used = [...new Set(Object.values(ctx.sources).flat())];
     const fields = Object.keys(ctx.sources).length;
     emit({
@@ -738,27 +795,86 @@ export async function assembleBrief(
   return out;
 }
 
-/** Ein Satz je Feld: was jede Quelle dazu sagte – fürs Etikett am Feld. */
+/**
+ * Die Belege je Feld: was jede Quelle dazu sagte, mit Stelle und Link – für den
+ * Tooltip am Herkunftsetikett. Alle Funde, nicht nur der gewählte: dass die
+ * Aufgabe Renningen sagt und die Kundenübersicht Stuttgart, soll man sehen.
+ */
 export function evidenceLines(e: CampaignEvidence): BriefEvidence {
-  const join = (parts: (string | undefined)[]) => parts.filter(Boolean).join(" · ") || undefined;
+  const task = (where: string, quote: string): Beleg => ({
+    source: "clickup",
+    title: `Aufgabe „${e.task.name}“`,
+    where,
+    quote,
+    url: e.task.url,
+  });
+  const sheet = (where: string, quote: string): Beleg => ({
+    source: "onboarding",
+    title: e.onboarding.sheet?.name ?? "Onboarding-Tabelle",
+    where,
+    quote,
+    url: e.onboarding.sheet && sheetUrl(e.onboarding.sheet.id),
+  });
+  const doc = (where: string, quote: string): Beleg => ({
+    source: "clickup",
+    title: e.overview.doc?.name ?? "Kundenübersicht",
+    where,
+    quote,
+    url: e.overview.doc?.url,
+  });
   const out: BriefEvidence = {};
-  const location = join([
-    e.task.locations.length ? `Aufgabe: ${e.task.locations.join(", ")}` : undefined,
-    e.onboarding.location ? `Onboarding: ${e.onboarding.location}` : undefined,
-    e.overview.address ? `Kundenübersicht: ${e.overview.address}` : undefined,
+  const put = (field: EvidenceField, belege: (Beleg | undefined)[]) => {
+    const list = belege.filter((b): b is Beleg => Boolean(b));
+    if (list.length) out[field] = list;
+  };
+  const km = (n: number) => `${n} km`;
+  const patients = "„Wo befinden sich die Patienten?“";
+
+  put("clientName", [e.task.customer ? task("Kundenordner", e.task.customer) : undefined]);
+  put("location", [
+    e.task.locations.length ? task("Beschreibung", e.task.locations.join(", ")) : undefined,
+    e.onboarding.location ? sheet(patients, e.onboarding.location) : undefined,
+    e.overview.address ? doc("Adresse", e.overview.address) : undefined,
   ]);
-  if (location) out.location = location;
-  const roles = join([
-    e.task.rolesText ? `Feld „gesuchte Stellen“: ${e.task.rolesText}` : undefined,
-    e.task.jobs.length ? `Beschreibung: ${e.task.jobs.join(", ")}` : undefined,
-    e.onboarding.jobs.length ? `Onboarding: ${e.onboarding.jobs.join(", ")}` : undefined,
-    e.overview.rolesText ? `Kundenübersicht: ${e.overview.rolesText}` : undefined,
+  put("radius", [
+    e.task.radiusKm ? task("Beschreibung", km(e.task.radiusKm)) : undefined,
+    e.onboarding.radiusKm ? sheet(patients, km(e.onboarding.radiusKm)) : undefined,
+    e.overview.radiusKm ? doc("Umkreis", km(e.overview.radiusKm)) : undefined,
   ]);
-  if (roles) out.roles = roles;
-  if (e.onboarding.benefits.length)
-    out.benefits = `Onboarding „Besteht aktuell“: ${e.onboarding.benefits.length} Zeilen`;
-  if (e.task.dailyBudgetEuros) out.dailyBudget = `Aufgabe: ${money.format(e.task.dailyBudgetEuros)} pro Tag`;
-  if (e.task.spendCapEuros) out.spendCap = `Aufgabe: Limit ${money.format(e.task.spendCapEuros)}`;
+  put("formHint", [e.task.formHint ? task("Beschreibung", `Formular „${e.task.formHint}“`) : undefined]);
+  put("roles", [
+    e.task.rolesText ? task("Feld „gesuchte Stellen“", e.task.rolesText) : undefined,
+    e.task.jobs.length ? task("Beschreibung", e.task.jobs.join(", ")) : undefined,
+    e.onboarding.jobs.length ? sheet("Stellen", e.onboarding.jobs.join(", ")) : undefined,
+    e.overview.rolesText ? doc("Offene Stellen", e.overview.rolesText) : undefined,
+  ]);
+  put("benefits", [e.onboarding.benefits.length ? sheet("„Besteht aktuell“", e.onboarding.benefits.join("\n")) : undefined]);
+  put("dailyBudget", [
+    e.task.dailyBudgetEuros ? task("Feld „Tagesbudget“", `${money.format(e.task.dailyBudgetEuros)} pro Tag`) : undefined,
+  ]);
+  put("spendCap", [e.task.spendCapEuros ? task("Feld „Ausgabenlimit“", money.format(e.task.spendCapEuros)) : undefined]);
+  return out;
+}
+
+const STEP_NAME: Record<BriefStep, string> = {
+  task: "Aufgabe",
+  description: "Beschreibung der Aufgabe",
+  drive: "Drive-Ordner",
+  onboarding: "Onboarding-Tabelle",
+  overview: "Kundenübersicht",
+  // Kein Ort, an dem etwas steht – die Auflösung verbindet nur.
+  context: "",
+};
+
+/** Aus den Schrittmeldungen: was gelesen wurde, was nicht – und warum nicht. */
+export function quellenlage(steps: Iterable<[BriefStep, { status: string; detail?: string }]>): Quellenlage {
+  const out: Quellenlage = { gelesen: [], fehlt: [] };
+  for (const [step, s] of steps) {
+    const name = STEP_NAME[step];
+    if (!name || s.status === "running") continue;
+    if (s.status === "done") out.gelesen.push(name);
+    else out.fehlt.push(s.detail ? `${name} (${s.detail})` : name);
+  }
   return out;
 }
 
@@ -768,9 +884,26 @@ export function evidenceLines(e: CampaignEvidence): BriefEvidence {
  * ein leerer Wert ohne „user“ heißt nur, dass das Modell nichts gesagt hat,
  * und der deterministische Wert bleibt.
  */
-function applyResolved(out: AssembledBrief, ctx: ResolvedCampaignContext, brief: Brief): void {
+function applyResolved(out: AssembledBrief, ctx: ResolvedCampaignContext, brief: Brief, aiNotes = ""): void {
   const s = ctx.sources;
   const cleared = (field: ContextField) => Boolean(s[field]?.includes("user"));
+  // Der Hinweis ist selbst ein Beleg: wo er ein Feld entschied, steht er im
+  // Tooltip wie die Aufgabe – wörtlich, damit klar ist, was das Modell las.
+  const HINT_FIELD: Partial<Record<ContextField, EvidenceField>> = {
+    roles: "roles",
+    locations: "location",
+    formHint: "formHint",
+    radiusKm: "radius",
+    benefits: "benefits",
+    dailyBudgetEuros: "dailyBudget",
+    spendCapEuros: "spendCap",
+  };
+  if (aiNotes.trim()) {
+    out.evidence ??= {};
+    for (const [field, key] of Object.entries(HINT_FIELD) as [ContextField, EvidenceField][])
+      if (cleared(field))
+        out.evidence[key] = [...(out.evidence[key] ?? []), { source: "user", title: "Dein Hinweis", quote: aiNotes.trim() }];
+  }
   if (s.roles) {
     if (ctx.roles.length || ctx.roleFreeText) {
       if (ctx.roles.length) out.roles = { value: ctx.roles, sources: s.roles };

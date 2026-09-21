@@ -281,7 +281,12 @@ type DocPage = { id: string; name: string; content?: string; pages?: DocPage[] }
  * kein solches Doc gibt – der Aufrufer macht daraus keine Warnung, nur einen
  * Fehler beim Netzzugriff propagiert.
  */
-export async function customerOverview(folderId: string): Promise<ReturnType<typeof overviewFacts>> {
+/** Die Aufgabe im Browser – der Link am Herkunftsetikett. */
+export const taskUrl = (taskId: string) => `https://app.clickup.com/t/${taskId}`;
+
+export async function customerOverview(
+  folderId: string,
+): Promise<ReturnType<typeof overviewFacts> & { doc?: { url: string; name: string } }> {
   const { views } = await api<{ views: FolderView[] }>(`folder/${folderId}/view`);
   const view = views.find((v) => v.type === "doc" && /kunden.?übersicht/i.test(v.name));
   if (!view) return {};
@@ -290,7 +295,9 @@ export async function customerOverview(folderId: string): Promise<ReturnType<typ
     `workspaces/${id}/docs/${view.id}/pages?max_page_depth=1&content_format=text/md`,
   );
   const page = pages.find((p) => /kunden.?übersicht/i.test(p.name)) ?? pages[0];
-  return overviewFacts(page?.content ?? "");
+  // Der Beleg am Feld führt direkt auf die Seite, aus der der Wert kam.
+  const doc = { url: `https://app.clickup.com/${id}/v/dc/${view.id}${page ? `/${page.id}` : ""}`, name: view.name };
+  return { ...overviewFacts(page?.content ?? ""), doc };
 }
 
 /** Alle Aufgaben im Status „kampagne anlegen“, workspace-weit, seitenweise bis leer. */

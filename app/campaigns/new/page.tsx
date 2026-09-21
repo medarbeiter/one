@@ -105,6 +105,7 @@ export default async function NewCampaignPage({ searchParams }: PageProps<"/camp
           accounts={accounts}
           clients={clientOptions}
           initials={initialsOf(person?.name ?? "")}
+          personName={person?.name ?? ""}
           email={person?.email ?? ""}
           defaultAccount={defaultAccount}
           defaultBusiness={defaultBusiness}

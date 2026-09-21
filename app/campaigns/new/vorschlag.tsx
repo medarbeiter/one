@@ -149,7 +149,11 @@ export function VorschlagKopf({
             description="Die Kürzel landen im Namen und in den Texten."
             width="100%"
           />
-          <Herkunft source={state.sources.roles} evidence={state.evidence?.roles} />
+          <Herkunft
+            source={state.sources.roles}
+            belege={state.evidence?.roles}
+            fehlt="Keine Stellen in Aufgabe oder Onboarding-Tabelle gefunden – bitte wählen."
+          />
         </div>
         <TextInput
           label="Weitere Rolle"
@@ -193,7 +197,11 @@ export function VorschlagKopf({
             description="Gilt für die ganze Kampagne."
             width="100%"
           />
-          <Herkunft source={state.sources.dailyBudget} evidence={state.evidence?.dailyBudget} />
+          <Herkunft
+            source={state.sources.dailyBudget}
+            belege={state.evidence?.dailyBudget}
+            fehlt="Hausstandard 17 € pro Tag – die Aufgabe nennt kein Tagesbudget."
+          />
         </div>
       </div>
 
@@ -294,7 +302,11 @@ export function Optional({
             description="Leer heißt keins; sonst mindestens 100 €."
             width="100%"
           />
-          <Herkunft source={state.sources.spendCap} evidence={state.evidence?.spendCap} />
+          <Herkunft
+            source={state.sources.spendCap}
+            belege={state.evidence?.spendCap}
+            fehlt="Kein Limit – die Aufgabe nennt keins."
+          />
         </div>
         <div className={form.field}>
           <TextInput
@@ -305,7 +317,11 @@ export function Optional({
             description="Steht am Ende des Namens."
             width="100%"
           />
-          <Herkunft source={state.sources.initials} />
+          <Herkunft
+            source={state.sources.initials}
+            belege={state.evidence?.initials}
+            fehlt="Kein Name in der Anmeldung – bitte eintragen."
+          />
         </div>
         <div className={form.fullWidth}>
           <Angaben titel="Feste Einstellungen" rows={fixed} />

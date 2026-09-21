@@ -9,7 +9,8 @@
 import { useEffect, useState } from "react";
 import type { useRouter } from "next/navigation";
 import { campaignName } from "@/lib/naming";
-import { placeTextValue } from "@/lib/geo";
+import { locationSummary, placeTextValue } from "@/lib/geo";
+import { adsManagerUrl } from "@/lib/labels";
 import type { Prefill } from "@/lib/prefill";
 import { report } from "./activity";
 import { DEFAULT_RADIUS_KM, type WizardAdSet, type WizardState } from "./state";
@@ -124,9 +125,19 @@ export function usePrefill(
         const patch = untouchedPrefillPatch(head, found);
         if (!Object.keys(patch).length) return s;
         applied = true;
+        // Der Beleg führt in den Ads Manager zur Kampagne, aus der der Stand kommt.
+        const beleg = {
+          source: "previous" as const,
+          title: found.campaign ? `Kampagne „${found.campaign.name}“` : "Letzte Kampagne der Seite",
+          where: "Anzeigengruppe · Zielgruppe",
+          quote: locationSummary({ ...head, ...patch }),
+          ...(found.campaign ? { url: adsManagerUrl(adAccount, found.campaign.id) } : {}),
+        };
+        const radius = "radiusKm" in patch;
         return {
           ...s,
-          sources: { ...s.sources, location: ["previous"] },
+          sources: { ...s.sources, location: ["previous"], ...(radius ? { radius: ["previous"] } : {}) },
+          evidence: { ...s.evidence, location: [beleg], ...(radius ? { radius: [beleg] } : {}) },
           adSets: s.adSets.map((set, i) => (i === 0 ? { ...set, ...patch } : set)),
         };
       });

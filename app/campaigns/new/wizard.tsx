@@ -57,6 +57,7 @@ import { Auftrag, KundeWahl, fuzzySource, type ClientItem, type WizardClient } f
 import { Optional, VorschlagKopf, type AccountItem, type WizardAccount } from "./vorschlag";
 import { Stepper } from "./stepper";
 import form from "./campaign-form.module.css";
+import { QuellenProvider } from "./herkunft";
 import { Preview } from "./preview";
 import { ReceiptPanel } from "./receipt";
 import { activitySnapshot, clearActivity, report, useActivity } from "./activity";
@@ -256,6 +257,8 @@ type WizardProps = {
   defaultAccount: string;
   defaultBusiness: string;
   initials: string;
+  /** Der Name aus der Anmeldung – der Beleg zum Kürzel. */
+  personName: string;
   email: string;
   /**
    * Eine bestehende Kampagne als Ausgangsstand (lib/seed.ts): „copy“ legt eine
@@ -279,11 +282,12 @@ function WizardSteps({
   defaultAccount,
   defaultBusiness,
   initials,
+  personName,
   email,
   seed,
 }: WizardProps) {
   const { state, setState, loaded, restored, others, save, start, resume, remove, discard, park, forget } =
-    useWizardState(initialState(defaultAccount, defaultBusiness, initials));
+    useWizardState(initialState(defaultAccount, defaultBusiness, initials, personName));
   // Leads oder Reichweite: entscheidet über Formularpflicht, Festwerte und die
   // Vorschau. Über objectiveOf(), weil ein alter Entwurf das Feld nicht hat.
   const objective = objectiveOf(state);
@@ -650,6 +654,8 @@ function WizardSteps({
         // Wer die Anzeigen eines Spiegel-Standorts selbst anfasst, hat ihn
         // übernommen: ab da folgt er der Quelle nicht mehr.
         const next = { ...set, ...p };
+        // Eine angefasste Adresse ist nicht mehr die aus dem Auftrag.
+        if ("addressString" in p || "place" in p || "pin" in p) delete next.fromBrief;
         return "ads" in p && set.mirrorOf ? { ...next, mirrorOf: undefined } : next;
       });
       const next = { ...s, adSets: syncLinkedAds(sets) };
@@ -888,6 +894,7 @@ function WizardSteps({
           : `${offen} offene Punkte — du kannst sie später klären.`;
 
   return (
+    <QuellenProvider value={state.quellen}>
     <div className={form.wizard}>
       {/* Ein wiederhergestellter Entwurf sieht aus wie ein frisch ausgefüllter –
           ohne diesen Hinweis baut jemand auf den Zahlen von gestern weiter. */}
@@ -944,6 +951,7 @@ function WizardSteps({
               clientSource={clientSource}
               clientItem={clientItem}
               clientNameSource={state.sources.clientName}
+              clientNameBelege={state.evidence?.clientName}
               onChange={(item) =>
                 setState((s) => edited(s, "clientName", { business: item?.auxiliaryData.name ?? "" }))
               }
@@ -1061,9 +1069,13 @@ function WizardSteps({
                           initials={state.initials}
                           taskId={state.taskId}
                           notes={state.notes}
-                          locationSource={i === 0 ? state.sources.location : undefined}
-                          locationEvidence={i === 0 ? state.evidence?.location : undefined}
-                          benefitsEvidence={state.evidence?.benefits}
+                          locationSource={i === 0 || set.fromBrief ? state.sources.location : undefined}
+                          locationBelege={i === 0 || set.fromBrief ? state.evidence?.location : undefined}
+                          benefitsBelege={state.evidence?.benefits}
+                          radiusSource={state.sources.radius}
+                          radiusBelege={state.evidence?.radius}
+                          formHintSource={state.sources.formHint}
+                          formHintBelege={state.evidence?.formHint}
                           regenerateToken={regenerate}
                           blockers={blockers}
                           otherAdSets={state.adSets
@@ -1433,5 +1445,6 @@ function WizardSteps({
         </>
       )}
     </div>
+    </QuellenProvider>
   );
 }
