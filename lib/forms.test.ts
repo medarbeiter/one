@@ -8,7 +8,7 @@ import type { LeadForm } from "./forms";
 
 process.env.META_ACCESS_TOKEN = "SYSTEM";
 
-const { getLeadForm, instantFormsUrl, listLeadForms, parseFormId, matchFormHint, newlyAppeared } = await import("./forms");
+const { getFormDetail, getLeadForm, instantFormsUrl, listLeadForms, parseFormId, matchFormHint, newlyAppeared } = await import("./forms");
 const { GraphError } = await import("./graph");
 
 test("the deep link points at the page's Instant Forms library", () => {
@@ -165,4 +165,34 @@ test("matchFormHint: genau ein unscharfer Treffer, sonst nichts", () => {
   expect(matchFormHint(forms, "Waldenbuch")?.id).toBe("2");
   expect(matchFormHint(forms, "Renningen")).toBeUndefined();
   expect(matchFormHint(forms, "Stuttgart")).toBeUndefined();
+});
+
+test("ein bestehendes Formular kommt als Vorlage zurück – Auswahlfragen, Freitexte, Website", async () => {
+  stub((url) =>
+    url.searchParams.get("fields")?.startsWith("id,name,status,locale,questions")
+      ? {
+          body: {
+            id: "9",
+            name: "PFK v2 JP",
+            status: "ACTIVE",
+            questions: [
+              { type: "FULL_NAME", label: "Vollständiger Name" },
+              { type: "CUSTOM", label: "Hast du eine Ausbildung?", options: [{ value: "Ja" }, { value: "Nein" }] },
+              { type: "CUSTOM", label: "Wann bist du erreichbar?" },
+            ],
+            thank_you_page: { website_url: "https://kunde.de" },
+            privacy_policy: { url: "https://kunde.de/datenschutz" },
+          },
+        }
+      : { body: { access_token: "PAGE-111" } },
+  );
+
+  const detail = await getFormDetail("111", "9");
+  // Die bedingte Logik gibt Meta nicht heraus – die Ziele bleiben leer.
+  expect(detail.questions).toEqual([
+    { label: "Hast du eine Ausbildung?", options: ["Ja", "Nein"], goto: {} },
+  ]);
+  expect(detail.freeText).toEqual(["Wann bist du erreichbar?"]);
+  expect(detail.website).toBe("https://kunde.de");
+  expect(detail.privacyUrl).toBe("https://kunde.de/datenschutz");
 });

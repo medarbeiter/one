@@ -98,16 +98,21 @@ Antworte NUR mit JSON, ohne Erklärung – auch [] ist eine Antwort:
 [{"brick":"id"},{"label":"…","options":["…","…"],"goto":{"…":"nolead"}}]`;
 }
 
-const unfence = (s: string) => s.replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, "").trim();
+export const unfence = (s: string) => s.replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, "").trim();
 
 /** Defensiv wie parseCampaignContext in lib/brief.ts: alles Fremde fällt heraus. Bausteine per id, Ziele nur die vier bekannten. */
-export function parseQuestions(content: string): FormQuestion[] {
+export function parseQuestions(content: string, limit = 4): FormQuestion[] {
   let data: unknown;
   try {
     data = JSON.parse(unfence(content));
   } catch {
     return [];
   }
+  return questionList(data, limit);
+}
+
+/** Dasselbe für eine schon geparste Liste – das Gespräch (lib/form-chat.ts) liefert sie in einem Objekt mit Antworttext. */
+export function questionList(data: unknown, limit = 4): FormQuestion[] {
   if (!Array.isArray(data)) return [];
   const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
   const list = (v: unknown) => (Array.isArray(v) ? v.map(str).filter(Boolean) : []);
@@ -132,7 +137,7 @@ export function parseQuestions(content: string): FormQuestion[] {
       };
     })
     .filter((q) => q.label && q.options.length >= 2)
-    .slice(0, 4);
+    .slice(0, limit);
 }
 
 export async function suggestQuestions(input: QuestionsInput): Promise<FormQuestion[]> {

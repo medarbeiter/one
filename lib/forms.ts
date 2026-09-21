@@ -3,6 +3,7 @@
  * ist jedes Mal anders. Die App wählt nur aus und verlinkt zum Baukasten.
  */
 import { fuzzyCustomerMatch } from "./customers";
+import type { FormQuestion } from "./form-spec";
 import { graph, meta } from "./graph";
 
 export type LeadForm = {
@@ -78,4 +79,61 @@ export function newlyAppeared(before: ReadonlySet<string>, now: LeadForm[]): Lea
 export function matchFormHint(forms: LeadForm[], hint: string): LeadForm | undefined {
   const hits = forms.filter((f) => fuzzyCustomerMatch(f.name, hint));
   return hits.length === 1 ? hits[0] : undefined;
+}
+
+/**
+ * Ein bestehendes Formular als Vorlage: Fragen, Freitexte, Website und
+ * Datenschutz-Link, wie Meta sie zurückgibt.
+ *
+ * Was hier fehlt, fehlt bei Meta: die bedingte Logik („Nein“ → Formular
+ * schließen) steht in keinem lesbaren Feld. Die Fragen kommen deshalb ohne
+ * Antwortwege zurück; der Baukasten zeigt sie als offene Punkte an, statt
+ * stillschweigend jede Antwort durchzulassen.
+ */
+export type FormDetail = LeadForm & {
+  questions: FormQuestion[];
+  freeText: string[];
+  website: string;
+  privacyUrl: string;
+};
+
+type GraphQuestion = {
+  type?: string;
+  label?: string;
+  options?: { value?: string; key?: string }[];
+};
+
+export async function getFormDetail(pageId: string, formId: string): Promise<FormDetail> {
+  const form = await graph<
+    LeadForm & {
+      questions?: GraphQuestion[];
+      thank_you_page?: { website_url?: string };
+      privacy_policy?: { url?: string };
+    }
+  >(formId, {
+    params: { fields: `${FIELDS},questions{type,label,options},thank_you_page{website_url},privacy_policy{url}` },
+    asPage: pageId,
+  });
+  const questions: FormQuestion[] = [];
+  const freeText: string[] = [];
+  for (const q of form.questions ?? []) {
+    // Name, Telefon und E-Mail sind eigene Feldtypen und stehen im Baukasten
+    // fest – nur die selbst gestellten Fragen sind hier zu bearbeiten.
+    if (q.type !== "CUSTOM") continue;
+    const label = (q.label ?? "").trim();
+    if (!label) continue;
+    const options = (q.options ?? []).map((o) => (o.value ?? "").trim()).filter(Boolean);
+    if (options.length >= 2) questions.push({ label, options, goto: {} });
+    else freeText.push(label);
+  }
+  return {
+    id: form.id,
+    name: form.name,
+    status: form.status,
+    locale: form.locale,
+    questions,
+    freeText,
+    website: form.thank_you_page?.website_url ?? "",
+    privacyUrl: form.privacy_policy?.url ?? "",
+  };
 }

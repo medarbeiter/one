@@ -17,6 +17,26 @@
 .launcher p { color: var(--color-text-secondary); line-height: 1.6; }
 .sectionHeading p, .empty p { color: var(--color-text-secondary); margin-top: 6px; }
 .builder :global(.astryx-banner) { margin: 16px; }
+/* Zwei Spalten mit je eigenem Scroll: die Fragen links können lang werden,
+   das Gespräch rechts muss trotzdem sichtbar bleiben. LayoutContent scrollt
+   deshalb nicht selbst (isScrollable={false}). */
+.columns { display: grid; grid-template-columns: minmax(0, 1fr) 360px; height: 100%; min-height: 0; }
+.main { min-width: 0; min-height: 0; overflow-y: auto; }
+.chat { display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--color-border-emphasized); background: var(--color-background-body); }
+.chat :global(.astryx-banner) { margin: 0 16px 12px; }
+.chatHead { padding: 20px 20px 12px; }
+.chatHead p { font-size: var(--font-size-sm); color: var(--color-text-secondary); margin-top: 6px; }
+.chatLog { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 20px 16px; display: flex; flex-direction: column; gap: 12px; }
+.bubble { max-width: 90%; padding: 12px 14px; border-radius: var(--radius-container); white-space: pre-line; }
+.bubble[data-role="user"] { align-self: flex-end; background: var(--color-background-muted); }
+.bubble[data-role="assistant"] { align-self: flex-start; border: 1px solid var(--color-border-emphasized); }
+.wishes { display: grid; gap: 8px; }
+.wishes button { text-align: left; padding: 12px 14px; border: 1px solid var(--color-border-emphasized); border-radius: var(--radius-container); color: var(--color-text-secondary); line-height: 1.5; }
+.wishes button:hover { background: var(--color-background-muted); color: var(--color-text-primary); }
+.chatForm { display: flex; align-items: flex-end; gap: 8px; padding: 12px 20px 20px; border-top: 1px solid var(--color-border); }
+.chatInput { flex: 1; min-width: 0; box-sizing: border-box; field-sizing: content; max-height: 160px; resize: none; padding: 10px 12px; border: 1px solid var(--color-border-emphasized); border-radius: var(--radius-element); background: var(--color-background-surface); color: var(--color-text-primary); font: inherit; line-height: 1.5; }
+.chatInput::placeholder { color: var(--color-text-secondary); }
+.chatInput:focus-visible, .wishes button:focus-visible { outline: 2px solid var(--color-icon-accent); outline-offset: 3px; }
 .editor { min-width: 0; padding: 24px; margin: 0; border: 0; }
 .editor:disabled { opacity: .65; }
 .sectionHeading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin: 28px 0 20px; }
@@ -83,6 +103,14 @@
 .previewOptions { display: grid; gap: 12px; margin-top: 24px; }
 .previewCopy { white-space: pre-line; }
 .previewNavigation { display: flex; justify-content: space-between; gap: 12px; }
+@container (max-width: 900px) {
+  /* Kein Platz nebeneinander: das Gespräch rückt unter die Fragen, beide
+     scrollen dann gemeinsam. */
+  .columns { grid-template-columns: minmax(0, 1fr); height: auto; overflow-y: auto; }
+  .main { overflow: visible; }
+  .chat { border-left: 0; border-top: 1px solid var(--color-border-emphasized); }
+  .chatLog { max-height: 320px; }
+}
 @container (max-width: 580px) {
   .header, .editor, .footer, .preview { padding: 16px; }
   .question, .section, .previewCard { padding: 16px; }

@@ -8,14 +8,15 @@ import { adPreview, adsManagerUrl, deleteAd, generatePreview, getCampaign, setAd
 import { buildCreative, type CreativeInput } from "@/lib/launch";
 import type { Receipt } from "@/lib/launch";
 import type { Check } from "@/lib/verify";
-import { getLeadForm, listLeadForms, parseFormId, type LeadForm } from "@/lib/forms";
+import { getFormDetail, getLeadForm, listLeadForms, parseFormId, type LeadForm } from "@/lib/forms";
 import { locationProblem, type GeoPin, type GeoPlace, type LocationInput } from "@/lib/geo";
 import { geocode, reverseGeocode } from "@/lib/geocode";
 import { estimateReach, fitReachRadius, searchPlaces, type FittedRadius, type Reach } from "@/lib/geo-search";
 import { lastCampaignDefaults, type Prefill } from "@/lib/prefill";
 import { generateBody, generateDescription, generateTitles, type BodiesInput } from "@/lib/bodies";
 import { closeBrief, customerOverview, getBrief, listOpenBriefs, type Brief } from "@/lib/clickup";
-import { buildFormSpec, nextVersion, type FormSpec } from "@/lib/form-spec";
+import { buildFormSpec, nextVersion, type FormQuestion, type FormSpec } from "@/lib/form-spec";
+import { chatForm, type ChatInput, type FormEdit } from "@/lib/form-chat";
 import { suggestQuestions } from "@/lib/form-questions";
 import { findPrivacyUrl, normalizeWebsite } from "@/lib/privacy-url";
 import { exportCsv, findSheet } from "@/lib/drive";
@@ -197,6 +198,78 @@ export async function suggestFormAction(input: FormSuggestInput): Promise<FormSu
     };
   } catch (e) {
     return { warnings, error: (e as Error).message };
+  }
+}
+
+/**
+ * Ein bestehendes Formular zum Bearbeiten öffnen. Meta lässt ein
+ * veröffentlichtes Formular nicht ändern – weder per API noch im Baukasten –,
+ * also ist „bearbeiten“ hier: Fragen übernehmen, ändern, und als nächste
+ * Version neu bauen. Die alte bleibt stehen, die laufenden Anzeigen daran
+ * auch.
+ */
+export async function importFormAction(
+  input: FormSuggestInput & { formId: string },
+): Promise<FormSuggestResult> {
+  const warnings: string[] = [];
+  try {
+    const [detail, names] = await Promise.all([
+      getFormDetail(input.pageId, input.formId),
+      listLeadForms(input.pageId).then((fs) => fs.map((f) => f.name)).catch((e: Error) => {
+        warnings.push(`Formularliste nicht lesbar – Version v1 angenommen: ${e.message}`);
+        return [] as string[];
+      }),
+    ]);
+    const website =
+      detail.website ||
+      (input.website?.trim()
+        ? await normalizeWebsite(input.website)
+        : await websiteFromTask(input.taskId).catch((e: Error) => {
+            warnings.push(`Website nicht aus der Kundenübersicht lesbar: ${e.message}`);
+            return "";
+          }));
+    if (!website) warnings.push("Keine Website gefunden – bitte eintragen.");
+    const privacyUrl = detail.privacyUrl || (website ? await findPrivacyUrl(website) : "");
+    warnings.push(
+      `„${detail.name}“ ist in Meta veröffentlicht und dort nicht mehr änderbar. Aus deinen Änderungen entsteht ein neues Formular; die Anzeige verweist danach darauf.`,
+    );
+    if (detail.questions.length)
+      warnings.push(
+        "Die Antwortwege (bedingte Logik) gibt Meta nicht heraus – bitte je Antwort neu wählen, wohin es geht.",
+      );
+    return {
+      warnings,
+      spec: buildFormSpec({
+        business: input.business,
+        roles: input.roles,
+        roleFreeText: input.roleFreeText,
+        version: nextVersion(names, input.roles, input.roleFreeText, input.initials),
+        initials: input.initials,
+        city: input.city,
+        questions: detail.questions,
+        freeText: detail.freeText,
+        privacyUrl,
+        website,
+      }),
+    };
+  } catch (e) {
+    return { warnings, error: (e as Error).message };
+  }
+}
+
+export type FormChatInput = Omit<ChatInput, "questions" | "freeText"> & {
+  questions: FormQuestion[];
+  freeText: string[];
+};
+
+export type FormChatResult = FormEdit & { error?: string };
+
+/** Ein Zug im Gespräch neben dem Baukasten (lib/form-chat.ts). */
+export async function chatFormAction(input: FormChatInput): Promise<FormChatResult> {
+  try {
+    return await chatForm(input);
+  } catch (e) {
+    return { reply: "", error: (e as Error).message };
   }
 }
 

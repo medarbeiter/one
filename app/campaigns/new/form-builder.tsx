@@ -2,20 +2,32 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { Banner, Button, Dialog, DialogHeader, IconButton, Layout, LayoutContent, LayoutFooter, TextInput } from "@astryxdesign/core";
-import { ArrowDownIcon, ArrowSquareOutIcon, ArrowUpIcon, PlusIcon, SparkleIcon, TrashIcon } from "@phosphor-icons/react";
+import { ArrowDownIcon, ArrowSquareOutIcon, ArrowUpIcon, PaperPlaneRightIcon, PlusIcon, SparkleIcon, TrashIcon } from "@phosphor-icons/react";
 import { Sign } from "@/theme/icons";
 import { BRICKS, FREE_TEXT_BRICKS } from "@/lib/form-bricks";
 import { buildFormSpec, formSpecBlockers, gotoOf, moveQuestion, REACHABILITY, removeQuestion, type FormQuestion, type FormSpec, type Goto } from "@/lib/form-spec";
-import { instantFormsUrl } from "@/lib/forms";
-import { suggestFormAction, type FormSuggestInput } from "../actions";
+import { instantFormsUrl, type LeadForm } from "@/lib/forms";
+import type { ChatTurn } from "@/lib/form-chat";
+import { chatFormAction, importFormAction, suggestFormAction, type FormSuggestInput } from "../actions";
 import styles from "./form-builder.module.css";
 
 type EditorQuestion = FormQuestion & { id: string };
 type EditorFreeText = { id: string; label: string };
 const editable = (q: FormQuestion): EditorQuestion => ({ ...q, id: crypto.randomUUID(), options: [...q.options], goto: { ...q.goto } });
 
-/** Edits stay local; the extension transfers the validated template to Meta for review. */
-export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"> }) {
+/**
+ * Edits stay local; the extension transfers the validated template to Meta for review.
+ *
+ * `form` ist das gewählte Formular der Anzeige, falls es eins gibt: dann öffnet
+ * der Baukasten mit dessen Fragen statt mit einem KI-Vorschlag. Geändert wird
+ * dabei nie das Original – Meta lässt ein veröffentlichtes Formular nicht mehr
+ * anfassen –, sondern es entsteht die nächste Version.
+ */
+export function FormBuilder({ input, form, onBuilt }: {
+  input: Omit<FormSuggestInput, "website">;
+  form?: LeadForm | null;
+  onBuilt?: () => void;
+}) {
   const id = useId();
   const root = useRef<HTMLDivElement>(null);
   const [extension, setExtension] = useState<string | null>();
@@ -31,7 +43,9 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
   const [open, setOpen] = useState(false);
   const [preview, setPreview] = useState(false);
   const [replace, setReplace] = useState(false);
-  const [undo, setUndo] = useState<EditorQuestion[]>();
+  const [undo, setUndo] = useState<{ questions: EditorQuestion[]; freeText: EditorFreeText[]; note: string }>();
+  /** Aus welchem Formular der Entwurf stammt – für die Überschrift und den „neu laden“-Weg. */
+  const [basis, setBasis] = useState<LeadForm>();
   const [announcement, setAnnouncement] = useState("");
   const [dragged, setDragged] = useState<string>();
   const [dropIndex, setDropIndex] = useState<number>();
@@ -53,13 +67,16 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
     </div>
   );
 
-  const suggest = async () => {
+  /** Ohne `from` ein KI-Vorschlag, mit `from` die Fragen des gewählten Formulars. */
+  const load = async (from?: LeadForm | null) => {
     setBusy(true);
     setReplace(false);
     setError(undefined);
     setOpened(undefined);
     try {
-      const res = await suggestFormAction({ ...input, website });
+      const res = from
+        ? await importFormAction({ ...input, website, formId: from.id })
+        : await suggestFormAction({ ...input, website });
       setWarnings(res.warnings);
       setError(res.error);
       if (res.spec) {
@@ -67,9 +84,12 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
         setQuestions(res.spec.questions.map(editable));
         setFreeText(res.spec.freeText.filter(t => t !== REACHABILITY).map(label => ({ id: crypto.randomUUID(), label })));
         setWebsite(res.spec.website);
+        setBasis(from ?? undefined);
         setUndo(undefined);
         setPreview(false);
-        setAnnouncement("Vorlage erstellt. Du kannst jetzt Fragen und Antwortziele bearbeiten.");
+        setAnnouncement(from
+          ? `Fragen aus „${from.name}“ übernommen. Die Antwortwege fehlen und sind neu zu wählen.`
+          : "Vorlage erstellt. Du kannst jetzt Fragen und Antwortziele bearbeiten.");
       }
     } catch {
       setError("Die Vorlage konnte nicht geladen werden. Bitte versuche es erneut. Deine bisherigen Fragen bleiben erhalten.");
@@ -89,6 +109,7 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
     if (!current || blockers.length || busy) return;
     setOpened(undefined);
     window.postMessage({ type: "mo_form:build", url, spec: JSON.stringify(current) }, window.location.origin);
+    onBuilt?.();
   };
   const change = (next: EditorQuestion[]) => {
     setQuestions(next);
@@ -137,7 +158,7 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
   const remove = (i: number) => {
     const before = questions;
     change(removeQuestion(questions, i));
-    setUndo(before);
+    setUndo({ questions: before, freeText, note: "Frage entfernt. Verweise darauf führen zur nächsten Frage." });
     setAnnouncement(`Frage ${i + 1} entfernt. Verweise darauf führen jetzt zur nächsten Frage.`);
     const next = questions[i + 1] ?? questions[i - 1];
     if (next) focusQuestion(next.id);
@@ -157,6 +178,33 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
     return index === questions.length ? "Weiter zur Erreichbarkeit" : `Frage ${index + 1}: ${questions[index]?.label || "Ohne Fragetext"}`;
   };
 
+  /**
+   * Ein Zug im Gespräch: die KI bekommt den Stand, wie er im Editor steht, und
+   * gibt ihn ganz zurück. Ersetzt wird deshalb alles auf einmal – mit einem
+   * Rückgängig-Schritt, denn ein Missverständnis kostet sonst die ganze Arbeit.
+   */
+  const ask = async (message: string, history: ChatTurn[]) => {
+    const res = await chatFormAction({
+      message,
+      history,
+      questions: questions.map(({ id: _id, ...q }) => q),
+      freeText: freeText.map(t => t.label),
+      business: input.business,
+      roles: input.roles,
+      roleFreeText: input.roleFreeText,
+      city: input.city,
+    });
+    if (res.error) return { error: res.error };
+    if (res.questions || res.freeText) {
+      setUndo({ questions, freeText, note: "Geändert aus dem Gespräch." });
+      setOpened(undefined);
+      if (res.questions) setQuestions(res.questions.map(editable));
+      if (res.freeText) setFreeText(res.freeText.map(label => ({ id: crypto.randomUUID(), label })));
+      setAnnouncement(res.reply);
+    }
+    return { reply: res.reply };
+  };
+
   const onOpenChange = (isOpen: boolean) => {
     setOpen(isOpen);
     if (!isOpen) {
@@ -170,24 +218,30 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
   return (
     <>
       <div className={styles.launcher}>
-        <Button variant="secondary" size="sm" icon={<Sign meaning="leadForm" />} label={current ? "Formular weiter bearbeiten" : "Formular erstellen"} onClick={() => {
+        <Button variant="secondary" size="sm" icon={<Sign meaning="leadForm" />} label={current ? "Formular weiter bearbeiten" : form ? "Formular bearbeiten" : "Formular erstellen"} onClick={() => {
           setOpen(true);
-          if (!spec && !busy) void suggest();
+          if (!spec && !busy) void load(form);
         }} />
-        <p>{current ? "Dein Entwurf bleibt beim Schließen erhalten." : "Fragen und Antwortwege in einem eigenen Fenster gestalten."}</p>
+        <p>{current
+          ? "Dein Entwurf bleibt beim Schließen erhalten."
+          : form
+            ? `Fragen aus „${form.name}“ übernehmen, ändern und als neue Version bauen.`
+            : "Fragen und Antwortwege in einem eigenen Fenster gestalten."}</p>
       </div>
       {!open && opened?.ok && <Banner status="info" title="Baukasten geöffnet" description="Prüfe das Formular im Meta-Tab und klicke dort „Formular erstellen“." />}
       {!open && opened && !opened.ok && <Banner status="error" title="Baukasten nicht geöffnet" description={opened.error ?? "Bitte öffne den Entwurf und versuche es erneut."} />}
-      <Dialog isOpen={open} onOpenChange={onOpenChange} purpose="form" width="min(1040px, calc(100vw - 24px))" maxHeight="calc(100dvh - 24px)" padding={0}>
+      <Dialog isOpen={open} onOpenChange={onOpenChange} purpose="form" width="min(1440px, calc(100vw - 24px))" maxHeight="calc(100dvh - 24px)" padding={0}>
         <Layout ref={root} className={styles.builder} padding={0} style={{ height: "min(900px, calc(100dvh - 24px))" }}
           header={<div className={styles.header}>
-            <DialogHeader title="Lead-Formular gestalten" subtitle={current ? `${current.name} · ${input.business}` : input.business} onOpenChange={onOpenChange} />
+            <DialogHeader title="Lead-Formular gestalten" subtitle={[current?.name, basis && `nach „${basis.name}“`, input.business].filter(Boolean).join(" · ")} onOpenChange={onOpenChange} />
             {current && <div className={styles.toolbar}>
               <p>Entwurf · Änderungen bleiben bis zum Verlassen dieser Seite erhalten.</p>
               <Button variant="secondary" size="sm" icon={<Sign meaning={preview ? "edit" : "preview"} />} label={preview ? "Weiter bearbeiten" : "Ablauf testen"} onClick={() => setPreview(!preview)} isDisabled={busy || (!preview && blockers.length > 0)} />
             </div>}
           </div>}
-          content={<LayoutContent padding={0}>
+          content={<LayoutContent padding={0} isScrollable={false}>
+            <div className={styles.columns}>
+            <div className={styles.main}>
       <div className="sr-only" role="status">{announcement}</div>
       {error && <Banner status="error" title="Vorlage nicht erstellt" description={error} />}
       {opened?.ok && <Banner status="info" title="Baukasten geöffnet" description="Die Erweiterung baut im neuen Tab. Prüfe dort und klicke „Formular erstellen“. Zurück hier wird es erkannt." />}
@@ -196,7 +250,10 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
       {!current && <div className={styles.empty}>
         <h4>Die passenden Fragen als Ausgangspunkt</h4>
         <p>Die KI nutzt die Angaben zur Stelle. Du bestimmst anschließend, welche Antwort zur nächsten Frage oder zum Ende führt.</p>
-        <Button variant="secondary" icon={<SparkleIcon size={18} />} label={busy ? "Vorlage wird erstellt…" : "Vorlage vorschlagen"} onClick={suggest} isDisabled={busy} />
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" icon={<SparkleIcon size={18} />} label={busy ? "Vorlage wird erstellt…" : "Vorlage vorschlagen"} onClick={() => load()} isDisabled={busy} />
+          {form && <Button variant="ghost" icon={<Sign meaning="leadForm" />} label={`Fragen aus „${form.name}“ laden`} onClick={() => load(form)} isDisabled={busy} />}
+        </div>
       </div>}
 
       {current && (preview ? <FormPreview spec={current} /> : <fieldset className={styles.editor} disabled={busy} aria-busy={busy}>
@@ -259,7 +316,7 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
             </li>;
           })}
         </ol>
-        {undo && <div className={styles.undo}><span>Frage entfernt. Verweise darauf führen zur nächsten Frage.</span><Button variant="secondary" size="sm" label="Rückgängig" onClick={() => { change(undo); setAnnouncement("Frage und Antwortwege wiederhergestellt."); }} /></div>}
+        {undo && <div className={styles.undo}><span>{undo.note}</span><Button variant="secondary" size="sm" label="Rückgängig" onClick={() => { const back = undo; change(back.questions); setFreeText(back.freeText); setAnnouncement("Fragen und Antwortwege wiederhergestellt."); }} /></div>}
         <div className={styles.addRow}><Button variant="secondary" icon={<PlusIcon size={16} />} label="Eigene Frage hinzufügen" onClick={() => addQuestion()} isDisabled={busy || questions.length >= 6} /><span>{questions.length >= 6 ? "Alle 6 Frageplätze sind belegt." : "Oder nutze eine fertige Frage aus den Bausteinen."}</span></div>
         <details className={styles.details}>
           <summary>Fragenbausteine <span>{BRICKS.length} Vorlagen</span></summary>
@@ -327,10 +384,17 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
       </fieldset>)}
       {warnings.length > 0 && <Banner status="warning" title="Hinweise zur Vorlage" description={<ul>{warnings.map(w => <li key={w}>{w}</li>)}</ul>} />}
       {current && blockers.length > 0 && <Banner status="warning" title={`${blockers.length} ${blockers.length === 1 ? "Punkt" : "Punkte"} vor dem Testen und Übertragen klären`} description={<ul>{blockers.map(b => <li key={b}>{b}</li>)}</ul>} />}
+            </div>
+            <FormChat
+              send={ask}
+              isDisabled={busy || !current}
+              hint={current ? "Sag, was sich ändern soll – die Fragen links passen sich an." : "Erst eine Vorlage laden, dann kann hier geändert werden."}
+            />
+            </div>
           </LayoutContent>}
           footer={<LayoutFooter padding={0}>
             <div className={styles.footer}>
-              {current && (replace ? <div className={styles.replace}><p>Ein neuer Vorschlag ersetzt deine Fragen und Antwortwege.</p><div className="flex flex-wrap gap-2"><Button variant="secondary" size="sm" label="Fragen ersetzen" onClick={suggest} /><Button variant="ghost" size="sm" label="Behalten" onClick={() => setReplace(false)} /></div></div> : <Button variant="ghost" size="sm" icon={<SparkleIcon size={16} />} label={busy ? "Vorlage wird erstellt…" : "Neu vorschlagen"} onClick={() => setReplace(true)} isDisabled={busy} />)}
+              {current && (replace ? <div className={styles.replace}><p>Das ersetzt deine Fragen und Antwortwege.</p><div className="flex flex-wrap gap-2"><Button variant="secondary" size="sm" label="Neu vorschlagen" onClick={() => load()} />{form && <Button variant="secondary" size="sm" label={`Aus „${form.name}“`} onClick={() => load(form)} />}<Button variant="ghost" size="sm" label="Behalten" onClick={() => setReplace(false)} /></div></div> : <Button variant="ghost" size="sm" icon={<SparkleIcon size={16} />} label={busy ? "Vorlage wird erstellt…" : "Fragen neu laden"} onClick={() => setReplace(true)} isDisabled={busy} />)}
               <div className={styles.publish}>
                 <p>{current ? "In Meta prüfen und mit „Formular erstellen“ abschließen." : busy ? "Dein Vorschlag wird auch bei geschlossenem Fenster weiter vorbereitet." : "Dein Entwurf bleibt beim Schließen erhalten."}</p>
                 <Button variant="secondary" label="Schließen" onClick={() => onOpenChange(false)} />
@@ -342,6 +406,73 @@ export function FormBuilder({ input }: { input: Omit<FormSuggestInput, "website"
       </Dialog>
     </>
   );
+}
+
+/**
+ * Das Gespräch neben dem Baukasten. Hält nur den Verlauf – geändert wird über
+ * `send`, damit die Fragen an genau einer Stelle leben (FormBuilder).
+ */
+const WISHES = [
+  "Frag zusätzlich nach Berufserfahrung in der Pflege.",
+  "Nimm die Führerschein-Frage raus.",
+  "Kürzer: höchstens zwei Fragen.",
+];
+
+function FormChat({ send, isDisabled, hint }: {
+  send: (message: string, history: ChatTurn[]) => Promise<{ reply?: string; error?: string }>;
+  isDisabled: boolean;
+  hint: string;
+}) {
+  const [messages, setMessages] = useState<ChatTurn[]>([]);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const log = useRef<HTMLDivElement>(null);
+  useEffect(() => { log.current?.scrollTo({ top: log.current.scrollHeight }); }, [messages, busy]);
+
+  const submit = async (wish?: string) => {
+    const message = (wish ?? text).trim();
+    if (!message || busy || isDisabled) return;
+    const history = messages;
+    setMessages([...history, { role: "user", text: message }]);
+    setText("");
+    setBusy(true);
+    setError(undefined);
+    const res = await send(message, history);
+    if (res.error) setError(res.error);
+    else setMessages(m => [...m, { role: "assistant", text: res.reply || "Erledigt." }]);
+    setBusy(false);
+  };
+
+  return <aside className={styles.chat} aria-label="Formular im Gespräch ändern">
+    <div className={styles.chatHead}>
+      <h4>Änderungswünsche</h4>
+      <p>{hint}</p>
+    </div>
+    <div className={styles.chatLog} ref={log} role="log" aria-live="polite">
+      {messages.map((m, i) => <p key={i} className={styles.bubble} data-role={m.role}>{m.text}</p>)}
+      {busy && <p className={styles.bubble} data-role="assistant">Wird geändert…</p>}
+      {!messages.length && !isDisabled && <div className={styles.wishes}>
+        {WISHES.map(w => <button type="button" key={w} onClick={() => submit(w)}>{w}</button>)}
+      </div>}
+    </div>
+    {error && <Banner status="error" title="Änderung nicht übernommen" description={error} />}
+    <div className={styles.chatForm}>
+      <textarea
+        className={styles.chatInput}
+        value={text}
+        onChange={e => setText(e.target.value)}
+        placeholder="Was soll anders sein?"
+        rows={2}
+        disabled={isDisabled || busy}
+        aria-label="Änderungswunsch"
+        // Enter schickt ab – im Assistenten schickt Enter sonst den ganzen
+        // Schritt ab. Umbruch geht mit Umschalt + Enter.
+        onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void submit(); } }}
+      />
+      <IconButton variant="primary" size="sm" label="Wunsch senden" icon={<PaperPlaneRightIcon size={16} />} isDisabled={isDisabled || busy || !text.trim()} onClick={() => submit()} />
+    </div>
+  </aside>;
 }
 
 const moveFree = <T,>(list: T[], from: number, to: number): T[] => {

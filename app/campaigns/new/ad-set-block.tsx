@@ -760,6 +760,8 @@ export function AdSetBlock({
   // gewählt, mit Etikett.
   const seen = useRef<Set<string>>(undefined);
   const [detected, setDetected] = useState<{ name: string; how: "neu" | "hinweis" }>();
+  /** „In Meta bauen“ ist geklickt – bis das neue Formular auftaucht, wird weiter nachgelesen. */
+  const [awaitingBuild, setAwaitingBuild] = useState(false);
   useEffect(() => {
     if (!pageId) return;
     // Nur der erste Block meldet ins Protokoll – die weiteren Standorte lesen
@@ -804,14 +806,18 @@ export function AdSetBlock({
   const formIdRef = useRef(formId);
   formIdRef.current = formId;
   useEffect(() => {
-    if (!pageId || formId) return;
+    // Nach einem Klick auf „In Meta bauen“ wird auch mit gewähltem Formular
+    // weitergeschaut: das neu gebaute ersetzt dann das bearbeitete.
+    if (!pageId || (formId && !awaitingBuild)) return;
     const check = async () => {
       const before = seen.current;
       if (!before) return;
       const list = await refreshForms(true);
-      if (formIdRef.current) return;
+      if (formIdRef.current && !awaitingBuild) return;
       const fresh = newlyAppeared(before, list);
       if (!fresh) return;
+      seen.current = new Set(list.map((f) => f.id));
+      setAwaitingBuild(false);
       onChange({ formId: fresh.id });
       setDetected({ name: fresh.name, how: "neu" });
       report({
@@ -828,7 +834,7 @@ export function AdSetBlock({
       window.removeEventListener("focus", check);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageId, formId]);
+  }, [pageId, formId, awaitingBuild]);
 
   // Ein Formular gehört genau einer Seite. Wechselt der beworbene Kunde, zeigt
   // die getroffene Auswahl auf ein Formular einer fremden Seite – Meta nimmt
@@ -1237,9 +1243,19 @@ export function AdSetBlock({
           />
           {/* Ohne asset_id landet der Baukasten auf der Seite, die im Business
               Manager zuletzt offen war – in der Praxis MedArbeiter statt des
-              Kunden. Deshalb erst mit gewählter Seite anbieten. */}
-          {pageId && !value.formId && (
+              Kunden. Deshalb erst mit gewählter Seite anbieten.
+
+              Auch mit gewähltem Formular: „bearbeiten“ heißt bei Meta, die
+              Fragen zu übernehmen und als nächste Version neu zu bauen – das
+              veröffentlichte Formular selbst lässt sich nicht mehr ändern. */}
+          {pageId && (
             <FormBuilder
+              form={selectedForm}
+              onBuilt={() => {
+                // Was jetzt schon da ist, ist nicht das gerade gebaute.
+                seen.current = new Set(forms.map((f) => f.id));
+                setAwaitingBuild(true);
+              }}
               input={{
                 pageId,
                 business,
